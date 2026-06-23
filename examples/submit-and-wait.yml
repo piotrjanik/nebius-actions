@@ -1,0 +1,67 @@
+# Low-level Job lifecycle: submit-job -> wait-for-job, with cancel-job on cancel.
+#
+# Splitting submit from wait is useful for matrix fan-out, manual gating between
+# submit and wait, or cancelling cleanly when the workflow run is cancelled.
+#
+# Replace OWNER/REPO with the repo hosting these actions, and the image/preset
+# with your own.
+name: submit-and-wait
+
+on:
+  workflow_dispatch:
+
+# Required for keyless OIDC auth.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: OWNER/REPO/actions/setup@v1
+
+      # 1) Submit the Job and return immediately (no waiting).
+      - name: Submit job
+        id: submit
+        uses: OWNER/REPO/actions/submit-job@v1
+        with:
+          name: batch-${{ github.run_id }}
+          image: cr.eu-north1.nebius.cloud/your-project/batch:latest
+          preset: cpu-4vcpu-16gb
+          command: |
+            python
+            batch.py
+          env: |
+            BATCH_SIZE=512
+          timeout: 1h
+          # project-id: <your-project-id>
+
+      # (Optional) Do other work here while the Job runs, gate on approvals, etc.
+
+      # 2) Wait for the submitted Job to reach a terminal state, streaming logs.
+      #    Fails the step if the Job ends in FAILED/CANCELLED.
+      - name: Wait for job
+        id: wait
+        uses: OWNER/REPO/actions/wait-for-job@v1
+        with:
+          job-id: ${{ steps.submit.outputs.job-id }}
+          stream-logs: true
+          poll-interval: 10
+          timeout: 1h
+
+      - name: Report result
+        run: |
+          echo "Job ID:    ${{ steps.submit.outputs.job-id }}"
+          echo "Status:    ${{ steps.wait.outputs.status }}"
+          echo "Exit code: ${{ steps.wait.outputs.exit-code }}"
+
+      # 3) If the workflow run is cancelled, cancel the Nebius Job too.
+      - name: Cancel job on workflow cancellation
+        if: cancelled() && steps.submit.outputs.job-id != ''
+        uses: OWNER/REPO/actions/cancel-job@v1
+        with:
+          job-id: ${{ steps.submit.outputs.job-id }}

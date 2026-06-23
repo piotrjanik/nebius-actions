@@ -1,0 +1,69 @@
+# Run a training Job on Nebius AI Cloud and wait for it to finish.
+#
+# `setup` authenticates via GitHub OIDC (keyless) and installs the `nebius` CLI.
+# `run-job` submits the Job, streams its logs, waits for a terminal state, and
+# fails the step if the Job did not complete successfully.
+#
+# Replace OWNER/REPO with the repo hosting these actions, and the image/preset
+# with your own.
+name: train-job
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: 'Number of training epochs'
+        default: '1'
+
+# Required for keyless OIDC auth: lets `setup` mint a GitHub OIDC token.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install + cache the nebius CLI and exchange GitHub OIDC -> Nebius IAM token.
+      - name: Set up Nebius
+        uses: OWNER/REPO/actions/setup@v1
+        # All inputs below are optional; defaults shown for reference.
+        # with:
+        #   cli-version: latest
+        #   region: eu
+        #   token-exchange-url: https://auth.eu.nebius.com/oauth2/token/exchange
+        #   audience: ""   # set only if your federation requires an audience
+
+      - name: Run training job
+        id: train
+        uses: OWNER/REPO/actions/run-job@v1
+        with:
+          name: trainer-${{ github.run_id }}
+          image: cr.eu-north1.nebius.cloud/your-project/trainer:latest
+          preset: 1gpu-16vcpu-200gb
+          # One token per line; joined into the container command.
+          command: |
+            python
+            train.py
+            --epochs
+            ${{ inputs.epochs }}
+          # KEY=VALUE per line; blank lines and # comments ignored.
+          env: |
+            WANDB_PROJECT=demo
+            LOG_LEVEL=info
+          # The Job's own run timeout (passed to the CLI).
+          timeout: 2h
+          # Stream logs + wait for the Job to reach a terminal state (default true).
+          wait: true
+          poll-interval: 10
+          # project-id: <your-project-id>   # omit to use the CLI default project
+          # extra-args: |                    # raw passthrough to `nebius ai job create`
+          #   --some-flag value
+
+      - name: Report result
+        run: |
+          echo "Job ID:    ${{ steps.train.outputs.job-id }}"
+          echo "Status:    ${{ steps.train.outputs.status }}"
+          echo "Exit code: ${{ steps.train.outputs.exit-code }}"

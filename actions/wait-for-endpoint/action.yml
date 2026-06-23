@@ -1,0 +1,29 @@
+name: 'Nebius Wait For Endpoint'
+description: 'Poll an existing Nebius Endpoint until it is serving.'
+author: 'Nebius Actions'
+branding:
+  icon: 'clock'
+  color: 'blue'
+
+inputs:
+  endpoint-id:
+    description: 'The endpoint id to wait for (required).'
+    required: true
+  timeout:
+    description: 'Maximum seconds to poll before failing.'
+    required: false
+    default: '3600'
+  poll-interval:
+    description: 'Seconds between status polls.'
+    required: false
+    default: '10'
+
+outputs:
+  status:
+    description: 'The final endpoint status.'
+  url:
+    description: 'The public HTTPS URL (when reported).'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -1,0 +1,76 @@
+# Deploy (create-or-update) a model Endpoint on Nebius AI Cloud.
+#
+# `deploy-endpoint` applies the Endpoint (updates if it exists, otherwise
+# creates) and waits until it is serving, exposing the public HTTPS URL.
+#
+# Replace OWNER/REPO with the repo hosting these actions, and the image/preset
+# with your own.
+name: deploy-endpoint
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required for keyless OIDC auth.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Bind the workflow to an Environment so the federated credential can trust
+    # `repo:OWNER/REPO:environment:production` if you scope it that way.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: OWNER/REPO/actions/setup@v1
+
+      - name: Deploy endpoint
+        id: deploy
+        uses: OWNER/REPO/actions/deploy-endpoint@v1
+        with:
+          name: my-model
+          image: cr.eu-north1.nebius.cloud/your-project/serve:latest
+          port: 8080
+          preset: 1gpu-16vcpu-200gb
+          min-replicas: 1
+          max-replicas: 3
+          env: |
+            MODEL_NAME=my-model
+            LOG_LEVEL=info
+          # Wait until the endpoint is serving (default true). Set false to
+          # apply and return immediately, then poll later with wait-for-endpoint.
+          wait: true
+          poll-interval: 10
+          timeout: 30m
+          # project-id: <your-project-id>
+
+      - name: Show URL
+        run: |
+          echo "Endpoint ID: ${{ steps.deploy.outputs.endpoint-id }}"
+          echo "Status:      ${{ steps.deploy.outputs.status }}"
+          echo "URL:         ${{ steps.deploy.outputs.url }}"
+
+      - name: Smoke test
+        run: curl -fsS "${{ steps.deploy.outputs.url }}/health"
+
+  # Optional manual teardown: trigger this job to remove the endpoint.
+  teardown:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: deploy
+    # Gate destructive ops behind an environment that requires approval.
+    environment: teardown
+    steps:
+      - uses: OWNER/REPO/actions/setup@v1
+
+      - name: Delete endpoint
+        uses: OWNER/REPO/actions/delete-endpoint@v1
+        with:
+          # Identify by id (from the deploy job) or by name.
+          endpoint-id: ${{ needs.deploy.outputs.endpoint-id }}
+          # name: my-model

@@ -1,0 +1,35 @@
+name: 'Nebius Wait For Job'
+description: >-
+  Poll an existing Nebius Job until terminal (optionally streaming logs), and
+  fail on a non-success status or timeout.
+author: 'Nebius Actions'
+branding:
+  icon: 'clock'
+  color: 'blue'
+
+inputs:
+  job-id:
+    description: 'The job id to wait for (required).'
+    required: true
+  timeout:
+    description: 'Maximum seconds to poll before failing.'
+    required: false
+    default: '3600'
+  poll-interval:
+    description: 'Seconds between status polls.'
+    required: false
+    default: '10'
+  stream-logs:
+    description: 'Stream the job logs while waiting.'
+    required: false
+    default: 'true'
+
+outputs:
+  status:
+    description: 'The final job status.'
+  exit-code:
+    description: 'The container exit code (when reported).'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

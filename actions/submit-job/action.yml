@@ -1,0 +1,51 @@
+name: 'Nebius Submit Job'
+description: 'Create a Nebius Job and return immediately (no waiting).'
+author: 'Nebius Actions'
+branding:
+  icon: 'upload'
+  color: 'blue'
+
+inputs:
+  image:
+    description: 'Container image to run (required).'
+    required: true
+  name:
+    description: 'Job name.'
+    required: false
+  command:
+    description: >-
+      Container command, one whitespace-separated token per line. Tokens are
+      joined with a single space into the CLI --container-command value, so a
+      single token must not contain spaces (put each argument on its own line).
+    required: false
+  preset:
+    description: 'Compute preset (e.g. 1gpu-16vcpu-200gb).'
+    required: false
+  platform:
+    description: 'Compute platform.'
+    required: false
+  env:
+    description: 'Environment variables as multiline KEY=VALUE pairs.'
+    required: false
+  mounts:
+    description: 'Mounts (multiline; one entry per line).'
+    required: false
+  timeout:
+    description: "The Job's own run timeout (e.g. 1h, 30m)."
+    required: false
+  project-id:
+    description: 'Nebius project id.'
+    required: false
+  extra-args:
+    description: 'Raw passthrough args appended to the CLI call (multiline).'
+    required: false
+
+outputs:
+  job-id:
+    description: 'The created job id.'
+  status:
+    description: 'The job status at creation time.'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

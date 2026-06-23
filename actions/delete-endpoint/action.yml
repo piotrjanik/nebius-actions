@@ -1,0 +1,22 @@
+name: 'Nebius Delete Endpoint'
+description: 'Delete a Nebius Endpoint identified by id or name.'
+author: 'Nebius Actions'
+branding:
+  icon: 'trash-2'
+  color: 'blue'
+
+inputs:
+  endpoint-id:
+    description: 'The endpoint id to delete (provide this or `name`).'
+    required: false
+  name:
+    description: 'The endpoint name to delete (provide this or `endpoint-id`).'
+    required: false
+
+outputs:
+  status:
+    description: 'Deletion status (DELETED on success).'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
