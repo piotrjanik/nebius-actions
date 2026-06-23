@@ -1,0 +1,63 @@
+name: 'Nebius Deploy Endpoint'
+description: >-
+  Create-or-update (apply) a Nebius Endpoint and poll until it is serving.
+author: 'Nebius Actions'
+branding:
+  icon: 'globe'
+  color: 'blue'
+
+inputs:
+  name:
+    description: 'Endpoint name (required).'
+    required: true
+  image:
+    description: 'Container image to serve (required).'
+    required: true
+  port:
+    description: 'Container port.'
+    required: false
+  preset:
+    description: 'Compute preset (e.g. 1gpu-16vcpu-200gb).'
+    required: false
+  platform:
+    description: 'Compute platform.'
+    required: false
+  env:
+    description: 'Environment variables as multiline KEY=VALUE pairs.'
+    required: false
+  min-replicas:
+    description: 'Minimum replicas.'
+    required: false
+  max-replicas:
+    description: 'Maximum replicas.'
+    required: false
+  wait:
+    description: 'Wait until the endpoint is serving.'
+    required: false
+    default: 'true'
+  timeout:
+    description: 'Maximum seconds to poll before failing.'
+    required: false
+    default: '3600'
+  poll-interval:
+    description: 'Seconds between status polls.'
+    required: false
+    default: '10'
+  project-id:
+    description: 'Nebius project id.'
+    required: false
+  extra-args:
+    description: 'Raw passthrough args appended to the CLI call (multiline).'
+    required: false
+
+outputs:
+  endpoint-id:
+    description: 'The endpoint id.'
+  url:
+    description: 'The public HTTPS URL (when reported).'
+  status:
+    description: 'The final endpoint status.'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

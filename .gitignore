@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test / coverage output
+coverage/
+
+# Editor / OS
+.DS_Store
+
+# IMPORTANT: do NOT ignore actions/**/dist — committed bundles are required
+# for GitHub Actions to run (spec §3, §8). They are intentionally tracked.
+.idea/
+# JetBrains AI (Junie) local workspace
+.junie/

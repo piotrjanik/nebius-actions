@@ -1,0 +1,108 @@
+# Release: on an immutable version tag `vX.Y.Z`, verify the build is clean and
+# then (re)point the FLOATING MAJOR tag (e.g. `v1`) at the same commit.
+#
+# Consumers reference actions as `owner/repo/actions/<name>@v1` so they get
+# non-breaking updates automatically. Pushing `v1.4.2` must therefore move `v1`
+# forward to that commit. The exact-version tag is never moved — only the major.
+#
+# Safety properties of this workflow:
+#   - Triggers ONLY on tags matching `v*.*.*` (a real semver release tag).
+#   - Re-verifies the committed dist matches a fresh build BEFORE moving anything;
+#     a stale/wrong release is never published.
+#   - The major tag is force-moved to `github.sha` (the exact commit the release
+#     tag points at) — an immutable, trusted value, not user-controlled text.
+#   - `permissions: contents: write` is the only elevated scope, and only the
+#     release job has it.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # e.g. v1.0.0, v1.4.2 — semver release tags only
+
+# Only one release at a time; do not cancel an in-flight release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # needed to push (force-move) the floating major tag
+
+jobs:
+  release:
+    name: Verify dist and move floating major tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (at the release tag commit)
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so we can create/move and push the major tag.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build action bundles
+        run: npm run build
+
+      # Same guarantee as CI: refuse to release if the committed dist/ does not
+      # match a fresh build. This is the last gate before we move the major tag.
+      - name: Verify committed dist is up to date (dist drift check)
+        run: |
+          git diff --exit-code -- actions
+          if [ -n "$(git status --porcelain -- actions)" ]; then
+            echo "::error::Committed dist/ is out of date — refusing to release. Rebuild and re-tag."
+            git status --porcelain -- actions
+            exit 1
+          fi
+
+      # Derive the major tag (e.g. `v1`) from the release tag (e.g. `v1.4.2`).
+      # `github.ref_name` is the tag name; we strip everything from the first dot.
+      # Read into an env var (never interpolated into the shell) for safety.
+      - name: Compute floating major tag
+        id: major
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # RELEASE_TAG looks like v1.4.2 — the major tag is the part before the first '.'
+          major_tag="${RELEASE_TAG%%.*}"
+          # Defensive sanity check: major tag must be vN (v + digits).
+          if ! printf '%s' "$major_tag" | grep -Eq '^v[0-9]+$'; then
+            echo "::error::Could not derive a valid major tag (vN) from '$RELEASE_TAG'."
+            exit 1
+          fi
+          echo "tag=$major_tag" >> "$GITHUB_OUTPUT"
+          echo "Release '$RELEASE_TAG' -> floating major tag '$major_tag'"
+
+      # Move (force) the major tag to this exact commit and push it.
+      #   - git user is configured to the GitHub Actions bot identity.
+      #   - `tag -f` (re)creates the annotated major tag locally at github.sha.
+      #   - `push -f` updates the remote major tag to match.
+      # github.sha is the immutable commit SHA of the release tag — safe to use.
+      - name: Move and push floating major tag
+        env:
+          MAJOR_TAG: ${{ steps.major.outputs.tag }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Configure the committer identity for the bot.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # (Re)create the major tag at the release commit, overwriting any
+          # existing major tag locally, with a descriptive annotation message.
+          git tag -f -a "$MAJOR_TAG" "$RELEASE_SHA" \
+            -m "Release $RELEASE_TAG: move floating major tag $MAJOR_TAG"
+
+          # Force-push the major tag to the remote so consumers of @vN get it.
+          git push -f origin "refs/tags/$MAJOR_TAG"
+
+          echo "Moved '$MAJOR_TAG' -> $RELEASE_SHA (from $RELEASE_TAG)"

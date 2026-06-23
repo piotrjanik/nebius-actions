@@ -1,0 +1,19 @@
+name: 'Nebius Cancel Job'
+description: 'Cancel a running Nebius Job.'
+author: 'Nebius Actions'
+branding:
+  icon: 'x-circle'
+  color: 'blue'
+
+inputs:
+  job-id:
+    description: 'The job id to cancel (required).'
+    required: true
+
+outputs:
+  status:
+    description: 'The job status after cancellation.'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

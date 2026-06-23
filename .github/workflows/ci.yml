@@ -1,0 +1,70 @@
+# CI: lint, typecheck, test, build, and verify the committed dist/ is in sync.
+#
+# GitHub Actions run from a repo's committed `actions/<name>/dist/index.js`
+# bundles (spec §3, §8) — there is no `npm install` at action-run time. So the
+# committed bundles MUST always match a fresh build of `src/`. The final
+# "dist drift check" enforces exactly that: it rebuilds and fails if anything
+# under `actions/` changed.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: lint · typecheck · test · build · dist-drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Reproducible, lockfile-pinned install.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build action bundles
+        run: npm run build
+
+      # DIST DRIFT CHECK
+      #
+      # After a clean build, the working tree must be identical to what is
+      # committed under `actions/`. If `npm run build` produced any change, the
+      # committed dist/ was stale (someone edited src/ without rebuilding, or
+      # the build is non-deterministic) and this step fails the build.
+      #
+      # - `git diff --exit-code` catches MODIFIED tracked files (exit 1 on diff).
+      # - We also guard against NEW (untracked) dist files a fresh build may add
+      #   — `git diff` alone ignores those, so we check porcelain status too.
+      - name: Verify committed dist is up to date (dist drift check)
+        run: |
+          git diff --exit-code -- actions
+          if [ -n "$(git status --porcelain -- actions)" ]; then
+            echo "::error::Committed dist/ is out of date. Run 'npm run build' and commit the changes under actions/."
+            git status --porcelain -- actions
+            exit 1
+          fi

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    /* Language / runtime target (Node 20 / GitHub Actions node20 runner). */
+    "target": "ES2022",
+    "lib": ["ES2022"],
+
+    /* Module system: CommonJS output is what the node20 action runtime expects.
+       ncc bundles either, but emitting CJS keeps the action runtime safe and
+       avoids ESM interop surprises in the bundled dist/index.js. */
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+
+    /* Interop / ergonomics. */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+
+    /* Strictness (spec §8: TypeScript strict). */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    /* Type roots. */
+    "types": ["node"],
+
+    /* Emit. We only typecheck/bundle here (build is via ncc), so no tsc emit. */
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "__tests__/**/*.ts"],
+  "exclude": ["node_modules", "actions/**/dist"]
+}

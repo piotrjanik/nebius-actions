@@ -1,0 +1,7 @@
+node_modules/
+actions/**/dist/
+coverage/
+*.log
+
+# Design docs are authored prose; not Prettier-managed.
+docs/
