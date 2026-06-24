@@ -34630,9 +34630,16 @@ exports.CLI_ENDPOINT_VERBS = {
 };
 /**
  * JSON field on an endpoint that carries the public HTTPS URL.
- * // VERIFY: actual field name (could be `url`, `public_url`, `status.url`, …).
+ * Nebius (CONFIRMED v0.12.x) returns the served URL(s) as an array under
+ * `status.public_endpoints`; the others are kept as tolerant fallbacks.
  */
-exports.ENDPOINT_URL_FIELDS = ['url', 'public_url', 'publicUrl', 'endpoint_url'];
+exports.ENDPOINT_URL_FIELDS = [
+    'url',
+    'public_url',
+    'publicUrl',
+    'endpoint_url',
+    'public_endpoints.0',
+];
 // ---------------------------------------------------------------------------
 // Job status enum
 // ---------------------------------------------------------------------------
@@ -34737,14 +34744,14 @@ exports.DEFAULT_POLL_BACKOFF_FACTOR = 1.5;
 /**
  * Endpoint domain wrappers over the `nebius ai endpoint` CLI group.
  *
- * `deployEndpoint` is modeled as create-or-update (apply): it attempts an update
- * and falls back to create when the endpoint does not yet exist, so callers get
- * idempotent "apply" semantics. Arg-building is pure (`buildDeployEndpointArgs`)
- * for unit-testing; CLI JSON is mapped via `mapEndpointJson`.
+ * `deployEndpoint` creates the endpoint (the `nebius ai endpoint` group has no
+ * `update` verb); on a name collision it returns the existing endpoint via
+ * get-by-name. Arg-building is pure (`buildDeployEndpointArgs`) for unit-testing;
+ * CLI JSON is mapped via `mapEndpointJson`.
  *
- * // VERIFY: the `nebius ai endpoint` group exists (CONFIRMED) but the exact
- * subcommand verbs, flag names, and the URL field are unconfirmed — all are
- * centralized as constants so verification is localized.
+ * Flags/fields below are CONFIRMED against nebius CLI v0.12.x: create takes
+ * `--container-port --public --auth --token --parent-id`, and the served URL is
+ * `status.public_endpoints[0]`.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildDeployEndpointArgs = buildDeployEndpointArgs;
@@ -34772,13 +34779,22 @@ function buildDeployEndpointArgs(s, verb) {
     }
     const args = [...EP, verb, '--name', s.name, '--image', s.image];
     if (s.port !== undefined) {
-        args.push('--port', String(s.port));
+        args.push('--container-port', String(s.port));
     }
     if (s.preset) {
         args.push('--preset', s.preset);
     }
     if (s.platform) {
         args.push('--platform', s.platform);
+    }
+    if (s.public) {
+        args.push('--public');
+    }
+    if (s.auth) {
+        args.push('--auth', s.auth);
+    }
+    if (s.token) {
+        args.push('--token', s.token);
     }
     if (s.minReplicas !== undefined) {
         args.push('--min-replicas', String(s.minReplicas));
@@ -34787,7 +34803,7 @@ function buildDeployEndpointArgs(s, verb) {
         args.push('--max-replicas', String(s.maxReplicas));
     }
     if (s.projectId) {
-        args.push('--project-id', s.projectId);
+        args.push('--parent-id', s.projectId);
     }
     if (s.env) {
         for (const [k, v] of Object.entries(s.env)) {
@@ -34817,35 +34833,35 @@ function mapEndpointJson(raw) {
     const url = extractUrl(obj);
     const endpoint = { id, name, status, raw };
     if (url !== undefined) {
-        endpoint.url = url;
+        // The CLI may return a bare host; normalize to an https:// URL.
+        endpoint.url = /^https?:\/\//i.test(url) ? url : `https://${url}`;
     }
     return endpoint;
 }
-/** Whether an error message indicates a not-found endpoint. */
-function isNotFound(message) {
-    return /not[\s_-]?found|does not exist|no such/i.test(message);
+/** Whether an error message indicates a name collision (endpoint already exists). */
+function isAlreadyExists(message) {
+    return /already[\s_-]?exists|conflict/i.test(message);
 }
 /**
- * Deploy (create-or-update) an endpoint. Tries update first; on a not-found
- * error, creates it. Any other failure propagates (no silent fallback).
+ * Deploy an endpoint. The `nebius ai endpoint` CLI has no `update` verb, so this
+ * creates the endpoint; on a name collision it returns the existing one
+ * (get-by-name, which needs the project id). Any other failure propagates.
  */
 async function deployEndpoint(s) {
     try {
-        const res = await (0, exec_1.runCli)(buildDeployEndpointArgs(s, constants_1.CLI_ENDPOINT_VERBS.update), {
+        const created = await (0, exec_1.runCli)(buildDeployEndpointArgs(s, constants_1.CLI_ENDPOINT_VERBS.create), {
             json: true,
         });
-        return mapEndpointJson(res.data);
+        return mapEndpointJson(created.data);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (!isNotFound(msg)) {
-            throw err;
+        if (isAlreadyExists(msg) && s.projectId) {
+            const existing = await (0, exec_1.runCli)([...EP, constants_1.CLI_ENDPOINT_VERBS.getByName, '--parent-id', s.projectId, '--name', s.name], { json: true });
+            return mapEndpointJson(existing.data);
         }
+        throw err;
     }
-    const created = await (0, exec_1.runCli)(buildDeployEndpointArgs(s, constants_1.CLI_ENDPOINT_VERBS.create), {
-        json: true,
-    });
-    return mapEndpointJson(created.data);
 }
 /** Get an endpoint by id or name. */
 async function getEndpoint(idOrName) {
@@ -36053,6 +36069,12 @@ function buildSpecFromInputs() {
     const platform = (0, core_1.getString)('platform');
     const env = (0, core_1.getKeyValues)('env');
     const projectId = (0, core_1.getString)('project-id');
+    const auth = (0, core_1.getString)('auth');
+    const token = (0, core_1.getString)('token');
+    // Register the bearer token as a secret so the runner redacts it everywhere —
+    // the CLI args (--token <token>) and the echoed `token` output included.
+    if (token)
+        (0, core_1.mask)(token);
     const extraArgs = (0, core_1.getMultiline)('extra-args');
     const spec = { name, image };
     if ((0, core_1.getString)('port') !== '')
@@ -36061,6 +36083,12 @@ function buildSpecFromInputs() {
         spec.preset = preset;
     if (platform)
         spec.platform = platform;
+    if ((0, core_1.getBool)('public', { default: false }))
+        spec.public = true;
+    if (auth)
+        spec.auth = auth;
+    if (token)
+        spec.token = token;
     if ((0, core_1.getString)('min-replicas') !== '')
         spec.minReplicas = (0, core_1.getNumber)('min-replicas');
     if ((0, core_1.getString)('max-replicas') !== '')
@@ -36088,6 +36116,10 @@ async function run() {
     (0, core_1.setOutput)('status', deployed.status);
     if (deployed.url !== undefined) {
         (0, core_1.setOutput)('url', deployed.url);
+    }
+    // Echo the bearer token back so callers can authenticate to the served URL.
+    if (spec.token) {
+        (0, core_1.setOutput)('token', spec.token);
     }
     if (!wait) {
         core_1.log.info('wait=false: returning immediately after apply.');

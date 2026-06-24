@@ -18,6 +18,7 @@ import {
   isEndpointReady,
   isEndpointTerminalFailure,
   log,
+  mask,
   pollUntil,
   setOutput,
   type Endpoint,
@@ -31,12 +32,20 @@ function buildSpecFromInputs(): EndpointSpec {
   const platform = getString('platform');
   const env = getKeyValues('env');
   const projectId = getString('project-id');
+  const auth = getString('auth');
+  const token = getString('token');
+  // Register the bearer token as a secret so the runner redacts it everywhere —
+  // the CLI args (--token <token>) and the echoed `token` output included.
+  if (token) mask(token);
   const extraArgs = getMultiline('extra-args');
 
   const spec: EndpointSpec = { name, image };
   if (getString('port') !== '') spec.port = getNumber('port');
   if (preset) spec.preset = preset;
   if (platform) spec.platform = platform;
+  if (getBool('public', { default: false })) spec.public = true;
+  if (auth) spec.auth = auth;
+  if (token) spec.token = token;
   if (getString('min-replicas') !== '') spec.minReplicas = getNumber('min-replicas');
   if (getString('max-replicas') !== '') spec.maxReplicas = getNumber('max-replicas');
   if (Object.keys(env).length > 0) spec.env = env;
@@ -63,6 +72,10 @@ async function run(): Promise<void> {
   setOutput('status', deployed.status);
   if (deployed.url !== undefined) {
     setOutput('url', deployed.url);
+  }
+  // Echo the bearer token back so callers can authenticate to the served URL.
+  if (spec.token) {
+    setOutput('token', spec.token);
   }
 
   if (!wait) {

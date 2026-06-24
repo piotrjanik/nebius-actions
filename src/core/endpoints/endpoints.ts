@@ -1,14 +1,14 @@
 /**
  * Endpoint domain wrappers over the `nebius ai endpoint` CLI group.
  *
- * `deployEndpoint` is modeled as create-or-update (apply): it attempts an update
- * and falls back to create when the endpoint does not yet exist, so callers get
- * idempotent "apply" semantics. Arg-building is pure (`buildDeployEndpointArgs`)
- * for unit-testing; CLI JSON is mapped via `mapEndpointJson`.
+ * `deployEndpoint` creates the endpoint (the `nebius ai endpoint` group has no
+ * `update` verb); on a name collision it returns the existing endpoint via
+ * get-by-name. Arg-building is pure (`buildDeployEndpointArgs`) for unit-testing;
+ * CLI JSON is mapped via `mapEndpointJson`.
  *
- * // VERIFY: the `nebius ai endpoint` group exists (CONFIRMED) but the exact
- * subcommand verbs, flag names, and the URL field are unconfirmed — all are
- * centralized as constants so verification is localized.
+ * Flags/fields below are CONFIRMED against nebius CLI v0.12.x: create takes
+ * `--container-port --public --auth --token --parent-id`, and the served URL is
+ * `status.public_endpoints[0]`.
  */
 
 import { runCli } from '../cli/exec';
@@ -24,6 +24,7 @@ import {
 export interface EndpointSpec {
   name: string;
   image: string;
+  /** Container port the served process listens on (emitted as --container-port). */
   port?: number;
   preset?: string;
   platform?: string;
@@ -31,6 +32,12 @@ export interface EndpointSpec {
   minReplicas?: number;
   maxReplicas?: number;
   projectId?: string;
+  /** Expose a public HTTPS URL (--public). */
+  public?: boolean;
+  /** Auth mode for the served URL, e.g. 'token' (--auth). */
+  auth?: string;
+  /** Bearer token when auth='token' (--token). */
+  token?: string;
   extraArgs?: string[];
 }
 
@@ -59,13 +66,22 @@ export function buildDeployEndpointArgs(s: EndpointSpec, verb: 'create' | 'updat
   const args = [...EP, verb, '--name', s.name, '--image', s.image];
 
   if (s.port !== undefined) {
-    args.push('--port', String(s.port));
+    args.push('--container-port', String(s.port));
   }
   if (s.preset) {
     args.push('--preset', s.preset);
   }
   if (s.platform) {
     args.push('--platform', s.platform);
+  }
+  if (s.public) {
+    args.push('--public');
+  }
+  if (s.auth) {
+    args.push('--auth', s.auth);
+  }
+  if (s.token) {
+    args.push('--token', s.token);
   }
   if (s.minReplicas !== undefined) {
     args.push('--min-replicas', String(s.minReplicas));
@@ -74,7 +90,7 @@ export function buildDeployEndpointArgs(s: EndpointSpec, verb: 'create' | 'updat
     args.push('--max-replicas', String(s.maxReplicas));
   }
   if (s.projectId) {
-    args.push('--project-id', s.projectId);
+    args.push('--parent-id', s.projectId);
   }
   if (s.env) {
     for (const [k, v] of Object.entries(s.env)) {
@@ -108,36 +124,39 @@ export function mapEndpointJson(raw: unknown): Endpoint {
 
   const endpoint: Endpoint = { id, name, status, raw };
   if (url !== undefined) {
-    endpoint.url = url;
+    // The CLI may return a bare host; normalize to an https:// URL.
+    endpoint.url = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   }
   return endpoint;
 }
 
-/** Whether an error message indicates a not-found endpoint. */
-function isNotFound(message: string): boolean {
-  return /not[\s_-]?found|does not exist|no such/i.test(message);
+/** Whether an error message indicates a name collision (endpoint already exists). */
+function isAlreadyExists(message: string): boolean {
+  return /already[\s_-]?exists|conflict/i.test(message);
 }
 
 /**
- * Deploy (create-or-update) an endpoint. Tries update first; on a not-found
- * error, creates it. Any other failure propagates (no silent fallback).
+ * Deploy an endpoint. The `nebius ai endpoint` CLI has no `update` verb, so this
+ * creates the endpoint; on a name collision it returns the existing one
+ * (get-by-name, which needs the project id). Any other failure propagates.
  */
 export async function deployEndpoint(s: EndpointSpec): Promise<Endpoint> {
   try {
-    const res = await runCli(buildDeployEndpointArgs(s, CLI_ENDPOINT_VERBS.update), {
+    const created = await runCli(buildDeployEndpointArgs(s, CLI_ENDPOINT_VERBS.create), {
       json: true,
     });
-    return mapEndpointJson(res.data);
+    return mapEndpointJson(created.data);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!isNotFound(msg)) {
-      throw err;
+    if (isAlreadyExists(msg) && s.projectId) {
+      const existing = await runCli(
+        [...EP, CLI_ENDPOINT_VERBS.getByName, '--parent-id', s.projectId, '--name', s.name],
+        { json: true },
+      );
+      return mapEndpointJson(existing.data);
     }
+    throw err;
   }
-  const created = await runCli(buildDeployEndpointArgs(s, CLI_ENDPOINT_VERBS.create), {
-    json: true,
-  });
-  return mapEndpointJson(created.data);
 }
 
 /** Get an endpoint by id or name. */

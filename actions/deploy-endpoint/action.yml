@@ -1,6 +1,6 @@
 name: 'Nebius Deploy Endpoint'
 description: >-
-  Create-or-update (apply) a Nebius Endpoint and poll until it is serving.
+  Create a Nebius Endpoint and poll until it is serving.
 author: 'Nebius Actions'
 branding:
   icon: 'globe'
@@ -14,7 +14,17 @@ inputs:
     description: 'Container image to serve (required).'
     required: true
   port:
-    description: 'Container port.'
+    description: 'Container port the served process listens on (emitted as --container-port).'
+    required: false
+  public:
+    description: 'Expose a public HTTPS URL (emitted as --public).'
+    required: false
+    default: 'false'
+  auth:
+    description: "Auth mode for the served URL, e.g. 'token' (emitted as --auth)."
+    required: false
+  token:
+    description: 'Bearer token when auth=token (emitted as --token; also echoed as the `token` output).'
     required: false
   preset:
     description: 'Compute preset (e.g. 1gpu-16vcpu-200gb).'
@@ -57,6 +67,8 @@ outputs:
     description: 'The public HTTPS URL (when reported).'
   status:
     description: 'The final endpoint status.'
+  token:
+    description: 'The bearer token (echoed from the `token` input, when provided).'
 
 runs:
   using: 'node20'

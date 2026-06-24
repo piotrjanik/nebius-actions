@@ -89,9 +89,16 @@ export const CLI_ENDPOINT_VERBS = {
 
 /**
  * JSON field on an endpoint that carries the public HTTPS URL.
- * // VERIFY: actual field name (could be `url`, `public_url`, `status.url`, …).
+ * Nebius (CONFIRMED v0.12.x) returns the served URL(s) as an array under
+ * `status.public_endpoints`; the others are kept as tolerant fallbacks.
  */
-export const ENDPOINT_URL_FIELDS = ['url', 'public_url', 'publicUrl', 'endpoint_url'] as const;
+export const ENDPOINT_URL_FIELDS = [
+  'url',
+  'public_url',
+  'publicUrl',
+  'endpoint_url',
+  'public_endpoints.0',
+] as const;
 
 // ---------------------------------------------------------------------------
 // Job status enum
