@@ -2,7 +2,7 @@
  * Unit tests for the endpoints domain wrappers (endpoints/endpoints.ts).
  *
  * `runCli` (cli/exec) is mocked so no CLI runs. We assert arg-building, the
- * apply (update-then-create) semantics, JSON->Endpoint mapping incl. URL
+ * create (get-by-name on conflict) semantics, JSON->Endpoint mapping incl. URL
  * extraction, and the status helpers.
  */
 
@@ -41,11 +41,6 @@ describe('buildDeployEndpointArgs', () => {
     ]);
   });
 
-  it('honors the verb (update)', () => {
-    const args = buildDeployEndpointArgs({ name: 'svc', image: 'img' }, 'update');
-    expect(args.slice(0, 3)).toEqual(['ai', 'endpoint', 'update']);
-  });
-
   it('throws when name is missing', () => {
     expect(() => buildDeployEndpointArgs({ image: 'img' } as EndpointSpec, 'create')).toThrow(
       /name is required/,
@@ -58,13 +53,16 @@ describe('buildDeployEndpointArgs', () => {
     );
   });
 
-  it('maps optional fields (port, replicas, project, env) to flags', () => {
+  it('maps optional fields (container-port, auth, replicas, parent, env) to flags', () => {
     const spec: EndpointSpec = {
       name: 'svc',
       image: 'img',
       port: 8080,
       preset: 'cpu',
       platform: 'cpu',
+      public: true,
+      auth: 'token',
+      token: 't',
       minReplicas: 1,
       maxReplicas: 3,
       projectId: 'proj',
@@ -79,17 +77,22 @@ describe('buildDeployEndpointArgs', () => {
       'svc',
       '--image',
       'img',
-      '--port',
+      '--container-port',
       '8080',
       '--preset',
       'cpu',
       '--platform',
       'cpu',
+      '--public',
+      '--auth',
+      'token',
+      '--token',
+      't',
       '--min-replicas',
       '1',
       '--max-replicas',
       '3',
-      '--project-id',
+      '--parent-id',
       'proj',
       '--env',
       'K=v',
@@ -97,10 +100,10 @@ describe('buildDeployEndpointArgs', () => {
     ]);
   });
 
-  it('includes --port "0" when port is 0 (uses !== undefined, not truthiness)', () => {
+  it('includes --container-port "0" when port is 0 (uses !== undefined, not truthiness)', () => {
     const args = buildDeployEndpointArgs({ name: 'svc', image: 'img', port: 0 }, 'create');
-    expect(args).toContain('--port');
-    expect(args[args.indexOf('--port') + 1]).toBe('0');
+    expect(args).toContain('--container-port');
+    expect(args[args.indexOf('--container-port') + 1]).toBe('0');
   });
 });
 
@@ -136,6 +139,14 @@ describe('mapEndpointJson', () => {
     expect(mapEndpointJson({ endpoint_url: 'https://b' }).url).toBe('https://b');
   });
 
+  it('extracts the url from status.public_endpoints[0] and normalizes the scheme', () => {
+    const ep = mapEndpointJson({
+      status: { state: 'RUNNING', public_endpoints: ['svc.example/v1'] },
+    });
+    expect(ep.status).toBe('RUNNING');
+    expect(ep.url).toBe('https://svc.example/v1');
+  });
+
   it('defaults id/name to "" and status to UNKNOWN; url omitted when absent', () => {
     const ep = mapEndpointJson({});
     expect(ep.id).toBe('');
@@ -145,43 +156,47 @@ describe('mapEndpointJson', () => {
   });
 });
 
-describe('deployEndpoint (apply = update-then-create)', () => {
-  it('returns the update result when update succeeds', async () => {
-    runCli.mockResolvedValue({ data: { id: 'ep-1', name: 'svc', status: 'UPDATING' } });
+describe('deployEndpoint (create; get-by-name on conflict)', () => {
+  it('creates and returns the endpoint', async () => {
+    runCli.mockResolvedValue({
+      data: { metadata: { id: 'ep-1', name: 'svc' }, status: { state: 'CREATING' } },
+    });
     const ep = await deployEndpoint({ name: 'svc', image: 'img' });
 
     expect(runCli).toHaveBeenCalledTimes(1);
-    expect(runCli.mock.calls[0]![0]).toEqual([
-      'ai',
-      'endpoint',
-      'update',
-      '--name',
-      'svc',
-      '--image',
-      'img',
-    ]);
-    expect(ep).toMatchObject({ id: 'ep-1', status: 'UPDATING' });
+    expect(runCli.mock.calls[0]![0]![2]).toBe('create');
+    expect(ep).toMatchObject({ id: 'ep-1', status: 'CREATING' });
   });
 
-  it('falls back to create when update reports not-found', async () => {
+  it('returns the existing endpoint via get-by-name on a name collision', async () => {
     runCli
-      .mockRejectedValueOnce(new Error('endpoint not found'))
-      .mockResolvedValueOnce({ data: { id: 'ep-2', name: 'svc', status: 'CREATING' } });
+      .mockRejectedValueOnce(new Error('endpoint already exists'))
+      .mockResolvedValueOnce({
+        data: { metadata: { id: 'ep-2', name: 'svc' }, status: { state: 'RUNNING' } },
+      });
 
-    const ep = await deployEndpoint({ name: 'svc', image: 'img' });
+    const ep = await deployEndpoint({ name: 'svc', image: 'img', projectId: 'proj' });
 
     expect(runCli).toHaveBeenCalledTimes(2);
-    expect(runCli.mock.calls[0]![0]![2]).toBe('update');
-    expect(runCli.mock.calls[1]![0]![2]).toBe('create');
-    expect(ep).toMatchObject({ id: 'ep-2', status: 'CREATING' });
+    expect(runCli.mock.calls[0]![0]![2]).toBe('create');
+    expect(runCli.mock.calls[1]![0]).toEqual([
+      'ai',
+      'endpoint',
+      'get-by-name',
+      '--parent-id',
+      'proj',
+      '--name',
+      'svc',
+    ]);
+    expect(ep).toMatchObject({ id: 'ep-2', status: 'RUNNING' });
   });
 
-  it('propagates non-not-found update errors (no silent fallback to create)', async () => {
+  it('propagates non-conflict create errors (no get-by-name fallback)', async () => {
     runCli.mockRejectedValueOnce(new Error('permission denied'));
-    await expect(deployEndpoint({ name: 'svc', image: 'img' })).rejects.toThrow(
-      /permission denied/,
-    );
-    expect(runCli).toHaveBeenCalledTimes(1); // never tried create
+    await expect(
+      deployEndpoint({ name: 'svc', image: 'img', projectId: 'proj' }),
+    ).rejects.toThrow(/permission denied/);
+    expect(runCli).toHaveBeenCalledTimes(1);
   });
 });
 
