@@ -14,6 +14,8 @@ export interface ExchangeParams {
   idToken: string;
   endpoint: string;
   audience?: string;
+  /** RFC-8693 subject_token_type; defaults to SUBJECT_TOKEN_TYPE (`id_token`). */
+  subjectTokenType?: string;
 }
 
 export interface IamToken {
@@ -35,7 +37,7 @@ export function buildExchangeBody(p: ExchangeParams): string {
     grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
     requested_token_type: REQUESTED_TOKEN_TYPE,
     subject_token: p.idToken,
-    subject_token_type: SUBJECT_TOKEN_TYPE,
+    subject_token_type: p.subjectTokenType ?? SUBJECT_TOKEN_TYPE,
   });
   if (p.audience !== undefined && p.audience !== '') {
     params.set('audience', p.audience);

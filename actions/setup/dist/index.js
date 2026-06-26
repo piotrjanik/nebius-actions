@@ -34019,7 +34019,7 @@ function buildExchangeBody(p) {
         grant_type: constants_1.TOKEN_EXCHANGE_GRANT_TYPE,
         requested_token_type: constants_1.REQUESTED_TOKEN_TYPE,
         subject_token: p.idToken,
-        subject_token_type: constants_1.SUBJECT_TOKEN_TYPE,
+        subject_token_type: p.subjectTokenType ?? constants_1.SUBJECT_TOKEN_TYPE,
     });
     if (p.audience !== undefined && p.audience !== '') {
         params.set('audience', p.audience);
@@ -34121,6 +34121,7 @@ async function authenticate(o) {
         idToken,
         endpoint,
         ...(o.audience !== undefined ? { audience: o.audience } : {}),
+        ...(o.subjectTokenType !== undefined ? { subjectTokenType: o.subjectTokenType } : {}),
     });
     return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
 }
@@ -34573,7 +34574,7 @@ async function ensureCli(opts) {
  *    specific CLI version via the install script.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.ENDPOINT_URL_FIELDS = exports.CLI_ENDPOINT_VERBS = exports.CLI_ENDPOINT_GROUP = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.SUBJECT_TOKEN_TYPE = exports.REQUESTED_TOKEN_TYPE = exports.TOKEN_EXCHANGE_GRANT_TYPE = exports.GITHUB_OIDC_ISSUER = exports.DEFAULT_TOKEN_EXCHANGE_URL = void 0;
+exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.ENDPOINT_URL_FIELDS = exports.CLI_ENDPOINT_VERBS = exports.CLI_ENDPOINT_GROUP = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.SUBJECT_TOKEN_TYPE_JWT = exports.SUBJECT_TOKEN_TYPE = exports.REQUESTED_TOKEN_TYPE = exports.TOKEN_EXCHANGE_GRANT_TYPE = exports.GITHUB_OIDC_ISSUER = exports.DEFAULT_TOKEN_EXCHANGE_URL = void 0;
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -34585,8 +34586,19 @@ exports.GITHUB_OIDC_ISSUER = 'https://token.actions.githubusercontent.com';
 exports.TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 /** RFC-8693 requested token type (an access token). CONFIRMED. */
 exports.REQUESTED_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
-/** RFC-8693 subject token type (the GitHub OIDC JWT). CONFIRMED. */
-exports.SUBJECT_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:jwt';
+/**
+ * Default RFC-8693 subject_token_type for the exchange.
+ *
+ * GitHub Actions mints an OIDC *ID token*, so the federated exchange must use
+ * `id_token`. Sending `jwt` makes Nebius treat the token as a self-signed
+ * service-account JWT (where `sub` must be a `serviceaccount-…` id) and reject
+ * the federated subject with `INVALID_ARGUMENT: Incorrect subject id: repo:…`.
+ * Overridable per-call via the `subject-token-type` action input — set it to
+ * SUBJECT_TOKEN_TYPE_JWT only for self-signed service-account tokens.
+ */
+exports.SUBJECT_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:id_token';
+/** Subject token type for a self-signed service-account JWT (non-federated). */
+exports.SUBJECT_TOKEN_TYPE_JWT = 'urn:ietf:params:oauth:token-type:jwt';
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -36069,6 +36081,9 @@ async function run() {
     const tokenExchangeUrl = (0, core_1.getString)('token-exchange-url', {
         default: core_1.DEFAULT_TOKEN_EXCHANGE_URL,
     });
+    // Empty -> the exchange falls back to SUBJECT_TOKEN_TYPE (id_token, the correct
+    // type for a GitHub OIDC ID token). Override to `…:jwt` only for self-signed SA tokens.
+    const subjectTokenType = (0, core_1.getString)('subject-token-type');
     const cliVersion = (0, core_1.getString)('cli-version', { default: 'latest' });
     const installCli = (0, core_1.getBool)('install-cli', { default: true });
     // region is accepted for forward-compatibility / profile selection.
@@ -36090,6 +36105,7 @@ async function run() {
             method: 'oidc',
             endpoint: tokenExchangeUrl,
             ...(audience !== '' ? { audience } : {}),
+            ...(subjectTokenType !== '' ? { subjectTokenType } : {}),
         });
         await (0, core_1.configureCliAuth)(auth.token);
         return auth;
