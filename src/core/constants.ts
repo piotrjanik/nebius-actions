@@ -33,8 +33,20 @@ export const TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token
 /** RFC-8693 requested token type (an access token). CONFIRMED. */
 export const REQUESTED_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
 
-/** RFC-8693 subject token type (the GitHub OIDC JWT). CONFIRMED. */
-export const SUBJECT_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:jwt';
+/**
+ * Default RFC-8693 subject_token_type for the exchange.
+ *
+ * GitHub Actions mints an OIDC *ID token*, so the federated exchange must use
+ * `id_token`. Sending `jwt` makes Nebius treat the token as a self-signed
+ * service-account JWT (where `sub` must be a `serviceaccount-…` id) and reject
+ * the federated subject with `INVALID_ARGUMENT: Incorrect subject id: repo:…`.
+ * Overridable per-call via the `subject-token-type` action input — set it to
+ * SUBJECT_TOKEN_TYPE_JWT only for self-signed service-account tokens.
+ */
+export const SUBJECT_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:id_token';
+
+/** Subject token type for a self-signed service-account JWT (non-federated). */
+export const SUBJECT_TOKEN_TYPE_JWT = 'urn:ietf:params:oauth:token-type:jwt';
 
 // ---------------------------------------------------------------------------
 // CLI

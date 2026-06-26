@@ -19,6 +19,8 @@ export interface AuthOptions {
   method: 'oidc';
   audience?: string;
   endpoint: string;
+  /** RFC-8693 subject_token_type override; defaults to SUBJECT_TOKEN_TYPE. */
+  subjectTokenType?: string;
 }
 
 export interface AuthResult {
@@ -43,6 +45,7 @@ export async function authenticate(o: AuthOptions): Promise<AuthResult> {
     idToken,
     endpoint,
     ...(o.audience !== undefined ? { audience: o.audience } : {}),
+    ...(o.subjectTokenType !== undefined ? { subjectTokenType: o.subjectTokenType } : {}),
   });
   return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
 }

@@ -58,6 +58,24 @@ describe('buildExchangeBody', () => {
     expect(params.get('subject_token')).toBe('JWT');
   });
 
+  it('defaults subject_token_type to id_token (the GitHub OIDC ID token type)', () => {
+    const params = new URLSearchParams(
+      buildExchangeBody({ idToken: 'JWT', endpoint: 'https://x' }),
+    );
+    expect(params.get('subject_token_type')).toBe('urn:ietf:params:oauth:token-type:id_token');
+  });
+
+  it('honors an explicit subjectTokenType override', () => {
+    const params = new URLSearchParams(
+      buildExchangeBody({
+        idToken: 'JWT',
+        endpoint: 'https://x',
+        subjectTokenType: 'urn:ietf:params:oauth:token-type:jwt',
+      }),
+    );
+    expect(params.get('subject_token_type')).toBe('urn:ietf:params:oauth:token-type:jwt');
+  });
+
   it('includes audience when provided', () => {
     const params = new URLSearchParams(
       buildExchangeBody({ idToken: 'JWT', endpoint: 'https://x', audience: 'nebius' }),

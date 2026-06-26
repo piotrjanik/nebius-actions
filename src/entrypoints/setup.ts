@@ -25,6 +25,9 @@ async function run(): Promise<void> {
   const tokenExchangeUrl = getString('token-exchange-url', {
     default: DEFAULT_TOKEN_EXCHANGE_URL,
   });
+  // Empty -> the exchange falls back to SUBJECT_TOKEN_TYPE (id_token, the correct
+  // type for a GitHub OIDC ID token). Override to `…:jwt` only for self-signed SA tokens.
+  const subjectTokenType = getString('subject-token-type');
   const cliVersion = getString('cli-version', { default: 'latest' });
   const installCli = getBool('install-cli', { default: true });
   // region is accepted for forward-compatibility / profile selection.
@@ -48,6 +51,7 @@ async function run(): Promise<void> {
       method: 'oidc',
       endpoint: tokenExchangeUrl,
       ...(audience !== '' ? { audience } : {}),
+      ...(subjectTokenType !== '' ? { subjectTokenType } : {}),
     });
     await configureCliAuth(auth.token);
     return auth;

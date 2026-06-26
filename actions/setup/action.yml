@@ -16,6 +16,13 @@ inputs:
   audience:
     description: 'Optional OIDC audience claim for the token exchange.'
     required: false
+  subject-token-type:
+    description: >-
+      RFC-8693 subject_token_type. Leave empty to use the default `id_token`
+      (correct for GitHub's OIDC ID token); set to
+      `urn:ietf:params:oauth:token-type:jwt` only for self-signed
+      service-account tokens.
+    required: false
   token-exchange-url:
     description: 'Nebius RFC-8693 token-exchange endpoint.'
     required: false
