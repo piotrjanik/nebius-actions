@@ -32,17 +32,20 @@ jobs:
   release:
     name: Verify dist and move floating major tag
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      # Pinned to full commit SHAs (version in comment); bumped by Dependabot.
       - name: Checkout (at the release tag commit)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # Full history + tags so we can create/move and push the major tag.
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          # Match the actions' runtime: action.yml declares `using: node24`.
+          node-version: 24
           cache: npm
 
       - name: Install dependencies

@@ -69,8 +69,14 @@ jobs:
           # extra-args: |                    # raw passthrough to `nebius ai job create`
           #   --some-flag value
 
+      # Pass step outputs through env vars (not ${{ }} inlined into the script)
+      # so values expand in the shell — the injection-safe pattern.
       - name: Report result
+        env:
+          JOB_ID: ${{ steps.train.outputs.job-id }}
+          STATUS: ${{ steps.train.outputs.status }}
+          EXIT_CODE: ${{ steps.train.outputs.exit-code }}
         run: |
-          echo "Job ID:    ${{ steps.train.outputs.job-id }}"
-          echo "Status:    ${{ steps.train.outputs.status }}"
-          echo "Exit code: ${{ steps.train.outputs.exit-code }}"
+          echo "Job ID:    $JOB_ID"
+          echo "Status:    $STATUS"
+          echo "Exit code: $EXIT_CODE"
