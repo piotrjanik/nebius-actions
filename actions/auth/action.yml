@@ -1,0 +1,37 @@
+name: 'Nebius Auth'
+description: >-
+  Keyless GitHub OIDC -> Nebius IAM token exchange (federated credentials over
+  gRPC). Exports the masked token as NEBIUS_IAM_TOKEN for the CLI and all
+  downstream steps. Run once per job. Does not install the CLI (see `setup`).
+author: 'Nebius Actions'
+branding:
+  icon: 'log-in'
+  color: 'blue'
+
+inputs:
+  service-account-id:
+    description: >-
+      Nebius service account (`serviceaccount-…`) this workflow impersonates via
+      its federated credential. Required: it is the subject of the token exchange.
+    required: true
+  auth-method:
+    description: 'Authentication method. Only `oidc` is supported in v1.'
+    required: false
+    default: 'oidc'
+  audience:
+    description: 'Optional OIDC audience claim for the GitHub OIDC token.'
+    required: false
+  domain:
+    description: 'Optional Nebius API domain override (default: api.nebius.cloud:443).'
+    required: false
+
+outputs:
+  expires-in:
+    description: 'IAM token lifetime in seconds.'
+    # Note: the IAM token itself is NOT exposed as an output. Downstream steps
+    # read it from the NEBIUS_IAM_TOKEN environment variable, which the action
+    # exports (masked) for the rest of the job.
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
