@@ -9,17 +9,21 @@ branding:
   color: 'blue'
 
 inputs:
+  service-account-id:
+    description: >-
+      Nebius service account (`serviceaccount-…`) this workflow impersonates via
+      its federated credential. Required: it is the subject of the token exchange.
+    required: true
   auth-method:
     description: 'Authentication method. Only `oidc` is supported in v1.'
     required: false
     default: 'oidc'
   audience:
-    description: 'Optional OIDC audience claim for the token exchange.'
+    description: 'Optional OIDC audience claim for the GitHub OIDC token.'
     required: false
-  token-exchange-url:
-    description: 'Nebius RFC-8693 token-exchange endpoint.'
+  domain:
+    description: 'Optional Nebius API domain override (default: api.nebius.cloud:443).'
     required: false
-    default: 'https://auth.eu.nebius.com/oauth2/token/exchange'
   cli-version:
     description: 'nebius CLI version to install (`latest` or a pinned version).'
     required: false
