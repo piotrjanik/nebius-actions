@@ -29,6 +29,11 @@ jobs:
       - name: Set up Nebius
         uses: OWNER/REPO/actions/setup@v1
 
+      - name: Authenticate to Nebius
+        uses: OWNER/REPO/actions/auth@v1
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+
       - name: Deploy endpoint
         id: deploy
         uses: OWNER/REPO/actions/deploy-endpoint@v1
@@ -67,6 +72,10 @@ jobs:
     environment: teardown
     steps:
       - uses: OWNER/REPO/actions/setup@v1
+
+      - uses: OWNER/REPO/actions/auth@v1
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       - name: Delete endpoint
         uses: OWNER/REPO/actions/delete-endpoint@v1

@@ -24,6 +24,11 @@ jobs:
       - name: Set up Nebius
         uses: OWNER/REPO/actions/setup@v1
 
+      - name: Authenticate to Nebius
+        uses: OWNER/REPO/actions/auth@v1
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+
       # 1) Submit the Job and return immediately (no waiting).
       - name: Submit job
         id: submit

@@ -1,8 +1,9 @@
 # Run a training Job on Nebius AI Cloud and wait for it to finish.
 #
-# `setup` authenticates via GitHub OIDC (keyless) and installs the `nebius` CLI.
-# `run-job` submits the Job, streams its logs, waits for a terminal state, and
-# fails the step if the Job did not complete successfully.
+# `setup` installs + caches the `nebius` CLI. `auth` authenticates via GitHub
+# OIDC (keyless) and exports the Nebius IAM token. `run-job` submits the Job,
+# streams its logs, waits for a terminal state, and fails the step if the Job
+# did not complete successfully.
 #
 # Replace OWNER/REPO with the repo hosting these actions, and the image/preset
 # with your own.
@@ -15,7 +16,7 @@ on:
         description: 'Number of training epochs'
         default: '1'
 
-# Required for keyless OIDC auth: lets `setup` mint a GitHub OIDC token.
+# Required for keyless OIDC auth: lets `auth` mint a GitHub OIDC token.
 permissions:
   id-token: write
   contents: read
@@ -26,15 +27,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Install + cache the nebius CLI and exchange GitHub OIDC -> Nebius IAM token.
+      # Install + cache the nebius CLI.
       - name: Set up Nebius
         uses: OWNER/REPO/actions/setup@v1
         # All inputs below are optional; defaults shown for reference.
         # with:
         #   cli-version: latest
         #   region: eu
-        #   token-exchange-url: https://auth.eu.nebius.com/oauth2/token/exchange
-        #   audience: ""   # set only if your federation requires an audience
+
+      # Exchange GitHub OIDC -> Nebius IAM token and export it for later steps.
+      - name: Authenticate to Nebius
+        uses: OWNER/REPO/actions/auth@v1
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          # audience: ""   # set only if your federation requires an audience
+          # domain: api.nebius.cloud:443
 
       - name: Run training job
         id: train

@@ -1,29 +1,13 @@
 name: 'Nebius Setup'
 description: >-
-  Install + cache the nebius CLI, perform keyless GitHub OIDC -> Nebius IAM
-  token exchange, export the token, and configure the CLI. Run once per job
-  before any resource action.
+  Install + cache the nebius CLI and put it on PATH. Run once per job before any
+  resource action. Authentication is handled separately by the `auth` action.
 author: 'Nebius Actions'
 branding:
-  icon: 'log-in'
+  icon: 'download'
   color: 'blue'
 
 inputs:
-  service-account-id:
-    description: >-
-      Nebius service account (`serviceaccount-…`) this workflow impersonates via
-      its federated credential. Required: it is the subject of the token exchange.
-    required: true
-  auth-method:
-    description: 'Authentication method. Only `oidc` is supported in v1.'
-    required: false
-    default: 'oidc'
-  audience:
-    description: 'Optional OIDC audience claim for the GitHub OIDC token.'
-    required: false
-  domain:
-    description: 'Optional Nebius API domain override (default: api.nebius.cloud:443).'
-    required: false
   cli-version:
     description: 'nebius CLI version to install (`latest` or a pinned version).'
     required: false
@@ -36,13 +20,6 @@ inputs:
     description: 'Region/profile prefix.'
     required: false
     default: 'eu'
-
-outputs:
-  expires-in:
-    description: 'IAM token lifetime in seconds.'
-    # Note: the IAM token itself is NOT exposed as an output. Downstream steps
-    # read it from the NEBIUS_IAM_TOKEN environment variable, which the action
-    # exports (masked) for the rest of the job.
 
 runs:
   using: 'node20'

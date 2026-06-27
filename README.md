@@ -73,7 +73,7 @@ permissions:
 
 ### 3. Authenticate, then run a Job
 
-Run `setup` once per job (it installs/caches the `nebius` CLI, performs the OIDC token exchange, and exports the IAM token for later steps), then call any resource action:
+Run `setup` (installs/caches the `nebius` CLI) and `auth` (performs the OIDC token exchange and exports the IAM token for later steps) once per job, then call any resource action:
 
 ```yaml
 name: train
@@ -88,6 +88,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: OWNER/REPO/actions/setup@v1
+
+      - uses: OWNER/REPO/actions/auth@v1
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
@@ -124,6 +126,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: OWNER/REPO/actions/setup@v1
+
+      - uses: OWNER/REPO/actions/auth@v1
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
@@ -146,18 +150,19 @@ jobs:
 
 ## The actions
 
-All actions are `node20` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`setup` ran earlier in the same job**; each one also re-ensures the CLI defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall) and reads the IAM token from the exported env.
+All actions are `node20` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`setup` and `auth` ran earlier in the same job**; each one also re-ensures the CLI defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall) and reads the IAM token from the exported env.
 
-| Action                  | What it does                                                                                                                                          | Key inputs                                                                                                                                                                              | Key outputs                     |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **`setup`**             | Install + cache the `nebius` CLI, perform OIDC token exchange, export the IAM token + configure the CLI. Run once per job before any resource action. | `service-account-id` _(required)_, `auth-method` (`oidc`), `audience`, `domain` (default `api.nebius.cloud:443`), `cli-version` (`latest`), `install-cli` (`true`), `region` (`eu`)     | `expires-in`                    |
-| **`run-job`**           | Convenience: create a Job, stream logs, poll to a terminal state, fail on non-success.                                                                | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `wait` (`true`), `poll-interval` (`10`), `project-id`, `extra-args`                          | `job-id`, `status`, `exit-code` |
-| **`submit-job`**        | Low-level: create a Job and return immediately (no waiting).                                                                                          | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `project-id`, `extra-args`                                                                   | `job-id`, `status`              |
-| **`wait-for-job`**      | Poll an existing Job until terminal; optionally stream logs.                                                                                          | `job-id` _(required)_, `timeout`, `poll-interval`, `stream-logs` (`true`)                                                                                                               | `status`, `exit-code`           |
-| **`cancel-job`**        | Cancel a running Job.                                                                                                                                 | `job-id` _(required)_                                                                                                                                                                   | `status`                        |
-| **`deploy-endpoint`**   | Convenience: create-or-update (apply) an Endpoint, poll until serving.                                                                                | `name` _(required)_, `image` _(required)_, `port`, `preset`, `platform`, `env`, `min-replicas`, `max-replicas`, `wait` (`true`), `timeout`, `poll-interval`, `project-id`, `extra-args` | `endpoint-id`, `url`, `status`  |
-| **`wait-for-endpoint`** | Poll an existing Endpoint until it is serving.                                                                                                        | `endpoint-id` _(required)_, `timeout`, `poll-interval`                                                                                                                                  | `status`, `url`                 |
-| **`delete-endpoint`**   | Delete an Endpoint.                                                                                                                                   | `endpoint-id` _or_ `name`                                                                                                                                                               | `status`                        |
+| Action                  | What it does                                                                                                             | Key inputs                                                                                                                                                                              | Key outputs                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **`setup`**             | Install + cache the `nebius` CLI and put it on `PATH`. Run once per job before any resource action.                      | `cli-version` (`latest`), `install-cli` (`true`), `region` (`eu`)                                                                                                                       | —                               |
+| **`auth`**              | Keyless OIDC token exchange; export the IAM token (`NEBIUS_IAM_TOKEN`) for the CLI + downstream steps. Run once per job. | `service-account-id` _(required)_, `auth-method` (`oidc`), `audience`, `domain` (default `api.nebius.cloud:443`)                                                                        | `expires-in`                    |
+| **`run-job`**           | Convenience: create a Job, stream logs, poll to a terminal state, fail on non-success.                                   | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `wait` (`true`), `poll-interval` (`10`), `project-id`, `extra-args`                          | `job-id`, `status`, `exit-code` |
+| **`submit-job`**        | Low-level: create a Job and return immediately (no waiting).                                                             | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `project-id`, `extra-args`                                                                   | `job-id`, `status`              |
+| **`wait-for-job`**      | Poll an existing Job until terminal; optionally stream logs.                                                             | `job-id` _(required)_, `timeout`, `poll-interval`, `stream-logs` (`true`)                                                                                                               | `status`, `exit-code`           |
+| **`cancel-job`**        | Cancel a running Job.                                                                                                    | `job-id` _(required)_                                                                                                                                                                   | `status`                        |
+| **`deploy-endpoint`**   | Convenience: create-or-update (apply) an Endpoint, poll until serving.                                                   | `name` _(required)_, `image` _(required)_, `port`, `preset`, `platform`, `env`, `min-replicas`, `max-replicas`, `wait` (`true`), `timeout`, `poll-interval`, `project-id`, `extra-args` | `endpoint-id`, `url`, `status`  |
+| **`wait-for-endpoint`** | Poll an existing Endpoint until it is serving.                                                                           | `endpoint-id` _(required)_, `timeout`, `poll-interval`                                                                                                                                  | `status`, `url`                 |
+| **`delete-endpoint`**   | Delete an Endpoint.                                                                                                      | `endpoint-id` _or_ `name`                                                                                                                                                               | `status`                        |
 
 ### Convenience vs. low-level
 
@@ -197,20 +202,20 @@ Keyless, GitHub OIDC → short-lived Nebius IAM token. No long-lived secret is s
 **Runtime (in the workflow):**
 
 1. The workflow declares `permissions: { id-token: write, contents: read }`.
-2. `setup` calls `core.getIDToken(audience)` to obtain GitHub's signed OIDC JWT.
-3. `setup` runs the **`@nebius/js-sdk`** federated-credentials delegation flow over native gRPC (the HTTP OAuth2 gateway rejects the workload-identity request, so the SDK transport is required). It is an RFC-8693 token exchange where the **subject** is the service account being impersonated and the **actor** is the GitHub JWT:
+2. `auth` calls `core.getIDToken(audience)` to obtain GitHub's signed OIDC JWT.
+3. `auth` runs the **`@nebius/js-sdk`** federated-credentials delegation flow over native gRPC (the HTTP OAuth2 gateway rejects the workload-identity request, so the SDK transport is required). It is an RFC-8693 token exchange where the **subject** is the service account being impersonated and the **actor** is the GitHub JWT:
    - `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`
    - `requested_token_type=urn:ietf:params:oauth:token-type:access_token`
    - `subject_token=<service-account-id>`, `subject_token_type=urn:nebius:params:oauth:token-type:subject_identifier`
    - `actor_token=<github-oidc-jwt>`, `actor_token_type=urn:ietf:params:oauth:token-type:jwt`
    - The SDK returns the IAM access token (and its expiry); the token is masked immediately.
-4. `setup` exports the IAM token as the **`NEBIUS_IAM_TOKEN`** environment variable (via `core.exportVariable`, written to `$GITHUB_ENV`) so the CLI and all downstream steps authenticate, and configures the CLI.
+4. `auth` exports the IAM token as the **`NEBIUS_IAM_TOKEN`** environment variable (via `core.exportVariable`, written to `$GITHUB_ENV`) so the CLI and all downstream steps authenticate. (The `nebius` CLI itself is installed separately by `setup`.)
 
 The IAM token lifetime defaults to ~12h when the SDK response omits an expiry.
 
 ### Security notes
 
-- **The IAM token is exported to `$GITHUB_ENV`, not as a step output.** It is therefore available (masked) to every subsequent step in the same job, including any third-party actions you run after `setup`. Keep the token short-lived (it is), scope the service-account role to least privilege, and avoid running untrusted actions after `setup` in the same job. The token is deliberately **not** exposed as a step output, since outputs can flow into job-level outputs where the producing job's masking does not reliably carry over.
+- **The IAM token is exported to `$GITHUB_ENV`, not as a step output.** It is therefore available (masked) to every subsequent step in the same job, including any third-party actions you run after `auth`. Keep the token short-lived (it is), scope the service-account role to least privilege, and avoid running untrusted actions after `auth` in the same job. The token is deliberately **not** exposed as a step output, since outputs can flow into job-level outputs where the producing job's masking does not reliably carry over.
 - **The CLI is installed via `curl … | bash`.** This is Nebius's official install mechanism, but it executes a remote script with no checksum/signature pinning — a supply-chain trust assumption on `storage.eu-north1.nebius.cloud`. Pin `cli-version` to a known-good release where possible, and consider mirroring the installer internally for stricter environments.
 
 ---
@@ -250,8 +255,8 @@ If a fact turns out wrong, fix the constant (or the small wrapper that reference
 
 Copy-pasteable workflows live under [`examples/`](./examples):
 
-- [`examples/train-job.yml`](./examples/train-job.yml) — `setup` + `run-job` (submit, stream logs, wait).
-- [`examples/deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `setup` + `deploy-endpoint`, with optional teardown via `delete-endpoint`.
+- [`examples/train-job.yml`](./examples/train-job.yml) — `setup` + `auth` + `run-job` (submit, stream logs, wait).
+- [`examples/deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `setup` + `auth` + `deploy-endpoint`, with optional teardown via `delete-endpoint`.
 - [`examples/submit-and-wait.yml`](./examples/submit-and-wait.yml) — low-level `submit-job` → `wait-for-job`, with `cancel-job` on cancellation.
 
 Replace `OWNER/REPO` with the repository hosting these actions, and the image/preset values with your own.
