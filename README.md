@@ -150,7 +150,7 @@ jobs:
 
 ## The actions
 
-All actions are `node20` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`setup` and `auth` ran earlier in the same job**; each one also re-ensures the CLI defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall) and reads the IAM token from the exported env.
+All actions are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`setup` and `auth` ran earlier in the same job**; each one also re-ensures the CLI defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall) and reads the IAM token from the exported env.
 
 | Action                  | What it does                                                                                                             | Key inputs                                                                                                                                                                              | Key outputs                     |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |

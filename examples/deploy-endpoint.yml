@@ -23,6 +23,10 @@ jobs:
     # Bind the workflow to an Environment so the federated credential can trust
     # `repo:OWNER/REPO:environment:production` if you scope it that way.
     environment: production
+    # Step outputs do NOT automatically propagate to `needs.<job>.outputs`; a job
+    # must re-export them here for a downstream job (teardown) to read them.
+    outputs:
+      endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,14 +58,24 @@ jobs:
           timeout: 30m
           # project-id: <your-project-id>
 
+      # Pass step outputs through `env:` and reference them as shell variables
+      # rather than interpolating ${{ }} straight into the script. This is the
+      # injection-safe pattern: expansion happens in the shell, not by string
+      # substitution into the script the runner executes.
       - name: Show URL
+        env:
+          ENDPOINT_ID: ${{ steps.deploy.outputs.endpoint-id }}
+          STATUS: ${{ steps.deploy.outputs.status }}
+          URL: ${{ steps.deploy.outputs.url }}
         run: |
-          echo "Endpoint ID: ${{ steps.deploy.outputs.endpoint-id }}"
-          echo "Status:      ${{ steps.deploy.outputs.status }}"
-          echo "URL:         ${{ steps.deploy.outputs.url }}"
+          echo "Endpoint ID: $ENDPOINT_ID"
+          echo "Status:      $STATUS"
+          echo "URL:         $URL"
 
       - name: Smoke test
-        run: curl -fsS "${{ steps.deploy.outputs.url }}/health"
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: curl -fsS "$URL/health"
 
   # Optional manual teardown: trigger this job to remove the endpoint.
   teardown:

@@ -58,11 +58,17 @@ jobs:
           poll-interval: 10
           timeout: 1h
 
+      # Pass step outputs through env vars (not ${{ }} inlined into the script)
+      # so values expand in the shell — the injection-safe pattern.
       - name: Report result
+        env:
+          JOB_ID: ${{ steps.submit.outputs.job-id }}
+          STATUS: ${{ steps.wait.outputs.status }}
+          EXIT_CODE: ${{ steps.wait.outputs.exit-code }}
         run: |
-          echo "Job ID:    ${{ steps.submit.outputs.job-id }}"
-          echo "Status:    ${{ steps.wait.outputs.status }}"
-          echo "Exit code: ${{ steps.wait.outputs.exit-code }}"
+          echo "Job ID:    $JOB_ID"
+          echo "Status:    $STATUS"
+          echo "Exit code: $EXIT_CODE"
 
       # 3) If the workflow run is cancelled, cancel the Nebius Job too.
       - name: Cancel job on workflow cancellation
