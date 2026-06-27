@@ -11,6 +11,15 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
 
+    /* @nebius/js-sdk ships its deep types via an exports map, which classic
+       "Node" resolution does not read. Map the subpaths to the bundled .d.ts
+       for typecheck only — ncc resolves the real (exports-mapped) modules at
+       build time, and skipLibCheck shields the SDK's internal declarations. */
+    "baseUrl": ".",
+    "paths": {
+      "@nebius/js-sdk/runtime/*": ["node_modules/@nebius/js-sdk/dist/esm/runtime/*"]
+    },
+
     /* Interop / ergonomics. */
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,

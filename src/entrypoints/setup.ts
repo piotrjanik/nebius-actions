@@ -16,15 +16,15 @@ import {
   log,
   setOutput,
   DEFAULT_REGION,
-  DEFAULT_TOKEN_EXCHANGE_URL,
 } from '../core';
 
 async function run(): Promise<void> {
   const authMethod = getString('auth-method', { default: 'oidc' });
+  // The service account this workflow impersonates via federated credentials.
+  const serviceAccountId = getString('service-account-id', { required: true });
   const audience = getString('audience');
-  const tokenExchangeUrl = getString('token-exchange-url', {
-    default: DEFAULT_TOKEN_EXCHANGE_URL,
-  });
+  // Optional SDK domain override; empty -> SDK default (api.nebius.cloud:443).
+  const domain = getString('domain');
   const cliVersion = getString('cli-version', { default: 'latest' });
   const installCli = getBool('install-cli', { default: true });
   // region is accepted for forward-compatibility / profile selection.
@@ -46,8 +46,9 @@ async function run(): Promise<void> {
   const result = await log.group('Authenticate (OIDC token exchange)', async () => {
     const auth = await authenticate({
       method: 'oidc',
-      endpoint: tokenExchangeUrl,
+      serviceAccountId,
       ...(audience !== '' ? { audience } : {}),
+      ...(domain !== '' ? { domain } : {}),
     });
     await configureCliAuth(auth.token);
     return auth;

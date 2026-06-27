@@ -20,21 +20,13 @@
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
+//
+// The RFC-8693 token-exchange request (grant/subject/actor token types and the
+// `subject_identifier` delegation flow) is built by the Nebius SDK — see
+// `auth/exchange.ts`. No exchange URLs or URN constants are needed here.
 
-/** Default Nebius RFC-8693 token-exchange endpoint (EU region). CONFIRMED (spec §6). */
-export const DEFAULT_TOKEN_EXCHANGE_URL = 'https://auth.eu.nebius.com/oauth2/token/exchange';
-
-/** GitHub Actions OIDC issuer. CONFIRMED. */
+/** GitHub Actions OIDC issuer (reference only). */
 export const GITHUB_OIDC_ISSUER = 'https://token.actions.githubusercontent.com';
-
-/** RFC-8693 grant type. CONFIRMED (RFC-8693 §2.1). */
-export const TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token-exchange';
-
-/** RFC-8693 requested token type (an access token). CONFIRMED. */
-export const REQUESTED_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
-
-/** RFC-8693 subject token type (the GitHub OIDC JWT). CONFIRMED. */
-export const SUBJECT_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:jwt';
 
 // ---------------------------------------------------------------------------
 // CLI
