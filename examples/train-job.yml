@@ -29,7 +29,7 @@ jobs:
 
       # Install + cache the nebius CLI.
       - name: Set up Nebius
-        uses: OWNER/REPO/actions/setup@v1
+        uses: OWNER/REPO/actions/setup@v0
         # All inputs below are optional; defaults shown for reference.
         # with:
         #   cli-version: latest
@@ -37,7 +37,7 @@ jobs:
 
       # Exchange GitHub OIDC -> Nebius IAM token and export it for later steps.
       - name: Authenticate to Nebius
-        uses: OWNER/REPO/actions/auth@v1
+        uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
           # audience: ""   # set only if your federation requires an audience
@@ -45,7 +45,7 @@ jobs:
 
       - name: Run training job
         id: train
-        uses: OWNER/REPO/actions/run-job@v1
+        uses: OWNER/REPO/actions/run-job@v0
         with:
           name: trainer-${{ github.run_id }}
           image: cr.eu-north1.nebius.cloud/your-project/trainer:latest

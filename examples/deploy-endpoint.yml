@@ -31,16 +31,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Nebius
-        uses: OWNER/REPO/actions/setup@v1
+        uses: OWNER/REPO/actions/setup@v0
 
       - name: Authenticate to Nebius
-        uses: OWNER/REPO/actions/auth@v1
+        uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       - name: Deploy endpoint
         id: deploy
-        uses: OWNER/REPO/actions/deploy-endpoint@v1
+        uses: OWNER/REPO/actions/deploy-endpoint@v0
         with:
           name: my-model
           image: cr.eu-north1.nebius.cloud/your-project/serve:latest
@@ -83,14 +83,14 @@ jobs:
     # Gate destructive ops behind an environment that requires approval.
     environment: teardown
     steps:
-      - uses: OWNER/REPO/actions/setup@v1
+      - uses: OWNER/REPO/actions/setup@v0
 
-      - uses: OWNER/REPO/actions/auth@v1
+      - uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       - name: Delete endpoint
-        uses: OWNER/REPO/actions/delete-endpoint@v1
+        uses: OWNER/REPO/actions/delete-endpoint@v0
         with:
           # Identify by id (from the deploy job) or by name.
           endpoint-id: ${{ needs.deploy.outputs.endpoint-id }}

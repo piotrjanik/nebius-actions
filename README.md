@@ -87,13 +87,13 @@ jobs:
   train:
     runs-on: ubuntu-latest
     steps:
-      - uses: OWNER/REPO/actions/setup@v1
+      - uses: OWNER/REPO/actions/setup@v0
 
-      - uses: OWNER/REPO/actions/auth@v1
+      - uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
-      - uses: OWNER/REPO/actions/run-job@v1
+      - uses: OWNER/REPO/actions/run-job@v0
         with:
           name: smoke-train
           image: cr.eu-north1.nebius.cloud/your-project/trainer:latest
@@ -125,14 +125,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: OWNER/REPO/actions/setup@v1
+      - uses: OWNER/REPO/actions/setup@v0
 
-      - uses: OWNER/REPO/actions/auth@v1
+      - uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       - id: deploy
-        uses: OWNER/REPO/actions/deploy-endpoint@v1
+        uses: OWNER/REPO/actions/deploy-endpoint@v0
         with:
           name: my-model
           image: cr.eu-north1.nebius.cloud/your-project/serve:latest
@@ -148,7 +148,7 @@ jobs:
 
 ## The actions
 
-All actions are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`auth` ran earlier in the same job** and reads the IAM token from the exported `NEBIUS_IAM_TOKEN` env. The **endpoint** actions talk to the SDK directly, so they do **not** require `setup`. The **job** actions drive the `nebius` CLI and re-ensure it defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall), so they still need `setup`.
+All actions are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v0`. Every resource action assumes **`auth` ran earlier in the same job** and reads the IAM token from the exported `NEBIUS_IAM_TOKEN` env. The **endpoint** actions talk to the SDK directly, so they do **not** require `setup`. The **job** actions drive the `nebius` CLI and re-ensure it defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall), so they still need `setup`.
 
 | Action                  | What it does                                                                                                             | Key inputs                                                                                                                                                                              | Key outputs                     |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |

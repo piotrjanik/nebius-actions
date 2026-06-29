@@ -22,17 +22,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Nebius
-        uses: OWNER/REPO/actions/setup@v1
+        uses: OWNER/REPO/actions/setup@v0
 
       - name: Authenticate to Nebius
-        uses: OWNER/REPO/actions/auth@v1
+        uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       # 1) Submit the Job and return immediately (no waiting).
       - name: Submit job
         id: submit
-        uses: OWNER/REPO/actions/submit-job@v1
+        uses: OWNER/REPO/actions/submit-job@v0
         with:
           name: batch-${{ github.run_id }}
           image: cr.eu-north1.nebius.cloud/your-project/batch:latest
@@ -51,7 +51,7 @@ jobs:
       #    Fails the step if the Job ends in FAILED/CANCELLED.
       - name: Wait for job
         id: wait
-        uses: OWNER/REPO/actions/wait-for-job@v1
+        uses: OWNER/REPO/actions/wait-for-job@v0
         with:
           job-id: ${{ steps.submit.outputs.job-id }}
           stream-logs: true
@@ -73,6 +73,6 @@ jobs:
       # 3) If the workflow run is cancelled, cancel the Nebius Job too.
       - name: Cancel job on workflow cancellation
         if: cancelled() && steps.submit.outputs.job-id != ''
-        uses: OWNER/REPO/actions/cancel-job@v1
+        uses: OWNER/REPO/actions/cancel-job@v0
         with:
           job-id: ${{ steps.submit.outputs.job-id }}
