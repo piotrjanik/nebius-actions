@@ -1,12 +1,13 @@
-# Demo: the convenience Job path — setup -> auth -> run-job — running a real
-# LoRA fine-tune with Axolotl on a Nebius GPU.
+# Demo: the split Job path — setup -> submit-job -> wait-for-job — running a
+# real LoRA fine-tune with Axolotl on a Nebius GPU.
 #
 # Adapted from the Nebius serverless-ai-cookbook:
 #   https://github.com/nebius/serverless-ai-cookbook/tree/main/training/axolotl-finetuning
 #
 # It QLoRA-fine-tunes Qwen/Qwen2.5-0.5B on a wikitext slice for 30 steps, then
-# exits. `run-job` submits the Job, streams its logs, waits for a terminal
-# state, and fails the step if the Job did not succeed.
+# exits. `submit-job` creates the Job and returns; `wait-for-job` streams its
+# logs, polls to a terminal state, and fails the step if the Job did not
+# succeed. (The all-in-one `run-job` action fuses these two into one step.)
 #
 # No bucket needed: the Axolotl `config.yaml` (examples/axolotl/config.yaml) is
 # base64-embedded into the container command, so the job needs NO Object Storage
@@ -69,9 +70,10 @@ jobs:
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
-      - name: Run Axolotl fine-tune
-        id: run
-        uses: ./actions/run-job
+      # 1) Submit the Job and return immediately (no waiting).
+      - name: Submit Axolotl fine-tune
+        id: submit
+        uses: ./actions/submit-job
         with:
           name: demo-axolotl-${{ github.run_id }}
           image: ${{ vars.NEBIUS_JOB_IMAGE || 'docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1' }}
@@ -80,9 +82,8 @@ jobs:
           # `bash` is the container entrypoint; the actual script is passed as
           # `--args` below so the container expands the pipeline itself.
           command: bash
+          # The Job's own run timeout (passed to the CLI as --timeout).
           timeout: 1h
-          wait: true
-          poll-interval: 10
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           # Raw passthrough to `nebius ai job create`: bigger disk for the model +
           # dataset cache, then the container args. Nebius space-splits the single
@@ -94,13 +95,33 @@ jobs:
             --args
             -c "echo ${{ steps.cfg.outputs.b64 }} | base64 -d > /tmp/config.yaml && axolotl train /tmp/config.yaml"
 
+      # 2) Wait for the submitted Job to reach a terminal state, streaming logs.
+      #    Fails the step on FAILED/CANCELLED or when the poll timeout is hit.
+      #    Note: wait-for-job `timeout` is a poll ceiling in SECONDS (unlike the
+      #    submit `timeout` above, which is the Job's own run timeout).
+      - name: Wait for fine-tune
+        id: wait
+        uses: ./actions/wait-for-job
+        with:
+          job-id: ${{ steps.submit.outputs.job-id }}
+          stream-logs: true
+          poll-interval: 10
+          timeout: 3600
+
+      # 3) If the run is cancelled, cancel the Nebius Job too.
+      - name: Cancel job on workflow cancellation
+        if: cancelled() && steps.submit.outputs.job-id != ''
+        uses: ./actions/cancel-job
+        with:
+          job-id: ${{ steps.submit.outputs.job-id }}
+
       # Read step outputs via env (not ${{ }} inlined into the script body) so
       # values expand in the shell — the injection-safe pattern.
       - name: Report result
         env:
-          JOB_ID: ${{ steps.run.outputs.job-id }}
-          STATUS: ${{ steps.run.outputs.status }}
-          EXIT_CODE: ${{ steps.run.outputs.exit-code }}
+          JOB_ID: ${{ steps.submit.outputs.job-id }}
+          STATUS: ${{ steps.wait.outputs.status }}
+          EXIT_CODE: ${{ steps.wait.outputs.exit-code }}
         run: |
           echo "Job ID:    $JOB_ID"
           echo "Status:    $STATUS"
