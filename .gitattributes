@@ -1,0 +1,8 @@
+# Enforce LF line endings repo-wide. The committed action bundles under
+# actions/<name>/dist/ must be byte-stable across platforms, because the CI
+# "dist-drift" gate compares a fresh build to the committed files. Without this,
+# a contributor whose core.autocrlf=true could commit CRLF and break the gate.
+* text=auto eol=lf
+
+# Bundled, generated action code: always LF, and collapse it in GitHub diffs.
+actions/*/dist/index.js linguist-generated=true text eol=lf

@@ -78,7 +78,11 @@ async function bundleOne(ncc, { name, input, outDir }) {
   // Replace the dist dir so stale assets never linger (keeps dist-drift honest).
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
-  await writeFile(join(outDir, 'index.js'), code, 'utf8');
+  // Normalize to LF so the committed bundle is byte-identical across platforms.
+  // Some vendored dependency chunks ship CRLF; ncc concatenates them verbatim,
+  // which would otherwise make a fresh build differ from the committed (LF) dist
+  // on runners without core.autocrlf, breaking the dist-drift gate.
+  await writeFile(join(outDir, 'index.js'), code.replace(/\r\n/g, '\n'), 'utf8');
 
   for (const [assetPath, asset] of Object.entries(assets ?? {})) {
     const dest = join(outDir, assetPath);
