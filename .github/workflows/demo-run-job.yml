@@ -1,0 +1,75 @@
+# Demo: the convenience Job path — setup -> auth -> run-job.
+#
+# Runs against THIS repo's actions by LOCAL path (./actions/...), so it doubles
+# as an end-to-end smoke test. `run-job` submits the Job, streams its logs,
+# waits for a terminal state, and fails the step if the Job did not succeed.
+#
+# Requires (repo or environment):
+#   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the federated credential trusts
+#   vars.NEBIUS_JOB_IMAGE           - a runnable container image (optional; has a default)
+#   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
+name: demo-run-job
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: 'Number of training epochs'
+        default: '1'
+      preset:
+        description: 'Compute preset'
+        default: 'cpu-4vcpu-16gb'
+
+# Required for keyless OIDC auth: lets `auth` mint a GitHub OIDC token.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run-job:
+    runs-on: ubuntu-latest
+    steps:
+      # Local action refs (./actions/...) only resolve after the repo is checked
+      # out into the workspace.
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: ./actions/setup
+
+      - name: Authenticate to Nebius
+        uses: ./actions/auth
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+
+      - name: Run job
+        id: run
+        uses: ./actions/run-job
+        with:
+          name: demo-run-${{ github.run_id }}
+          image: ${{ vars.NEBIUS_JOB_IMAGE || 'cr.eu-north1.nebius.cloud/examples/hello:latest' }}
+          preset: ${{ inputs.preset }}
+          # One whitespace-separated token per line (joined into the container command).
+          command: |
+            python
+            train.py
+            --epochs
+            ${{ inputs.epochs }}
+          env: |
+            WANDB_PROJECT=demo
+            LOG_LEVEL=info
+          timeout: 1h
+          wait: true
+          poll-interval: 10
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+
+      # Read step outputs via env (not ${{ }} inlined into the script body) so
+      # values expand in the shell — the injection-safe pattern.
+      - name: Report result
+        env:
+          JOB_ID: ${{ steps.run.outputs.job-id }}
+          STATUS: ${{ steps.run.outputs.status }}
+          EXIT_CODE: ${{ steps.run.outputs.exit-code }}
+        run: |
+          echo "Job ID:    $JOB_ID"
+          echo "Status:    $STATUS"
+          echo "Exit code: $EXIT_CODE"
