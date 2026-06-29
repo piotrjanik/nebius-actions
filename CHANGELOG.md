@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/piotrjanik/nebius-actions/compare/v0.1.0...v0.1.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* **jobs:** use real CLI flags for job create (--parent-id, --volume) ([80f7dd6](https://github.com/piotrjanik/nebius-actions/commit/80f7dd69d4bea1cb01449d11b80eeca15ef298d7))
+
 ## 0.1.0 (2026-06-29)
 
 
