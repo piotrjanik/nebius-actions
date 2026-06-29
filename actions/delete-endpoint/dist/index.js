@@ -64108,7 +64108,7 @@ async function runCli(args, opts = {}) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.configureCliAuth = exports.withJsonFormat = exports.runCli = exports.ensureCli = void 0;
+exports.configureCliProfile = exports.configureCliAuth = exports.withJsonFormat = exports.runCli = exports.ensureCli = void 0;
 /** Public surface of the `cli` module. */
 var install_1 = __nccwpck_require__(769);
 Object.defineProperty(exports, "ensureCli", ({ enumerable: true, get: function () { return install_1.ensureCli; } }));
@@ -64117,6 +64117,8 @@ Object.defineProperty(exports, "runCli", ({ enumerable: true, get: function () {
 Object.defineProperty(exports, "withJsonFormat", ({ enumerable: true, get: function () { return exec_1.withJsonFormat; } }));
 var auth_1 = __nccwpck_require__(4182);
 Object.defineProperty(exports, "configureCliAuth", ({ enumerable: true, get: function () { return auth_1.configureCliAuth; } }));
+var profile_1 = __nccwpck_require__(807);
+Object.defineProperty(exports, "configureCliProfile", ({ enumerable: true, get: function () { return profile_1.configureCliProfile; } }));
 
 
 /***/ }),
@@ -64277,6 +64279,114 @@ async function ensureCli(opts) {
     core.addPath(cachedDir);
     core.debug(`nebius CLI installed (${resolvedVersion}) and cached at ${cachedDir}`);
     return cachedDir;
+}
+
+
+/***/ }),
+
+/***/ 807:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+/**
+ * Configure a `nebius` CLI profile so the CLI can authenticate itself.
+ *
+ * `ensureCli` installs the binary, but the CLI also needs `~/.nebius/config.yaml`
+ * with an active profile (endpoint + credentials) — without it every CLI call
+ * fails with "missing configuration". When key credentials are supplied we
+ * create + activate a service-account-key profile: the CLI signs a JWT with the
+ * private key to mint IAM tokens for each call (this is the CLI counterpart to
+ * the SDK's key auth in `auth/key.ts`).
+ *
+ * The private key is written to a 0600 file under RUNNER_TEMP (job-scoped, auto
+ * cleaned by the runner). The profile references it BY PATH, so the file must
+ * persist for the whole job — we deliberately do NOT delete it. The key is
+ * masked so it never appears in logs.
+ */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.configureCliProfile = configureCliProfile;
+const node_fs_1 = __nccwpck_require__(3024);
+const os = __importStar(__nccwpck_require__(8161));
+const path = __importStar(__nccwpck_require__(6760));
+const exec_1 = __nccwpck_require__(893);
+const log_1 = __nccwpck_require__(5578);
+const DEFAULT_PROFILE = 'ci';
+const DEFAULT_ENDPOINT = 'api.nebius.cloud';
+/**
+ * Create and activate a key-based `nebius` CLI profile.
+ * @throws on missing key inputs or any CLI failure (no silent fallback).
+ */
+async function configureCliProfile(o) {
+    if (!o.serviceAccountId) {
+        throw new Error('configureCliProfile: serviceAccountId is required.');
+    }
+    if (!o.publicKeyId) {
+        throw new Error('configureCliProfile: publicKeyId is required.');
+    }
+    if (!o.privateKeyPem) {
+        throw new Error('configureCliProfile: privateKeyPem is required.');
+    }
+    (0, log_1.mask)(o.privateKeyPem);
+    const tmpDir = process.env.RUNNER_TEMP || os.tmpdir();
+    const keyPath = path.join(tmpDir, 'nebius-sa-private-key.pem');
+    const pem = o.privateKeyPem.endsWith('\n') ? o.privateKeyPem : `${o.privateKeyPem}\n`;
+    await node_fs_1.promises.writeFile(keyPath, pem, { mode: 0o600 });
+    const name = o.name || DEFAULT_PROFILE;
+    const createArgs = [
+        'profile',
+        'create',
+        name,
+        '--endpoint',
+        o.endpoint || DEFAULT_ENDPOINT,
+        '--service-account-id',
+        o.serviceAccountId,
+        '--public-key-id',
+        o.publicKeyId,
+        '--private-key-file-path',
+        keyPath,
+    ];
+    if (o.parentId) {
+        createArgs.push('--parent-id', o.parentId);
+    }
+    if (o.tenantId) {
+        createArgs.push('--tenant-id', o.tenantId);
+    }
+    await (0, exec_1.runCli)(createArgs);
+    await (0, exec_1.runCli)(['profile', 'activate', name]);
 }
 
 

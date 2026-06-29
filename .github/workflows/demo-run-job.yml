@@ -14,7 +14,7 @@
 # disk (/tmp/output). To persist them, create a bucket, add a
 # `mounts: <bucket-id>:/workspace/data` input, and point output_dir there.
 #
-# Auth: service-account key (NOT OIDC). Jobs use the `nebius` CLI, so this demo
+# Auth: service-account key (NOT OIDC). Jobs use the `nebius` CLI, so `setup`
 # configures a key-based CLI profile (the `auth` action only exports a token for
 # the SDK path — endpoints; the CLI needs its own ~/.nebius/config.yaml).
 #
@@ -57,31 +57,17 @@ jobs:
         id: cfg
         run: echo "b64=$(base64 -w0 examples/axolotl/config.yaml)" >> "$GITHUB_OUTPUT"
 
+      # Install the CLI and configure a key-based profile so the CLI can
+      # authenticate itself (jobs drive the CLI). The private key comes from a
+      # secret; setup masks it and writes it to a 0600 file under RUNNER_TEMP.
       - name: Set up Nebius
         uses: ./actions/setup
-
-      # Jobs drive the `nebius` CLI, which needs a profile (~/.nebius/config.yaml)
-      # — `setup` only installs the binary. Create a key-based profile so the CLI
-      # authenticates itself; values come from vars + the private-key secret and
-      # are referenced via env (injection-safe), never inlined into the script.
-      - name: Configure nebius CLI (service-account key)
-        env:
-          NEBIUS_PRIVATE_KEY: ${{ secrets.NEBIUS_PRIVATE_KEY }}
-          SA_ID: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
-          PUBLIC_KEY_ID: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
-          PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
-          TENANT_ID: ${{ vars.NEBIUS_TENANT_ID }}
-        run: |
-          umask 077
-          printf '%s\n' "$NEBIUS_PRIVATE_KEY" > "$RUNNER_TEMP/nebius_pk.pem"
-          nebius profile create ci \
-            --endpoint api.nebius.cloud \
-            --service-account-id "$SA_ID" \
-            --public-key-id "$PUBLIC_KEY_ID" \
-            --private-key-file-path "$RUNNER_TEMP/nebius_pk.pem" \
-            --parent-id "$PROJECT_ID" \
-            --tenant-id "$TENANT_ID"
-          nebius profile activate ci
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
       - name: Run Axolotl fine-tune
         id: run

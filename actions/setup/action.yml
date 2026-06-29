@@ -1,7 +1,9 @@
 name: 'Nebius Setup'
 description: >-
   Install + cache the nebius CLI and put it on PATH. Run once per job before any
-  resource action. Authentication is handled separately by the `auth` action.
+  resource action. Optionally configures a key-based CLI profile when a
+  service-account key is supplied (jobs use the CLI and need a profile); the SDK
+  token for endpoints is handled separately by the `auth` action.
 author: 'Nebius Actions'
 branding:
   icon: 'download'
@@ -20,6 +22,30 @@ inputs:
     description: 'Region/profile prefix.'
     required: false
     default: 'eu'
+  private-key:
+    description: >-
+      PEM-encoded service-account private key. When set, `setup` creates and
+      activates a key-based CLI profile so the CLI can authenticate. Pass from a
+      secret; it is masked and written to a 0600 file under RUNNER_TEMP.
+    required: false
+  service-account-id:
+    description: 'Service account the key belongs to (required when `private-key` is set).'
+    required: false
+  public-key-id:
+    description: 'Public key id of the authorized key (required when `private-key` is set).'
+    required: false
+  project-id:
+    description: "Default parent project for the CLI profile (`private-key` only)."
+    required: false
+  tenant-id:
+    description: 'Default tenant for the CLI profile (`private-key` only).'
+    required: false
+  endpoint:
+    description: 'API endpoint for the CLI profile (default: api.nebius.cloud).'
+    required: false
+  profile:
+    description: 'CLI profile name to create + activate (default: ci).'
+    required: false
 
 runs:
   using: 'node24'

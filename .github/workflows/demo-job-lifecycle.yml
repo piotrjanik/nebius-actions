@@ -5,13 +5,14 @@
 # between the two, and a clean cancel when the run itself is cancelled. Uses
 # THIS repo's actions by LOCAL path (./actions/...).
 #
-# Auth: service-account key (NOT OIDC). The `auth` action signs a JWT with the
-# SA's authorized key and exports the IAM token as NEBIUS_IAM_TOKEN.
+# Auth: service-account key (NOT OIDC). Jobs use the `nebius` CLI, so `setup`
+# configures a key-based CLI profile.
 #
 # Requires:
 #   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the key belongs to
 #   vars.NEBIUS_PUBLIC_KEY_ID       - the authorized key's public key id
 #   secrets.NEBIUS_PRIVATE_KEY      - the authorized key's PEM private key
+#   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
 #   vars.NEBIUS_JOB_IMAGE           - a runnable container image (optional; has a default)
 #   vars.NEBIUS_PROJECT_ID          - parent project (optional)
 name: demo-job-lifecycle
@@ -32,16 +33,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Install the CLI and configure a key-based profile (jobs drive the CLI).
       - name: Set up Nebius
         uses: ./actions/setup
-
-      - name: Authenticate to Nebius (service-account key)
-        uses: ./actions/auth
         with:
-          auth-method: key
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
           public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
           private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
       # 1) Submit and return immediately (no waiting).
       - name: Submit job
