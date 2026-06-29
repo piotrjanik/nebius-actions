@@ -33,10 +33,10 @@ on:
     inputs:
       platform:
         description: 'Compute platform'
-        default: 'gpu-l40s-a'
+        default: 'gpu-h100-sxm'
       preset:
         description: 'Compute preset'
-        default: '1gpu-8vcpu-32gb'
+        default: '1gpu-16vcpu-200gb'
       disk-size:
         description: 'Job disk size'
         default: '450Gi'
