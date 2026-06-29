@@ -43,10 +43,10 @@ const JOB = [...CLI_JOB_GROUP];
 /**
  * Build `nebius ai job create ...` args from a spec (pure).
  *
- * Flag names CONFIRMED 2026-06-22:
+ * Flag names CONFIRMED against the live `nebius ai job create` CLI:
  *   --name --image --container-command --preset --platform --env --timeout
- * `--project-id` is the common cross-action flag (spec §5). `extraArgs` is raw
- * passthrough appended last so users can reach unmapped flags.
+ *   --volume (mounts) and --parent-id (the project/parent the job is created in).
+ * `extraArgs` is raw passthrough appended last so users can reach unmapped flags.
  */
 export function buildCreateJobArgs(s: JobSpec): string[] {
   if (!s.image) {
@@ -65,7 +65,7 @@ export function buildCreateJobArgs(s: JobSpec): string[] {
     args.push('--platform', s.platform);
   }
   if (s.projectId) {
-    args.push('--project-id', s.projectId);
+    args.push('--parent-id', s.projectId);
   }
   if (s.timeout) {
     args.push('--timeout', s.timeout);
@@ -75,10 +75,11 @@ export function buildCreateJobArgs(s: JobSpec): string[] {
       args.push('--env', `${k}=${v}`);
     }
   }
-  // VERIFY: mount flag name. `--mount` is the most likely spelling.
+  // Mounts map to `--volume` (e.g. `s3://bucket:/data:rw:profile`), the flag the
+  // live CLI accepts; `--mount` does not exist.
   if (s.mounts) {
     for (const m of s.mounts) {
-      args.push('--mount', m);
+      args.push('--volume', m);
     }
   }
   // Container command/args are passed via --container-command (CONFIRMED flag).
@@ -161,14 +162,15 @@ export async function cancelJob(id: string): Promise<Job> {
 
 /**
  * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
- * `--follow` requests live streaming. // VERIFY: follow flag spelling.
+ * `nebius ai job logs --id <id>` prints the logs; the live CLI exposes no
+ * `--follow` flag, and run-job calls this only once the job is terminal anyway.
  */
 export async function streamJobLogs(id: string): Promise<void> {
   if (!id) {
     throw new Error('streamJobLogs: id is required.');
   }
   await log.group(`job ${id} logs`, async () => {
-    await runCli([...JOB, 'logs', '--id', id, '--follow']);
+    await runCli([...JOB, 'logs', '--id', id]);
   });
 }
 
