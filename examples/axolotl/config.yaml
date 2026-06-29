@@ -1,0 +1,45 @@
+# Axolotl LoRA/QLoRA fine-tuning config for the demo-run-job workflow.
+#
+# Adapted from the Nebius serverless-ai-cookbook example:
+#   https://github.com/nebius/serverless-ai-cookbook/tree/main/training/axolotl-finetuning
+#
+# The demo embeds this file (base64) into the job's container command, so it
+# needs no Object Storage bucket. `output_dir` therefore points at local
+# container disk (/tmp). To persist adapters, mount a bucket and point
+# output_dir at it (see the workflow header).
+base_model: Qwen/Qwen2.5-0.5B
+
+load_in_4bit: true
+adapter: qlora
+
+datasets:
+  - path: Salesforce/wikitext
+    name: wikitext-2-raw-v1
+    split: "train[:2000]"
+    type: completion
+    field: text
+
+sequence_len: 128
+micro_batch_size: 1
+gradient_accumulation_steps: 1
+
+learning_rate: 2e-4
+max_steps: 30
+val_set_size: 0
+logging_steps: 5
+
+# Local container disk (no bucket mount in the demo).
+dataset_prepared_path: /tmp/output/last_run_prepared
+output_dir: /tmp/output
+
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj

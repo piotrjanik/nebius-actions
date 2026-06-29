@@ -1,8 +1,9 @@
 name: 'Nebius Auth'
 description: >-
-  Keyless GitHub OIDC -> Nebius IAM token exchange (federated credentials over
-  gRPC). Exports the masked token as NEBIUS_IAM_TOKEN for the CLI and all
-  downstream steps. Run once per job. Does not install the CLI (see `setup`).
+  Authenticate to Nebius and export the masked IAM token as NEBIUS_IAM_TOKEN for
+  the CLI and all downstream steps. Two methods: keyless GitHub OIDC token
+  exchange (default) or a service-account authorized key. Run once per job. Does
+  not install the CLI (see `setup`).
 author: 'Nebius Actions'
 branding:
   icon: 'log-in'
@@ -11,15 +12,26 @@ branding:
 inputs:
   service-account-id:
     description: >-
-      Nebius service account (`serviceaccount-…`) this workflow impersonates via
-      its federated credential. Required: it is the subject of the token exchange.
+      Nebius service account (`serviceaccount-…`) to authenticate as. Required:
+      for `oidc` it is the impersonated subject of the token exchange; for `key`
+      it is the account the authorized key belongs to.
     required: true
   auth-method:
-    description: 'Authentication method. Only `oidc` is supported in v1.'
+    description: 'Authentication method: `oidc` (keyless, default) or `key`.'
     required: false
     default: 'oidc'
+  public-key-id:
+    description: >-
+      Required for `auth-method: key`. Id of the registered public key (the
+      signed JWT `kid`) of the service-account authorized key.
+    required: false
+  private-key:
+    description: >-
+      Required for `auth-method: key`. PEM-encoded private key half of the
+      authorized key. Pass from a secret; it is masked and never echoed.
+    required: false
   audience:
-    description: 'Optional OIDC audience claim for the GitHub OIDC token.'
+    description: 'Optional OIDC audience claim (`auth-method: oidc` only).'
     required: false
   domain:
     description: 'Optional Nebius API domain override (default: api.nebius.cloud:443).'

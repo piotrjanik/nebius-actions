@@ -1,9 +1,11 @@
 /**
  * `auth` action entrypoint.
  *
- * Performs the keyless GitHub OIDC -> Nebius IAM token exchange (federated
- * credentials, over gRPC via `@nebius/js-sdk`), masks the token, and exports it
- * as `NEBIUS_IAM_TOKEN` for the CLI and all downstream steps. Run once per job.
+ * Authenticates to Nebius and exports the resulting IAM token as
+ * `NEBIUS_IAM_TOKEN` (masked) for the CLI and all downstream steps. Run once per
+ * job. Two methods, selected by `auth-method`:
+ *   - `oidc` (default): keyless GitHub OIDC -> IAM token exchange.
+ *   - `key`           : a service-account authorized key (private-key JWT).
  *
  * This action does NOT install the CLI — `configureCliAuth` only sets env vars.
  * Use the `setup` action to put the `nebius` CLI on PATH.
@@ -16,27 +18,46 @@ import {
   getString,
   log,
   setOutput,
+  type AuthOptions,
 } from '../core';
 
-async function run(): Promise<void> {
+/** Build the method-specific auth options from action inputs. */
+function readAuthOptions(): AuthOptions {
   const authMethod = getString('auth-method', { default: 'oidc' });
-  // The service account this workflow impersonates via federated credentials.
+  // The service account to authenticate as (subject of both flows).
   const serviceAccountId = getString('service-account-id', { required: true });
-  const audience = getString('audience');
   // Optional SDK domain override; empty -> SDK default (api.nebius.cloud:443).
   const domain = getString('domain');
 
-  if (authMethod !== 'oidc') {
-    throw new Error(`Unsupported auth-method '${authMethod}'. Only 'oidc' is supported in v1.`);
-  }
-
-  const result = await log.group('Authenticate (OIDC token exchange)', async () => {
-    const auth = await authenticate({
+  if (authMethod === 'oidc') {
+    const audience = getString('audience');
+    return {
       method: 'oidc',
       serviceAccountId,
       ...(audience !== '' ? { audience } : {}),
       ...(domain !== '' ? { domain } : {}),
-    });
+    };
+  }
+
+  if (authMethod === 'key') {
+    return {
+      method: 'key',
+      serviceAccountId,
+      publicKeyId: getString('public-key-id', { required: true }),
+      privateKeyPem: getString('private-key', { required: true }),
+      ...(domain !== '' ? { domain } : {}),
+    };
+  }
+
+  throw new Error(`Unsupported auth-method '${authMethod}'. Use 'oidc' or 'key'.`);
+}
+
+async function run(): Promise<void> {
+  const options = readAuthOptions();
+  const label = options.method === 'key' ? 'service-account key' : 'OIDC token exchange';
+
+  const result = await log.group(`Authenticate (${label})`, async () => {
+    const auth = await authenticate(options);
     await configureCliAuth(auth.token);
     return auth;
   });

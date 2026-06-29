@@ -1,15 +1,19 @@
 /**
- * Auth orchestrator: GitHub OIDC -> Nebius IAM token (keyless, federated).
+ * Auth orchestrator. Two paths to a Nebius IAM token:
+ *   - `oidc`: keyless GitHub OIDC -> IAM (federated impersonation).
+ *   - `key` : a service-account authorized key (private-key JWT) -> IAM.
  */
 
 import { getGithubIdToken } from './oidc';
 import { exchangeForIamToken } from './exchange';
+import { exchangeKeyForIamToken } from './key';
 
 export { getGithubIdToken } from './oidc';
 export { exchangeForIamToken, type ExchangeParams, type IamToken } from './exchange';
+export { exchangeKeyForIamToken, type KeyExchangeParams } from './key';
 
-export interface AuthOptions {
-  /** Only `oidc` is implemented in v1 (extensible enum; spec §10). */
+/** Keyless GitHub OIDC -> IAM via federated impersonation. */
+export interface OidcAuthOptions {
   method: 'oidc';
   /** Service account to impersonate via federated credentials (`serviceaccount-…`). */
   serviceAccountId: string;
@@ -19,31 +23,62 @@ export interface AuthOptions {
   domain?: string;
 }
 
+/** Service-account authorized key (private-key JWT) -> IAM. */
+export interface KeyAuthOptions {
+  method: 'key';
+  /** Service account the key authenticates as (`serviceaccount-…`). */
+  serviceAccountId: string;
+  /** The registered public key id (the signed JWT `kid`). */
+  publicKeyId: string;
+  /** The PEM-encoded private key half of the authorized key. */
+  privateKeyPem: string;
+  /** Optional SDK domain override (default: `api.nebius.cloud:443`). */
+  domain?: string;
+}
+
+export type AuthOptions = OidcAuthOptions | KeyAuthOptions;
+
 export interface AuthResult {
   token: string;
   expiresInSeconds: number;
 }
 
 /**
- * Run the full keyless federated auth flow:
- *   1. fetch the GitHub OIDC JWT (masked),
- *   2. exchange it (delegation: SA subject + GitHub actor) for a Nebius IAM
- *      access token over gRPC via the Nebius SDK (masked).
+ * Authenticate to Nebius and return a (masked) IAM access token.
+ *
+ * - `oidc`: fetch the GitHub OIDC JWT, then exchange it (SA subject + GitHub
+ *   actor) for an IAM token over gRPC via the SDK.
+ * - `key` : sign a JWT with the service account's private key and exchange it
+ *   for an IAM token over gRPC via the SDK.
  *
  * @throws on unsupported method or any step failure (no silent fallback).
  */
 export async function authenticate(o: AuthOptions): Promise<AuthResult> {
-  if (o.method !== 'oidc') {
-    throw new Error(`Unsupported auth method '${o.method}'. Only 'oidc' is supported in v1.`);
-  }
   if (!o.serviceAccountId) {
-    throw new Error('authenticate: serviceAccountId is required for the federated OIDC flow.');
+    throw new Error('authenticate: serviceAccountId is required.');
   }
-  const idToken = await getGithubIdToken(o.audience);
-  const iam = await exchangeForIamToken({
-    idToken,
-    serviceAccountId: o.serviceAccountId,
-    ...(o.domain ? { domain: o.domain } : {}),
-  });
-  return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
+
+  if (o.method === 'oidc') {
+    const idToken = await getGithubIdToken(o.audience);
+    const iam = await exchangeForIamToken({
+      idToken,
+      serviceAccountId: o.serviceAccountId,
+      ...(o.domain ? { domain: o.domain } : {}),
+    });
+    return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
+  }
+
+  if (o.method === 'key') {
+    const iam = await exchangeKeyForIamToken({
+      serviceAccountId: o.serviceAccountId,
+      publicKeyId: o.publicKeyId,
+      privateKeyPem: o.privateKeyPem,
+      ...(o.domain ? { domain: o.domain } : {}),
+    });
+    return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
+  }
+
+  throw new Error(
+    `Unsupported auth method '${(o as { method: string }).method}'. Use 'oidc' or 'key'.`,
+  );
 }
