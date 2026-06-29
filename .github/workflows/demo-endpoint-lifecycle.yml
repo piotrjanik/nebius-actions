@@ -6,14 +6,15 @@
 # `deploy` runs with wait:false to showcase the explicit wait-for-endpoint poll;
 # `run-job`/`deploy-endpoint` can also wait inline.
 #
-# Auth: this demo does NOT use OIDC. Provide a Nebius IAM token directly as the
-# `NEBIUS_IAM_TOKEN` secret (short-lived — rotate as needed); the SDK reads it
-# straight from the environment, so no `auth` action runs.
+# Auth: service-account key (NOT OIDC). The `auth` action signs a JWT with the
+# SA's authorized key and exports the IAM token as NEBIUS_IAM_TOKEN for the SDK.
 #
 # Requires:
-#   secrets.NEBIUS_IAM_TOKEN    - a Nebius IAM token (required)
-#   vars.NEBIUS_ENDPOINT_IMAGE  - a servable container image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID      - parent project (optional)
+#   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the key belongs to
+#   vars.NEBIUS_PUBLIC_KEY_ID       - the authorized key's public key id
+#   secrets.NEBIUS_PRIVATE_KEY      - the authorized key's PEM private key
+#   vars.NEBIUS_ENDPOINT_IMAGE      - a servable container image (optional; has a default)
+#   vars.NEBIUS_PROJECT_ID          - parent project (optional)
 name: demo-endpoint-lifecycle
 
 on:
@@ -29,16 +30,20 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      # Static IAM token instead of OIDC. Auto-masked as a GitHub secret; the
-      # nebius SDK reads NEBIUS_IAM_TOKEN straight from the environment.
-      NEBIUS_IAM_TOKEN: ${{ secrets.NEBIUS_IAM_TOKEN }}
     # Step outputs do NOT propagate to needs.<job>.outputs automatically; the
     # job must re-export them so the teardown job can read the endpoint id.
     outputs:
       endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Authenticate to Nebius (service-account key)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
 
       # 1) Create the endpoint and return immediately (wait:false).
       - name: Deploy endpoint
@@ -87,10 +92,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy
     if: always() && needs.deploy.outputs.endpoint-id != ''
-    env:
-      NEBIUS_IAM_TOKEN: ${{ secrets.NEBIUS_IAM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Authenticate to Nebius (service-account key)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
 
       - name: Delete endpoint
         uses: ./actions/delete-endpoint
