@@ -1,6 +1,8 @@
 name: 'Nebius Deploy Endpoint'
 description: >-
-  Create a Nebius Endpoint and poll until it is serving.
+  Create a Nebius Endpoint (via the Nebius SDK) and poll until it is serving.
+  Note: the API has no update verb — if an endpoint with the same name already
+  exists it is returned as-is and NOT updated.
 author: 'Nebius Actions'
 branding:
   icon: 'globe'
@@ -14,17 +16,16 @@ inputs:
     description: 'Container image to serve (required).'
     required: true
   port:
-    description: 'Container port the served process listens on (emitted as --container-port).'
+    description: 'Container port the served process listens on.'
     required: false
   public:
-    description: 'Expose a public HTTPS URL (emitted as --public).'
+    description: 'Assign a public IP / expose a public URL.'
     required: false
     default: 'false'
-  auth:
-    description: "Auth mode for the served URL, e.g. 'token' (emitted as --auth)."
-    required: false
   token:
-    description: 'Bearer token when auth=token (emitted as --token; also echoed as the `token` output).'
+    description: >-
+      Bearer token required to access the served endpoint (set as the endpoint
+      authToken). Registered as a secret and masked; never echoed as an output.
     required: false
   preset:
     description: 'Compute preset (e.g. 1gpu-16vcpu-200gb).'
@@ -34,12 +35,6 @@ inputs:
     required: false
   env:
     description: 'Environment variables as multiline KEY=VALUE pairs.'
-    required: false
-  min-replicas:
-    description: 'Minimum replicas.'
-    required: false
-  max-replicas:
-    description: 'Maximum replicas.'
     required: false
   wait:
     description: 'Wait until the endpoint is serving.'
@@ -54,10 +49,7 @@ inputs:
     required: false
     default: '10'
   project-id:
-    description: 'Nebius project id.'
-    required: false
-  extra-args:
-    description: 'Raw passthrough args appended to the CLI call (multiline).'
+    description: 'Nebius project id (the endpoint parent).'
     required: false
 
 outputs:
@@ -67,8 +59,6 @@ outputs:
     description: 'The public HTTPS URL (when reported).'
   status:
     description: 'The final endpoint status.'
-  token:
-    description: 'The bearer token (echoed from the `token` input, when provided).'
 
 runs:
   using: 'node24'

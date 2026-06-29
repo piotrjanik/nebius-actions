@@ -10,9 +10,9 @@ These actions are **primitives**, not an opinionated train→deploy pipeline. Th
 Two things make this suite distinct:
 
 - **Keyless auth.** Authentication uses **GitHub OIDC** exchanged for a short-lived Nebius IAM token (RFC-8693 token exchange). No long-lived Nebius secret is ever stored in your repo.
-- **CLI under the hood.** Resource operations (jobs, endpoints) drive the official **`nebius` CLI**, which tracks platform features and handles retries, pagination, and long-running operations. The auth/token-exchange path uses the official **[`@nebius/js-sdk`](https://github.com/nebius/js-sdk)** over native gRPC.
+- **SDK / CLI under the hood.** Endpoint operations and the auth/token-exchange path use the official **[`@nebius/js-sdk`](https://github.com/nebius/js-sdk)** over native gRPC. Job operations currently drive the official **`nebius` CLI** (installed by `setup`), which handles retries, pagination, and long-running operations.
 
-> Nebius resource APIs are gRPC-only (no public REST). The actions drive the `nebius` CLI for resource operations; only the keyless token exchange goes through the Nebius JS SDK directly. The CLI is installed and cached for you by the `setup` action.
+> Nebius resource APIs are gRPC-only (no public REST). Endpoints and the keyless token exchange go through the Nebius JS SDK directly (no CLI needed); jobs use the `nebius` CLI, installed and cached for you by the `setup` action.
 
 ---
 
@@ -138,19 +138,17 @@ jobs:
           image: cr.eu-north1.nebius.cloud/your-project/serve:latest
           port: 8080
           preset: 1gpu-16vcpu-200gb
-          min-replicas: 1
-          max-replicas: 3
 
       - run: echo "Serving at ${{ steps.deploy.outputs.url }}"
 ```
 
-`deploy-endpoint` is **create-or-update (apply)**: it updates the endpoint if it exists, otherwise creates it, then waits until it is serving.
+`deploy-endpoint` **creates** the endpoint and waits until it is serving. The API has no update verb, so if an endpoint with the same name already exists it is returned unchanged (the new spec is **not** applied) — delete it first to redeploy with a changed spec.
 
 ---
 
 ## The actions
 
-All actions are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`setup` and `auth` ran earlier in the same job**; each one also re-ensures the CLI defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall) and reads the IAM token from the exported env.
+All actions are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v1`. Every resource action assumes **`auth` ran earlier in the same job** and reads the IAM token from the exported `NEBIUS_IAM_TOKEN` env. The **endpoint** actions talk to the SDK directly, so they do **not** require `setup`. The **job** actions drive the `nebius` CLI and re-ensure it defensively (if `setup` already put `nebius` on `PATH`, this is a no-op — no reinstall), so they still need `setup`.
 
 | Action                  | What it does                                                                                                             | Key inputs                                                                                                                                                                              | Key outputs                     |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
@@ -160,9 +158,9 @@ All actions are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<n
 | **`submit-job`**        | Low-level: create a Job and return immediately (no waiting).                                                             | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `project-id`, `extra-args`                                                                   | `job-id`, `status`              |
 | **`wait-for-job`**      | Poll an existing Job until terminal; optionally stream logs.                                                             | `job-id` _(required)_, `timeout`, `poll-interval`, `stream-logs` (`true`)                                                                                                               | `status`, `exit-code`           |
 | **`cancel-job`**        | Cancel a running Job.                                                                                                    | `job-id` _(required)_                                                                                                                                                                   | `status`                        |
-| **`deploy-endpoint`**   | Convenience: create-or-update (apply) an Endpoint, poll until serving.                                                   | `name` _(required)_, `image` _(required)_, `port`, `preset`, `platform`, `env`, `min-replicas`, `max-replicas`, `wait` (`true`), `timeout`, `poll-interval`, `project-id`, `extra-args` | `endpoint-id`, `url`, `status`  |
+| **`deploy-endpoint`**   | Convenience: create an Endpoint (no update verb), poll until serving.                                                    | `name` _(required)_, `image` _(required)_, `port`, `public`, `token`, `preset`, `platform`, `env`, `wait` (`true`), `timeout`, `poll-interval`, `project-id`                            | `endpoint-id`, `url`, `status`  |
 | **`wait-for-endpoint`** | Poll an existing Endpoint until it is serving.                                                                           | `endpoint-id` _(required)_, `timeout`, `poll-interval`                                                                                                                                  | `status`, `url`                 |
-| **`delete-endpoint`**   | Delete an Endpoint.                                                                                                      | `endpoint-id` _or_ `name`                                                                                                                                                               | `status`                        |
+| **`delete-endpoint`**   | Delete an Endpoint (by id, or by name + `project-id`).                                                                   | `endpoint-id` _or_ (`name` + `project-id`)                                                                                                                                              | `status`                        |
 
 ### Convenience vs. low-level
 
@@ -241,10 +239,10 @@ This suite was built against live Nebius docs/CLI (web-verified 2026-06-22), but
 | Job JSON field names         | `id`/`status`/`name` probed across `metadata.id`, `status.state`, etc.                                                                                                 | `jobs.ts` `mapJobJson`                                                                            |
 | Job mount flag               | `--mount` (most likely spelling).                                                                                                                                      | `jobs.ts` `buildCreateJobArgs`                                                                    |
 | Job logs follow flag         | `--follow` for live streaming.                                                                                                                                         | `jobs.ts` `streamJobLogs`                                                                         |
-| Endpoint subcommand verbs    | `create`, `update`, `get`, `get-by-name`, `delete`. `deploy` is modeled as update-then-create (apply); Nebius may expose a single upsert instead.                      | `constants.ts` `CLI_ENDPOINT_VERBS`, `endpoints.ts`                                               |
-| Endpoint create/update flags | `--name --image --port --preset --platform --min-replicas --max-replicas --env --project-id`.                                                                          | `endpoints.ts` `buildDeployEndpointArgs`                                                          |
-| Endpoint URL field           | Probed at `url`, `public_url`, `publicUrl`, `endpoint_url` (and `status.*` variants).                                                                                  | `constants.ts` `ENDPOINT_URL_FIELDS`, `endpoints.ts`                                              |
-| Endpoint status enum         | `CREATING, UPDATING, PENDING, DEPLOYING, READY, ACTIVE, RUNNING, FAILED, ERROR, DELETING, DELETED`. Ready = `READY/ACTIVE/RUNNING`; terminal failure = `FAILED/ERROR`. | `constants.ts` `ENDPOINT_STATUS`, `ENDPOINT_READY_STATUSES`, `ENDPOINT_TERMINAL_FAILURE_STATUSES` |
+| Endpoint API (SDK)           | `EndpointService` (`nebius.ai.v1`) via `@nebius/js-sdk`: `create`/`delete` return an Operation; `get` (by id) / `getByName` (`parentId`+`name`). No update verb — create only. | `sdk/client.ts`, `endpoints.ts`                                                                   |
+| Endpoint spec mapping        | `image`, `ports[].containerPort`, `publicIp`, `authToken`, `preset`, `platform`, `environmentVariables[]`; `name`/`parentId` via metadata. SDK has no replica/auth-mode fields. | `endpoints.ts` `buildEndpointSpec`, `buildEndpointMetadata`                                       |
+| Endpoint URL field           | Served URL read from `status.publicEndpoints[0]` (normalized to `https://`).                                                                                           | `endpoints.ts` `mapSdkEndpoint`                                                                   |
+| Endpoint status enum         | SDK `EndpointStatus.State`: `PROVISIONING, STARTING, RUNNING, STOPPING, STOPPED, DELETING, ERROR`. Ready = `RUNNING`; terminal failure = `ERROR`.                      | `constants.ts` `ENDPOINT_STATUS`, `ENDPOINT_READY_STATUSES`, `ENDPOINT_TERMINAL_FAILURE_STATUSES` |
 | CLI version pinning          | The install script exposes no documented version flag; the requested version is passed as the `NEBIUS_CLI_VERSION` env hint and used as the cache key.                 | `cli/install.ts` `ensureCli`                                                                      |
 
 If a fact turns out wrong, fix the constant (or the small wrapper that references it) — no business logic depends on the literal values.

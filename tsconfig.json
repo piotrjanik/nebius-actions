@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
-    /* Language / runtime target (Node 20 / GitHub Actions node20 runner). */
+    /* Language / runtime target (Node 24 / GitHub Actions node24 runner). */
     "target": "ES2022",
     "lib": ["ES2022"],
 
@@ -17,7 +17,8 @@
        build time, and skipLibCheck shields the SDK's internal declarations. */
     "baseUrl": ".",
     "paths": {
-      "@nebius/js-sdk/runtime/*": ["node_modules/@nebius/js-sdk/dist/esm/runtime/*"]
+      "@nebius/js-sdk/runtime/*": ["node_modules/@nebius/js-sdk/dist/esm/runtime/*"],
+      "@nebius/js-sdk/api/*": ["node_modules/@nebius/js-sdk/dist/esm/api/*"]
     },
 
     /* Interop / ergonomics. */

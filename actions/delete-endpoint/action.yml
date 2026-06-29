@@ -12,6 +12,9 @@ inputs:
   name:
     description: 'The endpoint name to delete (provide this or `endpoint-id`).'
     required: false
+  project-id:
+    description: 'Nebius project id. Required when deleting by `name` (used to resolve the id).'
+    required: false
 
 outputs:
   status:

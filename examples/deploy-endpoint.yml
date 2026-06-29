@@ -46,8 +46,6 @@ jobs:
           image: cr.eu-north1.nebius.cloud/your-project/serve:latest
           port: 8080
           preset: 1gpu-16vcpu-200gb
-          min-replicas: 1
-          max-replicas: 3
           env: |
             MODEL_NAME=my-model
             LOG_LEVEL=info

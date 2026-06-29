@@ -2,11 +2,15 @@
 export {
   deployEndpoint,
   getEndpoint,
+  getEndpointByName,
   deleteEndpoint,
   isEndpointReady,
   isEndpointTerminalFailure,
-  buildDeployEndpointArgs,
-  mapEndpointJson,
+  buildEndpointSpec,
+  buildEndpointMetadata,
+  mapSdkEndpoint,
   type EndpointSpec,
   type Endpoint,
+  type EndpointServiceLike,
+  type OperationLike,
 } from './endpoints';
