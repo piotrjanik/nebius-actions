@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.2](https://github.com/piotrjanik/nebius-actions/compare/v0.1.1...v0.1.2) (2026-06-29)
+
+
+### Features
+
+* **auth:** add service-account key auth method; demos use it ([229a9d9](https://github.com/piotrjanik/nebius-actions/commit/229a9d9a9202c2c3693f93e45cc167ce6cbd4245))
+* **setup:** configure key-based CLI profile in the setup action ([61b2cc9](https://github.com/piotrjanik/nebius-actions/commit/61b2cc911f1beda81c7147d674f4f0996bd9f890))
+
+
+### Bug Fixes
+
+* **demo-run-job:** configure key-based nebius CLI profile ([11839e8](https://github.com/piotrjanik/nebius-actions/commit/11839e8a02090d7e962a529313b3c718ba3a6bb4))
+
 ## [0.1.1](https://github.com/piotrjanik/nebius-actions/compare/v0.1.0...v0.1.1) (2026-06-29)
 
 
