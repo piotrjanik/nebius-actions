@@ -1,24 +1,37 @@
-# Demo: the convenience Job path — setup -> auth -> run-job.
+# Demo: the convenience Job path — setup -> auth -> run-job — running a real
+# LoRA fine-tune with Axolotl on a Nebius GPU.
 #
-# Runs against THIS repo's actions by LOCAL path (./actions/...), so it doubles
-# as an end-to-end smoke test. `run-job` submits the Job, streams its logs,
-# waits for a terminal state, and fails the step if the Job did not succeed.
+# Adapted from the Nebius serverless-ai-cookbook:
+#   https://github.com/nebius/serverless-ai-cookbook/tree/main/training/axolotl-finetuning
+#
+# It QLoRA-fine-tunes Qwen/Qwen2.5-0.5B on a wikitext slice for 30 steps, then
+# exits. `run-job` submits the Job, streams its logs, waits for a terminal
+# state, and fails the step if the Job did not succeed.
+#
+# Keyless by design: the Axolotl `config.yaml` (examples/axolotl/config.yaml) is
+# base64-embedded into the container command, so the job needs NO Object Storage
+# bucket and NO S3 credentials. Trade-off: adapters write to ephemeral container
+# disk (/tmp/output). To persist them, create a bucket, add a
+# `mounts: <bucket-id>:/workspace/data` input, and point output_dir there.
 #
 # Requires (repo or environment):
 #   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the federated credential trusts
-#   vars.NEBIUS_JOB_IMAGE           - a runnable container image (optional; has a default)
+#   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
 #   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
 name: demo-run-job
 
 on:
   workflow_dispatch:
     inputs:
-      epochs:
-        description: 'Number of training epochs'
-        default: '1'
+      platform:
+        description: 'Compute platform'
+        default: 'gpu-l40s-a'
       preset:
         description: 'Compute preset'
-        default: 'cpu-4vcpu-16gb'
+        default: '1gpu-8vcpu-32gb'
+      disk-size:
+        description: 'Job disk size'
+        default: '450Gi'
 
 # Required for keyless OIDC auth: lets `auth` mint a GitHub OIDC token.
 permissions:
@@ -33,6 +46,12 @@ jobs:
       # out into the workspace.
       - uses: actions/checkout@v4
 
+      # Encode the vendored Axolotl config so it can travel inside the container
+      # command — keeps examples/axolotl/config.yaml the single readable source.
+      - name: Encode Axolotl config
+        id: cfg
+        run: echo "b64=$(base64 -w0 examples/axolotl/config.yaml)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Nebius
         uses: ./actions/setup
 
@@ -41,26 +60,30 @@ jobs:
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
-      - name: Run job
+      - name: Run Axolotl fine-tune
         id: run
         uses: ./actions/run-job
         with:
-          name: demo-run-${{ github.run_id }}
-          image: ${{ vars.NEBIUS_JOB_IMAGE || 'cr.eu-north1.nebius.cloud/examples/hello:latest' }}
+          name: demo-axolotl-${{ github.run_id }}
+          image: ${{ vars.NEBIUS_JOB_IMAGE || 'docker.io/axolotlai/axolotl:main-20260309-py3.11-cu128-2.9.1' }}
+          platform: ${{ inputs.platform }}
           preset: ${{ inputs.preset }}
-          # One whitespace-separated token per line (joined into the container command).
-          command: |
-            python
-            train.py
-            --epochs
-            ${{ inputs.epochs }}
-          env: |
-            WANDB_PROJECT=demo
-            LOG_LEVEL=info
+          # `bash` is the container entrypoint; the actual script is passed as
+          # `--args` below so the container expands the pipeline itself.
+          command: bash
           timeout: 1h
           wait: true
           poll-interval: 10
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          # Raw passthrough to `nebius ai job create`: bigger disk for the model +
+          # dataset cache, then the container args. Nebius space-splits the single
+          # --args string (honoring the quotes), so the whole `-c "..."` reaches
+          # bash intact; $-expansions happen container-side, not on the runner.
+          extra-args: |
+            --disk-size
+            ${{ inputs.disk-size }}
+            --args
+            -c "echo ${{ steps.cfg.outputs.b64 }} | base64 -d > /tmp/config.yaml && axolotl train /tmp/config.yaml"
 
       # Read step outputs via env (not ${{ }} inlined into the script body) so
       # values expand in the shell — the injection-safe pattern.
