@@ -63,34 +63,10 @@ export const DEFAULT_REGION = 'eu';
 
 /** `nebius ai job ...` — CONFIRMED. */
 export const CLI_JOB_GROUP = ['ai', 'job'] as const;
-/** `nebius ai endpoint ...` — CONFIRMED the group exists; verbs below are VERIFY. */
-export const CLI_ENDPOINT_GROUP = ['ai', 'endpoint'] as const;
 
-/**
- * Endpoint subcommand verbs.
- * `deploy` is modeled as create-or-update. // VERIFY: exact verb names; Nebius
- * may expose `create`/`update`/`apply` separately rather than a single upsert.
- */
-export const CLI_ENDPOINT_VERBS = {
-  create: 'create',
-  update: 'update',
-  get: 'get',
-  getByName: 'get-by-name',
-  delete: 'delete',
-} as const;
-
-/**
- * JSON field on an endpoint that carries the public HTTPS URL.
- * Nebius (CONFIRMED v0.12.x) returns the served URL(s) as an array under
- * `status.public_endpoints`; the others are kept as tolerant fallbacks.
- */
-export const ENDPOINT_URL_FIELDS = [
-  'url',
-  'public_url',
-  'publicUrl',
-  'endpoint_url',
-  'public_endpoints.0',
-] as const;
+// Endpoint operations no longer use the CLI — they go through the SDK
+// `EndpointService` (see `endpoints.ts`). The former CLI endpoint group/verbs and
+// URL-field probes were removed with that migration.
 
 // ---------------------------------------------------------------------------
 // Job status enum
@@ -140,20 +116,27 @@ export const JOB_EXIT_CODE_FIELDS = [
 // ---------------------------------------------------------------------------
 
 /**
- * Endpoint status spellings. // VERIFY: exact enum casing/values from CLI JSON.
+ * Endpoint status spellings. The SDK (nebius.ai.v1) EndpointStatus.State enum
+ * names are authoritative; older/CLI spellings are kept as tolerant fallbacks.
  * Comparisons are case-insensitive (see endpoints.ts).
  */
 export const ENDPOINT_STATUS = {
+  // SDK EndpointStatus.State enum names (CONFIRMED @nebius/js-sdk 0.2.27):
+  provisioning: 'PROVISIONING',
+  starting: 'STARTING',
+  running: 'RUNNING',
+  stopping: 'STOPPING',
+  stopped: 'STOPPED',
+  deleting: 'DELETING',
+  error: 'ERROR',
+  // Tolerant fallbacks (older/CLI spellings; harmless extras):
   creating: 'CREATING',
   updating: 'UPDATING',
   pending: 'PENDING',
   deploying: 'DEPLOYING',
   ready: 'READY',
   active: 'ACTIVE',
-  running: 'RUNNING',
   failed: 'FAILED',
-  error: 'ERROR',
-  deleting: 'DELETING',
   deleted: 'DELETED',
 } as const;
 

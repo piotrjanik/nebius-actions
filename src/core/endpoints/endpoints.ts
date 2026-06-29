@@ -1,46 +1,55 @@
 /**
- * Endpoint domain wrappers over the `nebius ai endpoint` CLI group.
+ * Endpoint domain wrappers over the `@nebius/js-sdk` `EndpointService` gRPC API
+ * (`nebius.ai.v1`).
  *
- * `deployEndpoint` creates the endpoint (the `nebius ai endpoint` group has no
- * `update` verb); on a name collision it returns the existing endpoint via
- * get-by-name. Arg-building is pure (`buildDeployEndpointArgs`) for unit-testing;
- * CLI JSON is mapped via `mapEndpointJson`.
+ * The I/O functions take an injected `EndpointServiceLike` so they are unit
+ * testable with a tiny fake (no network, no SDK construction). The spec/metadata
+ * builders and the SDK->domain mapper are pure and exported for direct testing.
  *
- * Flags/fields below are CONFIRMED against nebius CLI v0.12.x: create takes
- * `--container-port --public --auth --token --parent-id`, and the served URL is
- * `status.public_endpoints[0]`.
+ * Notes on the SDK surface (verified against @nebius/js-sdk 0.2.27):
+ *   - `EndpointSpec` has NO replica/scaling fields and NO auth *mode*; only a
+ *     bearer `authToken` and a `publicIp` flag. Inputs the SDK can't express
+ *     (min/max replicas, auth mode, raw passthrough) are intentionally dropped.
+ *   - `create`/`delete` return an Operation (via `.result`); the new resource id
+ *     is `op.resourceId()`. `get` takes an id; `getByName` needs `{parentId,name}`.
+ *   - The served URL(s) surface as `status.publicEndpoints[]`; state is an enum
+ *     whose `.name` is the status string (e.g. `RUNNING`, `ERROR`).
  */
 
-import { runCli } from '../cli/exec';
-import { firstString } from '../json';
+// The SDK exposes `./api/*` as a wildcard subpath export. Runtime (node/ncc/
+// vitest) resolves it via the exports map; TS `moduleResolution: Node` cannot,
+// so tsconfig `paths` maps it to the generated d.ts for typechecking only.
 import {
-  CLI_ENDPOINT_GROUP,
-  CLI_ENDPOINT_VERBS,
-  ENDPOINT_URL_FIELDS,
+  CreateEndpointRequest,
+  DeleteEndpointRequest,
+  EndpointSpec as SdkEndpointSpec,
+  GetEndpointByNameRequest,
+  GetEndpointRequest,
+} from '@nebius/js-sdk/api/nebius/ai/v1/index';
+import {
   ENDPOINT_READY_STATUSES,
+  ENDPOINT_STATUS,
   ENDPOINT_TERMINAL_FAILURE_STATUSES,
 } from '../constants';
 
+/** Inputs accepted by the endpoint actions, mapped onto the SDK `EndpointSpec`. */
 export interface EndpointSpec {
   name: string;
   image: string;
-  /** Container port the served process listens on (emitted as --container-port). */
+  /** Container port the served process listens on (-> ports[].containerPort). */
   port?: number;
   preset?: string;
   platform?: string;
   env?: Record<string, string>;
-  minReplicas?: number;
-  maxReplicas?: number;
+  /** Nebius project id (-> metadata.parentId). */
   projectId?: string;
-  /** Expose a public HTTPS URL (--public). */
+  /** Expose a public IP (-> publicIp). */
   public?: boolean;
-  /** Auth mode for the served URL, e.g. 'token' (--auth). */
-  auth?: string;
-  /** Bearer token when auth='token' (--token). */
+  /** Bearer token to require on the served URL (-> authToken). */
   token?: string;
-  extraArgs?: string[];
 }
 
+/** Normalized endpoint shape returned to entrypoints. */
 export interface Endpoint {
   id: string;
   name: string;
@@ -49,131 +58,156 @@ export interface Endpoint {
   raw: unknown;
 }
 
-const EP = [...CLI_ENDPOINT_GROUP];
+/** Minimal Operation surface used here (satisfied by the SDK's Operation). */
+export interface OperationLike {
+  resourceId(): string;
+  raw?(): unknown;
+}
 
-/**
- * Build `nebius ai endpoint <verb> ...` args from a spec (pure).
- * @param verb create | update (apply path picks one at runtime).
- * // VERIFY: flag names (--port/--min-replicas/--max-replicas spellings).
- */
-export function buildDeployEndpointArgs(s: EndpointSpec, verb: 'create' | 'update'): string[] {
+/** Minimal Endpoint service surface (satisfied by the SDK's `EndpointService`). */
+export interface EndpointServiceLike {
+  create(req: CreateEndpointRequest): { result: Promise<OperationLike> };
+  delete(req: DeleteEndpointRequest): { result: Promise<OperationLike> };
+  get(req: GetEndpointRequest): PromiseLike<unknown>;
+  getByName(req: GetEndpointByNameRequest): PromiseLike<unknown>;
+}
+
+/** Build the SDK `ResourceMetadata` partial from a spec (pure). */
+export function buildEndpointMetadata(s: EndpointSpec): { name: string; parentId?: string } {
   if (!s.name) {
     throw new Error('EndpointSpec.name is required.');
   }
+  return { name: s.name, ...(s.projectId ? { parentId: s.projectId } : {}) };
+}
+
+interface EndpointSpecPartial {
+  image: string;
+  preset?: string;
+  platform?: string;
+  publicIp?: boolean;
+  authToken?: string;
+  ports?: { containerPort: number }[];
+  environmentVariables?: { name: string; value: string }[];
+}
+
+/** Build the SDK `EndpointSpec` partial from a spec (pure). */
+export function buildEndpointSpec(s: EndpointSpec): EndpointSpecPartial {
   if (!s.image) {
     throw new Error('EndpointSpec.image is required.');
   }
-  const args = [...EP, verb, '--name', s.name, '--image', s.image];
-
-  if (s.port !== undefined) {
-    args.push('--container-port', String(s.port));
+  const spec: EndpointSpecPartial = { image: s.image };
+  if (s.preset) spec.preset = s.preset;
+  if (s.platform) spec.platform = s.platform;
+  if (s.public) spec.publicIp = true;
+  if (s.token) spec.authToken = s.token;
+  if (s.port !== undefined) spec.ports = [{ containerPort: s.port }];
+  const env = Object.entries(s.env ?? {});
+  if (env.length > 0) {
+    spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
   }
-  if (s.preset) {
-    args.push('--preset', s.preset);
-  }
-  if (s.platform) {
-    args.push('--platform', s.platform);
-  }
-  if (s.public) {
-    args.push('--public');
-  }
-  if (s.auth) {
-    args.push('--auth', s.auth);
-  }
-  if (s.token) {
-    args.push('--token', s.token);
-  }
-  if (s.minReplicas !== undefined) {
-    args.push('--min-replicas', String(s.minReplicas));
-  }
-  if (s.maxReplicas !== undefined) {
-    args.push('--max-replicas', String(s.maxReplicas));
-  }
-  if (s.projectId) {
-    args.push('--parent-id', s.projectId);
-  }
-  if (s.env) {
-    for (const [k, v] of Object.entries(s.env)) {
-      args.push('--env', `${k}=${v}`);
-    }
-  }
-  if (s.extraArgs && s.extraArgs.length > 0) {
-    args.push(...s.extraArgs);
-  }
-  return args;
+  return spec;
 }
 
-/** Extract the public HTTPS URL from candidate fields (incl. nested status). */
-function extractUrl(obj: Record<string, unknown>): string | undefined {
-  const candidates = [...ENDPOINT_URL_FIELDS, ...ENDPOINT_URL_FIELDS.map((f) => `status.${f}`)];
-  return firstString(obj, candidates);
+/** Read the status string from an SDK status (enum `.name`) or a plain object. */
+function readState(status: unknown): string {
+  const st = (status as { state?: unknown } | undefined)?.state;
+  if (st == null) return 'UNKNOWN';
+  if (typeof st === 'string') return st;
+  const name = (st as { name?: unknown }).name;
+  if (typeof name === 'string') return name;
+  return String(st);
 }
 
 /**
- * Map CLI JSON for a single endpoint into the typed `Endpoint`.
- * // VERIFY: exact field names; full payload retained in `raw`.
+ * Map an SDK `Endpoint` (or a plain object in tests) into the domain `Endpoint`.
+ * Reads id/name from `metadata`, status from `status.state`, and the served URL
+ * from `status.publicEndpoints[0]`, normalizing it to an `https://` URL.
  */
-export function mapEndpointJson(raw: unknown): Endpoint {
-  const obj = (raw ?? {}) as Record<string, unknown>;
-  const id = firstString(obj, ['id', 'metadata.id', 'endpoint_id', 'endpointId']) ?? '';
-  const name = firstString(obj, ['name', 'metadata.name', 'spec.name']) ?? '';
-  const status =
-    firstString(obj, ['status', 'state', 'status.state', 'status.phase', 'status.status']) ??
-    'UNKNOWN';
-  const url = extractUrl(obj);
+export function mapSdkEndpoint(raw: unknown): Endpoint {
+  const e = (raw ?? {}) as {
+    metadata?: { id?: string; name?: string };
+    status?: { publicEndpoints?: unknown[] };
+  };
+  const id = e.metadata?.id ?? '';
+  const name = e.metadata?.name ?? '';
+  const status = readState(e.status);
+  const url = e.status?.publicEndpoints?.[0];
 
   const endpoint: Endpoint = { id, name, status, raw };
-  if (url !== undefined) {
-    // The CLI may return a bare host; normalize to an https:// URL.
+  if (typeof url === 'string' && url !== '') {
     endpoint.url = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   }
   return endpoint;
 }
 
-/** Whether an error message indicates a name collision (endpoint already exists). */
-function isAlreadyExists(message: string): boolean {
-  return /already[\s_-]?exists|conflict/i.test(message);
+/** Whether a gRPC error indicates the endpoint already exists (name collision). */
+function isAlreadyExists(err: unknown): boolean {
+  const code = (err as { code?: unknown })?.code;
+  if (code === 6) return true; // gRPC ALREADY_EXISTS
+  const msg = err instanceof Error ? err.message : String(err);
+  return /already[\s_-]?exists|conflict/i.test(msg);
 }
 
 /**
- * Deploy an endpoint. The `nebius ai endpoint` CLI has no `update` verb, so this
- * creates the endpoint; on a name collision it returns the existing one
- * (get-by-name, which needs the project id). Any other failure propagates.
+ * Create an endpoint. The SDK has no update verb, so on a name collision this
+ * returns the EXISTING endpoint via get-by-name (which needs the project id) —
+ * it never replaces it. Any other error propagates (no silent failures).
  */
-export async function deployEndpoint(s: EndpointSpec): Promise<Endpoint> {
+export async function deployEndpoint(
+  service: EndpointServiceLike,
+  s: EndpointSpec,
+): Promise<Endpoint> {
+  const req = CreateEndpointRequest.create({
+    metadata: buildEndpointMetadata(s),
+    spec: SdkEndpointSpec.create(buildEndpointSpec(s)),
+  });
+
+  let op: OperationLike;
   try {
-    const created = await runCli(buildDeployEndpointArgs(s, CLI_ENDPOINT_VERBS.create), {
-      json: true,
-    });
-    return mapEndpointJson(created.data);
+    op = await service.create(req).result;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (isAlreadyExists(msg) && s.projectId) {
-      const existing = await runCli(
-        [...EP, CLI_ENDPOINT_VERBS.getByName, '--parent-id', s.projectId, '--name', s.name],
-        { json: true },
-      );
-      return mapEndpointJson(existing.data);
+    if (isAlreadyExists(err) && s.projectId) {
+      return getEndpointByName(service, s.projectId, s.name);
     }
     throw err;
   }
+
+  return {
+    id: op.resourceId(),
+    name: s.name,
+    status: ENDPOINT_STATUS.provisioning,
+    raw: op.raw?.() ?? op,
+  };
 }
 
-/** Get an endpoint by id or name. */
-export async function getEndpoint(idOrName: string): Promise<Endpoint> {
-  if (!idOrName) {
-    throw new Error('getEndpoint: idOrName is required.');
+/** Get an endpoint by id. */
+export async function getEndpoint(service: EndpointServiceLike, id: string): Promise<Endpoint> {
+  if (!id) {
+    throw new Error('getEndpoint: id is required.');
   }
-  const res = await runCli([...EP, CLI_ENDPOINT_VERBS.get, '--id', idOrName], { json: true });
-  return mapEndpointJson(res.data);
+  const ep = await service.get(GetEndpointRequest.create({ id }));
+  return mapSdkEndpoint(ep);
 }
 
-/** Delete an endpoint by id or name. */
-export async function deleteEndpoint(idOrName: string): Promise<void> {
-  if (!idOrName) {
-    throw new Error('deleteEndpoint: idOrName is required.');
+/** Get an endpoint by name within a project. */
+export async function getEndpointByName(
+  service: EndpointServiceLike,
+  projectId: string,
+  name: string,
+): Promise<Endpoint> {
+  if (!projectId || !name) {
+    throw new Error('getEndpointByName: projectId and name are required.');
   }
-  await runCli([...EP, CLI_ENDPOINT_VERBS.delete, '--id', idOrName], { json: true });
+  const ep = await service.getByName(GetEndpointByNameRequest.create({ parentId: projectId, name }));
+  return mapSdkEndpoint(ep);
+}
+
+/** Delete an endpoint by id. */
+export async function deleteEndpoint(service: EndpointServiceLike, id: string): Promise<void> {
+  if (!id) {
+    throw new Error('deleteEndpoint: id is required.');
+  }
+  await service.delete(DeleteEndpointRequest.create({ id })).result;
 }
 
 /** True when the endpoint is serving (case-insensitive). */

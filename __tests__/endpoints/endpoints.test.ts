@@ -1,154 +1,131 @@
 /**
  * Unit tests for the endpoints domain wrappers (endpoints/endpoints.ts).
  *
- * `runCli` (cli/exec) is mocked so no CLI runs. We assert arg-building, the
- * create (get-by-name on conflict) semantics, JSON->Endpoint mapping incl. URL
- * extraction, and the status helpers.
+ * The SDK `EndpointService` is replaced with a tiny fake (no network, no SDK
+ * construction). We assert the pure spec/metadata builders, the SDK->domain
+ * mapping (incl. enum status + URL normalization), the create/get/delete flows
+ * (incl. get-by-name on a name collision), and the status helpers.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const runCli = vi.fn();
-vi.mock('../../src/core/cli/exec', () => ({
-  runCli: (...args: unknown[]) => runCli(...args),
-}));
-
 import {
-  buildDeployEndpointArgs,
-  mapEndpointJson,
+  buildEndpointSpec,
+  buildEndpointMetadata,
+  mapSdkEndpoint,
   deployEndpoint,
   getEndpoint,
+  getEndpointByName,
   deleteEndpoint,
   isEndpointReady,
   isEndpointTerminalFailure,
+  type EndpointServiceLike,
   type EndpointSpec,
 } from '../../src/core/endpoints/endpoints';
 
+const create = vi.fn();
+const get = vi.fn();
+const getByName = vi.fn();
+const del = vi.fn();
+const service = { create, get, getByName, delete: del } as unknown as EndpointServiceLike;
+
+const op = (id: string) => ({ resourceId: () => id, raw: () => ({ op: true }) });
+
 beforeEach(() => {
-  runCli.mockReset();
+  create.mockReset();
+  get.mockReset();
+  getByName.mockReset();
+  del.mockReset();
 });
 
-describe('buildDeployEndpointArgs', () => {
-  it('builds a minimal create command', () => {
-    expect(buildDeployEndpointArgs({ name: 'svc', image: 'img' }, 'create')).toEqual([
-      'ai',
-      'endpoint',
-      'create',
-      '--name',
-      'svc',
-      '--image',
-      'img',
-    ]);
+describe('buildEndpointMetadata', () => {
+  it('builds {name} with no parentId by default', () => {
+    expect(buildEndpointMetadata({ name: 'svc', image: 'img' })).toEqual({ name: 'svc' });
+  });
+
+  it('includes parentId when projectId is set', () => {
+    expect(buildEndpointMetadata({ name: 'svc', image: 'img', projectId: 'proj' })).toEqual({
+      name: 'svc',
+      parentId: 'proj',
+    });
   });
 
   it('throws when name is missing', () => {
-    expect(() => buildDeployEndpointArgs({ image: 'img' } as EndpointSpec, 'create')).toThrow(
+    expect(() => buildEndpointMetadata({ image: 'img' } as EndpointSpec)).toThrow(
       /name is required/,
     );
   });
+});
 
-  it('throws when image is missing', () => {
-    expect(() => buildDeployEndpointArgs({ name: 'svc' } as EndpointSpec, 'create')).toThrow(
-      /image is required/,
-    );
+describe('buildEndpointSpec', () => {
+  it('builds a minimal spec from image only', () => {
+    expect(buildEndpointSpec({ name: 'svc', image: 'img' })).toEqual({ image: 'img' });
   });
 
-  it('maps optional fields (container-port, auth, replicas, parent, env) to flags', () => {
+  it('throws when image is missing', () => {
+    expect(() => buildEndpointSpec({ name: 'svc' } as EndpointSpec)).toThrow(/image is required/);
+  });
+
+  it('maps optional fields to SDK spec fields', () => {
     const spec: EndpointSpec = {
       name: 'svc',
       image: 'img',
       port: 8080,
       preset: 'cpu',
-      platform: 'cpu',
+      platform: 'cpu-plat',
       public: true,
-      auth: 'token',
       token: 't',
-      minReplicas: 1,
-      maxReplicas: 3,
-      projectId: 'proj',
-      env: { K: 'v' },
-      extraArgs: ['--raw'],
+      env: { K: 'v', L: 'w' },
     };
-    expect(buildDeployEndpointArgs(spec, 'create')).toEqual([
-      'ai',
-      'endpoint',
-      'create',
-      '--name',
-      'svc',
-      '--image',
-      'img',
-      '--container-port',
-      '8080',
-      '--preset',
-      'cpu',
-      '--platform',
-      'cpu',
-      '--public',
-      '--auth',
-      'token',
-      '--token',
-      't',
-      '--min-replicas',
-      '1',
-      '--max-replicas',
-      '3',
-      '--parent-id',
-      'proj',
-      '--env',
-      'K=v',
-      '--raw',
-    ]);
+    expect(buildEndpointSpec(spec)).toEqual({
+      image: 'img',
+      preset: 'cpu',
+      platform: 'cpu-plat',
+      publicIp: true,
+      authToken: 't',
+      ports: [{ containerPort: 8080 }],
+      environmentVariables: [
+        { name: 'K', value: 'v' },
+        { name: 'L', value: 'w' },
+      ],
+    });
   });
 
-  it('includes --container-port "0" when port is 0 (uses !== undefined, not truthiness)', () => {
-    const args = buildDeployEndpointArgs({ name: 'svc', image: 'img', port: 0 }, 'create');
-    expect(args).toContain('--container-port');
-    expect(args[args.indexOf('--container-port') + 1]).toBe('0');
+  it('includes port 0 (uses !== undefined, not truthiness)', () => {
+    expect(buildEndpointSpec({ name: 'svc', image: 'img', port: 0 }).ports).toEqual([
+      { containerPort: 0 },
+    ]);
   });
 });
 
-describe('mapEndpointJson', () => {
-  it('reads id/name/status/url from top-level fields', () => {
-    const ep = mapEndpointJson({
-      id: 'ep-1',
-      name: 'svc',
-      status: 'READY',
-      url: 'https://svc.example',
+describe('mapSdkEndpoint', () => {
+  it('reads id/name from metadata and status from the enum .name', () => {
+    const ep = mapSdkEndpoint({
+      metadata: { id: 'ep-1', name: 'svc' },
+      status: { state: { name: 'RUNNING' }, publicEndpoints: ['https://svc.example'] },
     });
     expect(ep).toMatchObject({
       id: 'ep-1',
       name: 'svc',
-      status: 'READY',
+      status: 'RUNNING',
       url: 'https://svc.example',
     });
   });
 
-  it('extracts a nested status.url', () => {
-    const ep = mapEndpointJson({
-      id: 'ep-1',
-      name: 'svc',
-      status: { state: 'ACTIVE', public_url: 'https://nested.example' },
+  it('normalizes a bare host in publicEndpoints to an https URL', () => {
+    const ep = mapSdkEndpoint({
+      metadata: { id: 'ep-1', name: 'svc' },
+      status: { state: { name: 'RUNNING' }, publicEndpoints: ['svc.example/v1'] },
     });
-    // status maps from status.state; url from status.public_url
-    expect(ep.status).toBe('ACTIVE');
-    expect(ep.url).toBe('https://nested.example');
-  });
-
-  it('tries alternate URL field spellings', () => {
-    expect(mapEndpointJson({ publicUrl: 'https://a' }).url).toBe('https://a');
-    expect(mapEndpointJson({ endpoint_url: 'https://b' }).url).toBe('https://b');
-  });
-
-  it('extracts the url from status.public_endpoints[0] and normalizes the scheme', () => {
-    const ep = mapEndpointJson({
-      status: { state: 'RUNNING', public_endpoints: ['svc.example/v1'] },
-    });
-    expect(ep.status).toBe('RUNNING');
     expect(ep.url).toBe('https://svc.example/v1');
   });
 
+  it('accepts a plain string state', () => {
+    expect(mapSdkEndpoint({ status: { state: 'ERROR' } }).status).toBe('ERROR');
+  });
+
   it('defaults id/name to "" and status to UNKNOWN; url omitted when absent', () => {
-    const ep = mapEndpointJson({});
+    const ep = mapSdkEndpoint({});
     expect(ep.id).toBe('');
     expect(ep.name).toBe('');
     expect(ep.status).toBe('UNKNOWN');
@@ -157,95 +134,125 @@ describe('mapEndpointJson', () => {
 });
 
 describe('deployEndpoint (create; get-by-name on conflict)', () => {
-  it('creates and returns the endpoint', async () => {
-    runCli.mockResolvedValue({
-      data: { metadata: { id: 'ep-1', name: 'svc' }, status: { state: 'CREATING' } },
-    });
-    const ep = await deployEndpoint({ name: 'svc', image: 'img' });
+  it('creates and returns the endpoint id with a provisioning status', async () => {
+    create.mockReturnValue({ result: Promise.resolve(op('ep-1')) });
+    const ep = await deployEndpoint(service, { name: 'svc', image: 'img' });
 
-    expect(runCli).toHaveBeenCalledTimes(1);
-    expect(runCli.mock.calls[0]![0]![2]).toBe('create');
-    expect(ep).toMatchObject({ id: 'ep-1', status: 'CREATING' });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(ep).toMatchObject({ id: 'ep-1', name: 'svc', status: 'PROVISIONING' });
+    expect(getByName).not.toHaveBeenCalled();
   });
 
   it('returns the existing endpoint via get-by-name on a name collision', async () => {
-    runCli
-      .mockRejectedValueOnce(new Error('endpoint already exists'))
-      .mockResolvedValueOnce({
-        data: { metadata: { id: 'ep-2', name: 'svc' }, status: { state: 'RUNNING' } },
-      });
+    create.mockReturnValue({ result: Promise.reject(new Error('endpoint already exists')) });
+    getByName.mockResolvedValue({
+      metadata: { id: 'ep-2', name: 'svc' },
+      status: { state: { name: 'RUNNING' }, publicEndpoints: ['https://svc.example'] },
+    });
 
-    const ep = await deployEndpoint({ name: 'svc', image: 'img', projectId: 'proj' });
+    const ep = await deployEndpoint(service, { name: 'svc', image: 'img', projectId: 'proj' });
 
-    expect(runCli).toHaveBeenCalledTimes(2);
-    expect(runCli.mock.calls[0]![0]![2]).toBe('create');
-    expect(runCli.mock.calls[1]![0]).toEqual([
-      'ai',
-      'endpoint',
-      'get-by-name',
-      '--parent-id',
-      'proj',
-      '--name',
-      'svc',
-    ]);
-    expect(ep).toMatchObject({ id: 'ep-2', status: 'RUNNING' });
+    expect(getByName).toHaveBeenCalledTimes(1);
+    const req = getByName.mock.calls[0]![0] as { parentId: string; name: string };
+    expect(req.parentId).toBe('proj');
+    expect(req.name).toBe('svc');
+    expect(ep).toMatchObject({ id: 'ep-2', status: 'RUNNING', url: 'https://svc.example' });
+  });
+
+  it('detects ALREADY_EXISTS by gRPC code 6', async () => {
+    create.mockReturnValue({
+      result: Promise.reject(Object.assign(new Error('boom'), { code: 6 })),
+    });
+    getByName.mockResolvedValue({
+      metadata: { id: 'ep-2', name: 'svc' },
+      status: { state: { name: 'RUNNING' } },
+    });
+    const ep = await deployEndpoint(service, { name: 'svc', image: 'img', projectId: 'proj' });
+    expect(ep.id).toBe('ep-2');
+  });
+
+  it('propagates a conflict when no projectId is available (cannot resolve)', async () => {
+    create.mockReturnValue({ result: Promise.reject(new Error('already exists')) });
+    await expect(deployEndpoint(service, { name: 'svc', image: 'img' })).rejects.toThrow(
+      /already exists/,
+    );
+    expect(getByName).not.toHaveBeenCalled();
   });
 
   it('propagates non-conflict create errors (no get-by-name fallback)', async () => {
-    runCli.mockRejectedValueOnce(new Error('permission denied'));
+    create.mockReturnValue({ result: Promise.reject(new Error('permission denied')) });
     await expect(
-      deployEndpoint({ name: 'svc', image: 'img', projectId: 'proj' }),
+      deployEndpoint(service, { name: 'svc', image: 'img', projectId: 'proj' }),
     ).rejects.toThrow(/permission denied/);
-    expect(runCli).toHaveBeenCalledTimes(1);
+    expect(getByName).not.toHaveBeenCalled();
   });
 });
 
-describe('getEndpoint / deleteEndpoint', () => {
-  it('getEndpoint runs `ai endpoint get --id <idOrName>` with json', async () => {
-    runCli.mockResolvedValue({ data: { id: 'ep-1', name: 'svc', status: 'READY' } });
-    await getEndpoint('ep-1');
-    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'endpoint', 'get', '--id', 'ep-1']);
-    expect(runCli.mock.calls[0]![1]).toEqual({ json: true });
+describe('getEndpoint / getEndpointByName / deleteEndpoint', () => {
+  it('getEndpoint requests by id and maps the result', async () => {
+    get.mockResolvedValue({
+      metadata: { id: 'ep-1', name: 'svc' },
+      status: { state: { name: 'RUNNING' } },
+    });
+    const ep = await getEndpoint(service, 'ep-1');
+    expect((get.mock.calls[0]![0] as { id: string }).id).toBe('ep-1');
+    expect(ep.status).toBe('RUNNING');
   });
 
-  it('getEndpoint throws on empty input without calling the CLI', async () => {
-    await expect(getEndpoint('')).rejects.toThrow(/idOrName is required/);
-    expect(runCli).not.toHaveBeenCalled();
+  it('getEndpoint throws on empty id without calling the service', async () => {
+    await expect(getEndpoint(service, '')).rejects.toThrow(/id is required/);
+    expect(get).not.toHaveBeenCalled();
   });
 
-  it('deleteEndpoint runs `ai endpoint delete --id <idOrName>`', async () => {
-    runCli.mockResolvedValue({ data: {} });
-    await deleteEndpoint('ep-1');
-    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'endpoint', 'delete', '--id', 'ep-1']);
+  it('getEndpointByName requests {parentId,name}', async () => {
+    getByName.mockResolvedValue({
+      metadata: { id: 'ep-1', name: 'svc' },
+      status: { state: { name: 'RUNNING' } },
+    });
+    await getEndpointByName(service, 'proj', 'svc');
+    const req = getByName.mock.calls[0]![0] as { parentId: string; name: string };
+    expect(req).toMatchObject({ parentId: 'proj', name: 'svc' });
   });
 
-  it('deleteEndpoint throws on empty input without calling the CLI', async () => {
-    await expect(deleteEndpoint('')).rejects.toThrow(/idOrName is required/);
-    expect(runCli).not.toHaveBeenCalled();
+  it('getEndpointByName throws when projectId or name is missing', async () => {
+    await expect(getEndpointByName(service, '', 'svc')).rejects.toThrow(/required/);
+    await expect(getEndpointByName(service, 'proj', '')).rejects.toThrow(/required/);
+    expect(getByName).not.toHaveBeenCalled();
+  });
+
+  it('deleteEndpoint deletes by id', async () => {
+    del.mockReturnValue({ result: Promise.resolve(op('')) });
+    await deleteEndpoint(service, 'ep-1');
+    expect((del.mock.calls[0]![0] as { id: string }).id).toBe('ep-1');
+  });
+
+  it('deleteEndpoint throws on empty id without calling the service', async () => {
+    await expect(deleteEndpoint(service, '')).rejects.toThrow(/id is required/);
+    expect(del).not.toHaveBeenCalled();
   });
 });
 
 describe('status helpers', () => {
-  it('isEndpointReady is true for READY/ACTIVE/RUNNING (case-insensitive)', () => {
-    for (const s of ['READY', 'ACTIVE', 'RUNNING', ' ready ', 'active']) {
+  it('isEndpointReady is true for RUNNING (case-insensitive)', () => {
+    for (const s of ['RUNNING', ' running ']) {
       expect(isEndpointReady(s)).toBe(true);
     }
   });
 
   it('isEndpointReady is false for in-flight / failure states', () => {
-    for (const s of ['CREATING', 'DEPLOYING', 'PENDING', 'FAILED', 'UNKNOWN']) {
+    for (const s of ['PROVISIONING', 'STARTING', 'STOPPED', 'ERROR', 'UNKNOWN']) {
       expect(isEndpointReady(s)).toBe(false);
     }
   });
 
-  it('isEndpointTerminalFailure is true for FAILED/ERROR (case-insensitive)', () => {
-    for (const s of ['FAILED', 'ERROR', ' failed ', 'error']) {
+  it('isEndpointTerminalFailure is true for ERROR (case-insensitive)', () => {
+    for (const s of ['ERROR', ' error ']) {
       expect(isEndpointTerminalFailure(s)).toBe(true);
     }
   });
 
   it('isEndpointTerminalFailure is false for ready / in-flight states', () => {
-    for (const s of ['READY', 'ACTIVE', 'CREATING', 'DELETING']) {
+    for (const s of ['RUNNING', 'PROVISIONING', 'STARTING', 'DELETING']) {
       expect(isEndpointTerminalFailure(s)).toBe(false);
     }
   });
