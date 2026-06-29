@@ -1,15 +1,19 @@
 # Demo: the Endpoint lifecycle — deploy-endpoint -> wait-for-endpoint, with a
 # gated delete-endpoint teardown.
 #
-# Endpoints use @nebius/js-sdk over gRPC, so this workflow needs `auth` but NOT
-# `setup` (the CLI is only for Jobs). Uses THIS repo's actions by LOCAL path.
+# Endpoints use @nebius/js-sdk over gRPC, so this workflow does NOT need `setup`
+# (the CLI is only for Jobs). Uses THIS repo's actions by LOCAL path.
 # `deploy` runs with wait:false to showcase the explicit wait-for-endpoint poll;
 # `run-job`/`deploy-endpoint` can also wait inline.
 #
+# Auth: this demo does NOT use OIDC. Provide a Nebius IAM token directly as the
+# `NEBIUS_IAM_TOKEN` secret (short-lived — rotate as needed); the SDK reads it
+# straight from the environment, so no `auth` action runs.
+#
 # Requires:
-#   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the federated credential trusts
-#   vars.NEBIUS_ENDPOINT_IMAGE      - a servable container image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID          - parent project (optional)
+#   secrets.NEBIUS_IAM_TOKEN    - a Nebius IAM token (required)
+#   vars.NEBIUS_ENDPOINT_IMAGE  - a servable container image (optional; has a default)
+#   vars.NEBIUS_PROJECT_ID      - parent project (optional)
 name: demo-endpoint-lifecycle
 
 on:
@@ -20,23 +24,21 @@ on:
         default: '1gpu-16vcpu-200gb'
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      # Static IAM token instead of OIDC. Auto-masked as a GitHub secret; the
+      # nebius SDK reads NEBIUS_IAM_TOKEN straight from the environment.
+      NEBIUS_IAM_TOKEN: ${{ secrets.NEBIUS_IAM_TOKEN }}
     # Step outputs do NOT propagate to needs.<job>.outputs automatically; the
     # job must re-export them so the teardown job can read the endpoint id.
     outputs:
       endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to Nebius
-        uses: ./actions/auth
-        with:
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       # 1) Create the endpoint and return immediately (wait:false).
       - name: Deploy endpoint
@@ -85,13 +87,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy
     if: always() && needs.deploy.outputs.endpoint-id != ''
+    env:
+      NEBIUS_IAM_TOKEN: ${{ secrets.NEBIUS_IAM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to Nebius
-        uses: ./actions/auth
-        with:
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       - name: Delete endpoint
         uses: ./actions/delete-endpoint

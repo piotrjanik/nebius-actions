@@ -5,10 +5,14 @@
 # between the two, and a clean cancel when the run itself is cancelled. Uses
 # THIS repo's actions by LOCAL path (./actions/...).
 #
+# Auth: this demo does NOT use OIDC. Provide a Nebius IAM token directly as the
+# `NEBIUS_IAM_TOKEN` secret (short-lived — rotate as needed); the CLI/SDK read it
+# straight from the environment, so no `auth` action runs.
+#
 # Requires:
-#   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the federated credential trusts
-#   vars.NEBIUS_JOB_IMAGE           - a runnable container image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID          - parent project (optional)
+#   secrets.NEBIUS_IAM_TOKEN  - a Nebius IAM token (required)
+#   vars.NEBIUS_JOB_IMAGE     - a runnable container image (optional; has a default)
+#   vars.NEBIUS_PROJECT_ID    - parent project (optional)
 name: demo-job-lifecycle
 
 on:
@@ -19,22 +23,20 @@ on:
         default: 'cpu-4vcpu-16gb'
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   lifecycle:
     runs-on: ubuntu-latest
+    env:
+      # Static IAM token instead of OIDC. Auto-masked as a GitHub secret; the
+      # nebius CLI/SDK read NEBIUS_IAM_TOKEN straight from the environment.
+      NEBIUS_IAM_TOKEN: ${{ secrets.NEBIUS_IAM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Nebius
         uses: ./actions/setup
-
-      - name: Authenticate to Nebius
-        uses: ./actions/auth
-        with:
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       # 1) Submit and return immediately (no waiting).
       - name: Submit job

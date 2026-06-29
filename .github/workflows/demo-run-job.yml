@@ -8,16 +8,20 @@
 # exits. `run-job` submits the Job, streams its logs, waits for a terminal
 # state, and fails the step if the Job did not succeed.
 #
-# Keyless by design: the Axolotl `config.yaml` (examples/axolotl/config.yaml) is
+# No bucket needed: the Axolotl `config.yaml` (examples/axolotl/config.yaml) is
 # base64-embedded into the container command, so the job needs NO Object Storage
 # bucket and NO S3 credentials. Trade-off: adapters write to ephemeral container
 # disk (/tmp/output). To persist them, create a bucket, add a
 # `mounts: <bucket-id>:/workspace/data` input, and point output_dir there.
 #
-# Requires (repo or environment):
-#   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the federated credential trusts
-#   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
+# Auth: this demo does NOT use OIDC. Provide a Nebius IAM token directly as the
+# `NEBIUS_IAM_TOKEN` secret (short-lived — rotate as needed); the CLI/SDK read it
+# straight from the environment, so no `auth` action runs.
+#
+# Requires:
+#   secrets.NEBIUS_IAM_TOKEN  - a Nebius IAM token (required)
+#   vars.NEBIUS_JOB_IMAGE     - Axolotl image (optional; has a default)
+#   vars.NEBIUS_PROJECT_ID    - parent project (optional; CLI default used if unset)
 name: demo-run-job
 
 on:
@@ -33,14 +37,16 @@ on:
         description: 'Job disk size'
         default: '450Gi'
 
-# Required for keyless OIDC auth: lets `auth` mint a GitHub OIDC token.
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   run-job:
     runs-on: ubuntu-latest
+    env:
+      # Static IAM token instead of OIDC. Auto-masked as a GitHub secret; the
+      # nebius CLI/SDK read NEBIUS_IAM_TOKEN straight from the environment.
+      NEBIUS_IAM_TOKEN: ${{ secrets.NEBIUS_IAM_TOKEN }}
     steps:
       # Local action refs (./actions/...) only resolve after the repo is checked
       # out into the workspace.
@@ -54,11 +60,6 @@ jobs:
 
       - name: Set up Nebius
         uses: ./actions/setup
-
-      - name: Authenticate to Nebius
-        uses: ./actions/auth
-        with:
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
 
       - name: Run Axolotl fine-tune
         id: run
