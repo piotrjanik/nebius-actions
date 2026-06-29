@@ -63739,39 +63739,123 @@ async function exchangeForIamToken(p) {
 "use strict";
 
 /**
- * Auth orchestrator: GitHub OIDC -> Nebius IAM token (keyless, federated).
+ * Auth orchestrator. Two paths to a Nebius IAM token:
+ *   - `oidc`: keyless GitHub OIDC -> IAM (federated impersonation).
+ *   - `key` : a service-account authorized key (private-key JWT) -> IAM.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.exchangeForIamToken = exports.getGithubIdToken = void 0;
+exports.exchangeKeyForIamToken = exports.exchangeForIamToken = exports.getGithubIdToken = void 0;
 exports.authenticate = authenticate;
 const oidc_1 = __nccwpck_require__(3309);
 const exchange_1 = __nccwpck_require__(7517);
+const key_1 = __nccwpck_require__(8441);
 var oidc_2 = __nccwpck_require__(3309);
 Object.defineProperty(exports, "getGithubIdToken", ({ enumerable: true, get: function () { return oidc_2.getGithubIdToken; } }));
 var exchange_2 = __nccwpck_require__(7517);
 Object.defineProperty(exports, "exchangeForIamToken", ({ enumerable: true, get: function () { return exchange_2.exchangeForIamToken; } }));
+var key_2 = __nccwpck_require__(8441);
+Object.defineProperty(exports, "exchangeKeyForIamToken", ({ enumerable: true, get: function () { return key_2.exchangeKeyForIamToken; } }));
 /**
- * Run the full keyless federated auth flow:
- *   1. fetch the GitHub OIDC JWT (masked),
- *   2. exchange it (delegation: SA subject + GitHub actor) for a Nebius IAM
- *      access token over gRPC via the Nebius SDK (masked).
+ * Authenticate to Nebius and return a (masked) IAM access token.
+ *
+ * - `oidc`: fetch the GitHub OIDC JWT, then exchange it (SA subject + GitHub
+ *   actor) for an IAM token over gRPC via the SDK.
+ * - `key` : sign a JWT with the service account's private key and exchange it
+ *   for an IAM token over gRPC via the SDK.
  *
  * @throws on unsupported method or any step failure (no silent fallback).
  */
 async function authenticate(o) {
-    if (o.method !== 'oidc') {
-        throw new Error(`Unsupported auth method '${o.method}'. Only 'oidc' is supported in v1.`);
-    }
     if (!o.serviceAccountId) {
-        throw new Error('authenticate: serviceAccountId is required for the federated OIDC flow.');
+        throw new Error('authenticate: serviceAccountId is required.');
     }
-    const idToken = await (0, oidc_1.getGithubIdToken)(o.audience);
-    const iam = await (0, exchange_1.exchangeForIamToken)({
-        idToken,
-        serviceAccountId: o.serviceAccountId,
-        ...(o.domain ? { domain: o.domain } : {}),
+    if (o.method === 'oidc') {
+        const idToken = await (0, oidc_1.getGithubIdToken)(o.audience);
+        const iam = await (0, exchange_1.exchangeForIamToken)({
+            idToken,
+            serviceAccountId: o.serviceAccountId,
+            ...(o.domain ? { domain: o.domain } : {}),
+        });
+        return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
+    }
+    if (o.method === 'key') {
+        const iam = await (0, key_1.exchangeKeyForIamToken)({
+            serviceAccountId: o.serviceAccountId,
+            publicKeyId: o.publicKeyId,
+            privateKeyPem: o.privateKeyPem,
+            ...(o.domain ? { domain: o.domain } : {}),
+        });
+        return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
+    }
+    throw new Error(`Unsupported auth method '${o.method}'. Use 'oidc' or 'key'.`);
+}
+
+
+/***/ }),
+
+/***/ 8441:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/**
+ * Service-account key auth via the official Nebius JS SDK (`@nebius/js-sdk`).
+ *
+ * The non-keyless alternative to the federated OIDC flow (`exchange.ts`): instead
+ * of impersonating a service account with a GitHub OIDC actor token, we present
+ * the service account's own authorized key (an RSA keypair whose public half
+ * Nebius stores). The SDK's `ServiceAccountBearer` signs a JWT with the private
+ * key and exchanges it for a short-lived IAM access token over native gRPC.
+ *
+ * Inputs (a Nebius "authorized key", e.g. from `nebius iam auth-public-key`):
+ *   serviceAccountId  the service account the key belongs to (`serviceaccount-…`)
+ *   publicKeyId       the id of the registered public key (the JWT `kid`)
+ *   privateKeyPem     the PEM-encoded private key (kept secret; masked)
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.exchangeKeyForIamToken = exchangeKeyForIamToken;
+const js_sdk_1 = __nccwpck_require__(1922);
+const service_account_1 = __nccwpck_require__(5404);
+const service_account_2 = __nccwpck_require__(7846);
+const log_1 = __nccwpck_require__(5578);
+/** Default IAM token lifetime (~12h) used when the response omits an expiry. */
+const DEFAULT_LIFETIME_SECONDS = 12 * 60 * 60;
+/**
+ * Mint a Nebius IAM access token from a service-account authorized key using the
+ * SDK's `ServiceAccountBearer`. Masks the returned token immediately.
+ *
+ * @throws on missing inputs or any SDK/gRPC error (no silent fallback).
+ */
+async function exchangeKeyForIamToken(p) {
+    if (!p.serviceAccountId) {
+        throw new Error('exchangeKeyForIamToken: serviceAccountId is required.');
+    }
+    if (!p.publicKeyId) {
+        throw new Error('exchangeKeyForIamToken: publicKeyId is required.');
+    }
+    if (!p.privateKeyPem) {
+        throw new Error('exchangeKeyForIamToken: privateKeyPem is required.');
+    }
+    const sdk = new js_sdk_1.SDK({
+        ...(p.domain ? { domain: p.domain } : {}),
+        logger: 'warn', // suppress the SDK's INFO chatter in CI logs
     });
-    return { token: iam.accessToken, expiresInSeconds: iam.expiresInSeconds };
+    try {
+        const serviceAccount = new service_account_2.ServiceAccount(p.privateKeyPem, p.publicKeyId, p.serviceAccountId);
+        const bearer = new service_account_1.ServiceAccountBearer(serviceAccount, { sdk });
+        const token = await bearer.receiver().fetch(p.timeoutMs);
+        if (!token?.token) {
+            throw new Error('Service-account key auth returned an empty access token.');
+        }
+        (0, log_1.mask)(token.token);
+        const expiresInSeconds = token.expiration
+            ? Math.max(0, Math.floor((token.expiration.getTime() - Date.now()) / 1000))
+            : DEFAULT_LIFETIME_SECONDS;
+        return { accessToken: token.token, expiresInSeconds };
+    }
+    finally {
+        await sdk.close();
+    }
 }
 
 
@@ -142677,32 +142761,49 @@ var exports = __webpack_exports__;
 /**
  * `auth` action entrypoint.
  *
- * Performs the keyless GitHub OIDC -> Nebius IAM token exchange (federated
- * credentials, over gRPC via `@nebius/js-sdk`), masks the token, and exports it
- * as `NEBIUS_IAM_TOKEN` for the CLI and all downstream steps. Run once per job.
+ * Authenticates to Nebius and exports the resulting IAM token as
+ * `NEBIUS_IAM_TOKEN` (masked) for the CLI and all downstream steps. Run once per
+ * job. Two methods, selected by `auth-method`:
+ *   - `oidc` (default): keyless GitHub OIDC -> IAM token exchange.
+ *   - `key`           : a service-account authorized key (private-key JWT).
  *
  * This action does NOT install the CLI — `configureCliAuth` only sets env vars.
  * Use the `setup` action to put the `nebius` CLI on PATH.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(3483);
-async function run() {
+/** Build the method-specific auth options from action inputs. */
+function readAuthOptions() {
     const authMethod = (0, core_1.getString)('auth-method', { default: 'oidc' });
-    // The service account this workflow impersonates via federated credentials.
+    // The service account to authenticate as (subject of both flows).
     const serviceAccountId = (0, core_1.getString)('service-account-id', { required: true });
-    const audience = (0, core_1.getString)('audience');
     // Optional SDK domain override; empty -> SDK default (api.nebius.cloud:443).
     const domain = (0, core_1.getString)('domain');
-    if (authMethod !== 'oidc') {
-        throw new Error(`Unsupported auth-method '${authMethod}'. Only 'oidc' is supported in v1.`);
-    }
-    const result = await core_1.log.group('Authenticate (OIDC token exchange)', async () => {
-        const auth = await (0, core_1.authenticate)({
+    if (authMethod === 'oidc') {
+        const audience = (0, core_1.getString)('audience');
+        return {
             method: 'oidc',
             serviceAccountId,
             ...(audience !== '' ? { audience } : {}),
             ...(domain !== '' ? { domain } : {}),
-        });
+        };
+    }
+    if (authMethod === 'key') {
+        return {
+            method: 'key',
+            serviceAccountId,
+            publicKeyId: (0, core_1.getString)('public-key-id', { required: true }),
+            privateKeyPem: (0, core_1.getString)('private-key', { required: true }),
+            ...(domain !== '' ? { domain } : {}),
+        };
+    }
+    throw new Error(`Unsupported auth-method '${authMethod}'. Use 'oidc' or 'key'.`);
+}
+async function run() {
+    const options = readAuthOptions();
+    const label = options.method === 'key' ? 'service-account key' : 'OIDC token exchange';
+    const result = await core_1.log.group(`Authenticate (${label})`, async () => {
+        const auth = await (0, core_1.authenticate)(options);
         await (0, core_1.configureCliAuth)(auth.token);
         return auth;
     });
