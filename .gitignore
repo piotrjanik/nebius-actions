@@ -16,3 +16,6 @@ coverage/
 .idea/
 # JetBrains AI (Junie) local workspace
 .junie/
+
+# Subagent-driven-development scratch (briefs, reports, ledger, diffs)
+.superpowers/
