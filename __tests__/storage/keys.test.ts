@@ -56,11 +56,11 @@ describe('mintEphemeralKey', () => {
       stderr: '',
       data: {
         metadata: { id: 'ak-123' },
-        status: { aws_access_key_id: 'AKIA...', secret_id: 'mbx-9' },
+        status: { aws_access_key_id: 'AKIA...', secret_reference_id: 'mbsec-9' },
       },
     });
     const m = await mintEphemeralKey({ projectId: 'p', serviceAccountId: 's' });
-    expect(m).toEqual({ accessKeyId: 'ak-123', awsAccessKeyId: 'AKIA...', secretId: 'mbx-9' });
+    expect(m).toEqual({ accessKeyId: 'ak-123', awsAccessKeyId: 'AKIA...', secretId: 'mbsec-9' });
     expect(runCli).toHaveBeenCalledWith(expect.arrayContaining(['access-key', 'create']), { json: true, silent: true });
   });
 
@@ -69,7 +69,7 @@ describe('mintEphemeralKey', () => {
       exitCode: 0, stdout: '', stderr: '',
       data: {
         metadata: { id: 'ak-999' },
-        status: { aws_access_key_id: 'AKIA...', secret_id: 'mbx-1' },
+        status: { aws_access_key_id: 'AKIA...', secret_reference_id: 'mbsec-1' },
       },
     });
     await mintEphemeralKey({ projectId: 'p', serviceAccountId: 's' });
@@ -83,17 +83,32 @@ describe('mintEphemeralKey', () => {
 });
 
 describe('readAccessKeySecret', () => {
-  it('reads and returns the secret for the access key id', async () => {
+  it('reads the plaintext from the MysteryBox payload by secret reference id', async () => {
     runCli.mockResolvedValueOnce({
       exitCode: 0, stdout: '', stderr: '',
-      data: { secret: 'SECRET-XYZ' },
+      data: {
+        version_id: 'mbsecver-1',
+        data: [{ key: 'secret', string_value: 'SECRET-XYZ' }],
+      },
     });
-    const s = await readAccessKeySecret('ak-123');
+    const s = await readAccessKeySecret('mbsec-9');
     expect(s).toBe('SECRET-XYZ');
     expect(runCli).toHaveBeenCalledWith(
-      ['iam', 'v2', 'access-key', 'get-secret', '--id', 'ak-123'],
+      ['mysterybox', 'payload', 'get', '--secret-id', 'mbsec-9'],
       { json: true, silent: true },
     );
     expect(mask).toHaveBeenCalledWith('SECRET-XYZ');
+  });
+
+  it('throws when the secret reference id is missing', async () => {
+    await expect(readAccessKeySecret('')).rejects.toThrow(/secretReferenceId/);
+  });
+
+  it('throws when the payload has no secret entry', async () => {
+    runCli.mockResolvedValueOnce({
+      exitCode: 0, stdout: '', stderr: '',
+      data: { data: [{ key: 'other', string_value: 'x' }] },
+    });
+    await expect(readAccessKeySecret('mbsec-9')).rejects.toThrow(/not found in MysteryBox payload/);
   });
 });
