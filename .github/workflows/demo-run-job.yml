@@ -9,11 +9,12 @@
 # logs, polls to a terminal state, and fails the step if the Job did not
 # succeed. (The all-in-one `run-job` action fuses these two into one step.)
 #
-# No bucket needed: the Axolotl `config.yaml` (examples/axolotl/config.yaml) is
-# base64-embedded into the container command, so the job needs NO Object Storage
-# bucket and NO S3 credentials. Trade-off: adapters write to ephemeral container
-# disk (/tmp/output). To persist them, create a bucket, add a
-# `mounts: <bucket-id>:/workspace/data` input, and point output_dir there.
+# The Axolotl config is inlined in this workflow, uploaded to a pre-existing
+# Object Storage bucket (vars.NEBIUS_CONFIG_BUCKET) by the `upload-object`
+# action, and mounted read-only into the job at /workspace/cfg. The upload mints
+# a short-lived S3 access key from the service account (secret delivered to
+# MysteryBox) so no new GitHub secret is needed; the job mounts via
+# `…:ro:default@<secret-id>`. Adapters still write to ephemeral /tmp/output.
 #
 # Auth: service-account key (NOT OIDC). Jobs use the `nebius` CLI, so `setup`
 # configures a key-based CLI profile (the `auth` action only exports a token for
@@ -26,6 +27,7 @@
 #   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
 #   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
 #   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
+#   vars.NEBIUS_CONFIG_BUCKET       - pre-existing Object Storage bucket for the config
 name: demo-run-job
 
 on:
@@ -52,11 +54,48 @@ jobs:
       # out into the workspace.
       - uses: actions/checkout@v4
 
-      # Encode the vendored Axolotl config so it can travel inside the container
-      # command — keeps examples/axolotl/config.yaml the single readable source.
-      - name: Encode Axolotl config
-        id: cfg
-        run: echo "b64=$(base64 -w0 examples/axolotl/config.yaml)" >> "$GITHUB_OUTPUT"
+      # Write the Axolotl config inline so this workflow is the single source of
+      # truth, then hand the file to upload-object.
+      - name: Write Axolotl config
+        run: |
+          mkdir -p "$RUNNER_TEMP"
+          cat > "$RUNNER_TEMP/config.yaml" <<'YAML'
+          base_model: Qwen/Qwen2.5-0.5B
+
+          load_in_4bit: true
+          adapter: qlora
+
+          datasets:
+            - path: Salesforce/wikitext
+              name: wikitext-2-raw-v1
+              split: "train[:2000]"
+              type: completion
+              field: text
+
+          sequence_len: 128
+          micro_batch_size: 1
+          gradient_accumulation_steps: 1
+
+          learning_rate: 2e-4
+          max_steps: 30
+          val_set_size: 0
+          logging_steps: 5
+
+          dataset_prepared_path: /tmp/output/last_run_prepared
+          output_dir: /tmp/output
+
+          lora_r: 8
+          lora_alpha: 16
+          lora_dropout: 0.05
+          lora_target_modules:
+            - q_proj
+            - k_proj
+            - v_proj
+            - o_proj
+            - gate_proj
+            - up_proj
+            - down_proj
+          YAML
 
       # Install the CLI and configure a key-based profile so the CLI can
       # authenticate itself (jobs drive the CLI). The private key comes from a
@@ -69,6 +108,18 @@ jobs:
           private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
+
+      # Upload the config to the bucket. Mints a short-lived S3 key from the SA
+      # (secret -> MysteryBox) and returns the object URI + mount secret id.
+      - name: Upload Axolotl config
+        id: upload
+        uses: ./actions/upload-object
+        with:
+          source: ${{ runner.temp }}/config.yaml
+          bucket: ${{ vars.NEBIUS_CONFIG_BUCKET }}
+          key: ${{ github.run_id }}/config.yaml
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
       # 1) Create the Job. `nebius ai job create` blocks until the job is
       #    provisioned (no async flag), so this step finishes once the job is up
@@ -87,6 +138,7 @@ jobs:
           # The Job's own run timeout (passed to the CLI as --timeout).
           timeout: 1h
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          mounts: s3://${{ vars.NEBIUS_CONFIG_BUCKET }}:/workspace/cfg:ro:default@${{ steps.upload.outputs.secret-id }}
           # Raw passthrough to `nebius ai job create`: bigger disk for the model +
           # dataset cache, then the container args. Nebius space-splits the single
           # --args string (honoring the quotes), so the whole `-c "..."` reaches
@@ -105,7 +157,7 @@ jobs:
             --format
             json
             --args
-            -c "echo ${{ steps.cfg.outputs.b64 }} | base64 -d > /tmp/config.yaml && axolotl train /tmp/config.yaml"
+            -c "axolotl train /workspace/cfg/config.yaml"
 
       # 2) Now that the job is provisioned, poll its status to a terminal state,
       #    streaming logs. Fails the step on FAILED/CANCELLED or poll timeout.
