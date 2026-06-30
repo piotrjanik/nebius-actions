@@ -8,10 +8,10 @@
  *
  * Confirmation status (web-verified 2026-06-22):
  *  - CONFIRMED: CLI binary name `nebius`; install via the curl script URL below;
- *    `nebius ai job {create,list,get,get-by-name,logs,cancel,delete,ssh}`;
- *    `nebius ai endpoint ...` group exists; global `--format json`; job flags
- *    `--name --image --container-command --preset --platform --env --timeout`;
- *    IAM token env var `NEBIUS_IAM_TOKEN`; OIDC issuer + token-exchange URL.
+ *    `nebius ai job {get,logs,cancel}` (the CLI verbs still used — job CREATE now
+ *    goes through the SDK `JobService`, see `jobs/jobs-sdk.ts`); global
+ *    `--format json`; IAM token env var `NEBIUS_IAM_TOKEN`; OIDC issuer +
+ *    token-exchange URL.
  *  - VERIFY: exact job/endpoint status enum spellings; where the container exit
  *    code surfaces in CLI JSON; endpoint subcommand verbs + URL field; pinning a
  *    specific CLI version via the install script.
