@@ -75,8 +75,9 @@ export function buildCreateJobArgs(s: JobSpec): string[] {
       args.push('--env', `${k}=${v}`);
     }
   }
-  // Mounts map to `--volume` (e.g. `s3://bucket:/data:rw:profile`), the flag the
-  // live CLI accepts; `--mount` does not exist.
+  // Mounts map to `--volume` (e.g. `<bucket-id>:/data:rw`), the flag the live CLI
+  // accepts; `--mount` does not exist. A bucket mounted by id needs no S3
+  // credentials — Nebius resolves access from the job's service account.
   if (s.mounts) {
     for (const m of s.mounts) {
       args.push('--volume', m);
