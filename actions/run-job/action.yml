@@ -1,7 +1,8 @@
 name: 'Nebius Run Job'
 description: >-
   Create a Nebius Job, stream its logs, poll to a terminal state, and fail the
-  step on a non-success status or timeout.
+  step on a non-success status or timeout. Authenticates via the SDK — run the
+  `auth` action first (exports NEBIUS_IAM_TOKEN).
 author: 'Nebius Actions'
 branding:
   icon: 'play'
@@ -35,6 +36,20 @@ inputs:
   timeout:
     description: "The Job's own run timeout (e.g. 1h, 30m)."
     required: false
+  args:
+    description: 'Container args string passed to the entrypoint (e.g. -c "cmd").'
+    required: false
+  disk-size:
+    description: 'Main disk size (binary units, e.g. 250Gi). Omit for the platform default.'
+    required: false
+  disk-type:
+    description: 'Disk type: network-ssd (default), network-hdd, network-ssd-non-replicated, network-ssd-io-m3.'
+    required: false
+    default: 'network-ssd'
+  preemptible:
+    description: 'Run on preemptible compute.'
+    required: false
+    default: 'false'
   wait:
     description: 'Wait for the job to reach a terminal state.'
     required: false
@@ -45,9 +60,6 @@ inputs:
     default: '10'
   project-id:
     description: 'Nebius project id.'
-    required: false
-  extra-args:
-    description: 'Raw passthrough args appended to the CLI call (multiline).'
     required: false
 
 outputs:
