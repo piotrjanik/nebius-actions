@@ -182,3 +182,22 @@ export const POLL_TIMEOUT_BUFFER_MS = 5 * 60 * 1000;
 
 /** Backoff growth factor between polls. */
 export const DEFAULT_POLL_BACKOFF_FACTOR = 1.5;
+
+// ---------------------------------------------------------------------------
+// Object Storage (S3) — data plane
+// ---------------------------------------------------------------------------
+
+/**
+ * Default Nebius Object Storage S3 endpoint. // VERIFY: region host.
+ * Mirrors the eu-north1 host used by the CLI install script.
+ */
+export const S3_ENDPOINT_DEFAULT = 'https://storage.eu-north1.nebius.cloud';
+
+/** Default S3 region for Nebius Object Storage. // VERIFY. */
+export const S3_REGION_DEFAULT = 'eu-north1';
+
+/** `nebius iam v2 access-key ...` — CONFIRMED group (live CLI). */
+export const CLI_ACCESS_KEY_GROUP = ['iam', 'v2', 'access-key'] as const;
+
+/** `nebius mysterybox payload ...` — CONFIRMED group (live CLI). */
+export const CLI_MYSTERYBOX_PAYLOAD_GROUP = ['mysterybox', 'payload'] as const;

@@ -64416,7 +64416,7 @@ async function configureCliProfile(o) {
  *    specific CLI version via the install script.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
+exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = exports.CLI_ACCESS_KEY_GROUP = exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -64555,6 +64555,20 @@ exports.DEFAULT_POLL_TIMEOUT_MS = 60 * 60 * 1000;
 exports.POLL_TIMEOUT_BUFFER_MS = 5 * 60 * 1000;
 /** Backoff growth factor between polls. */
 exports.DEFAULT_POLL_BACKOFF_FACTOR = 1.5;
+// ---------------------------------------------------------------------------
+// Object Storage (S3) — data plane
+// ---------------------------------------------------------------------------
+/**
+ * Default Nebius Object Storage S3 endpoint. // VERIFY: region host.
+ * Mirrors the eu-north1 host used by the CLI install script.
+ */
+exports.S3_ENDPOINT_DEFAULT = 'https://storage.eu-north1.nebius.cloud';
+/** Default S3 region for Nebius Object Storage. // VERIFY. */
+exports.S3_REGION_DEFAULT = 'eu-north1';
+/** `nebius iam v2 access-key ...` — CONFIRMED group (live CLI). */
+exports.CLI_ACCESS_KEY_GROUP = ['iam', 'v2', 'access-key'];
+/** `nebius mysterybox payload ...` — CONFIRMED group (live CLI). */
+exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = ['mysterybox', 'payload'];
 
 
 /***/ }),
