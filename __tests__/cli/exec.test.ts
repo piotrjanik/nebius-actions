@@ -34,6 +34,16 @@ describe('withJsonFormat', () => {
     const args = ['ai', 'job', 'get', '--format', 'yaml'];
     expect(withJsonFormat(args)).toEqual(args);
   });
+
+  it('inserts --format json BEFORE --args if present', () => {
+    const args = ['ai', 'job', 'create', '--image', 'img', '--args', 'ls'];
+    const result = withJsonFormat(args);
+    const argsIndex = result.indexOf('--args');
+    const formatIndex = result.indexOf('--format');
+    expect(formatIndex).toBeLessThan(argsIndex);
+    expect(result[formatIndex + 1]).toBe('json');
+    expect(result.slice(argsIndex)).toEqual(['--args', 'ls']);
+  });
 });
 
 describe('runCli', () => {
