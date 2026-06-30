@@ -21,13 +21,20 @@ export interface JobSpec {
   name?: string;
   image: string;
   command?: string[];
+  /** Container args string (e.g. `-c "axolotl train …"`); SDK `args`. */
+  args?: string;
   preset?: string;
   platform?: string;
   env?: Record<string, string>;
   mounts?: string[];
   timeout?: string;
+  /** Main-disk size in bytes; when set, the SDK `disk` block is built. */
+  diskSizeBytes?: number;
+  /** Disk type key (e.g. `network-ssd`); mapped to the SDK disk-type enum. */
+  diskType?: string;
+  /** Run the job on preemptible compute. */
+  preemptible?: boolean;
   projectId?: string;
-  extraArgs?: string[];
 }
 
 export interface Job {
