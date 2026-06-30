@@ -1,24 +1,26 @@
 /**
  * `submit-job` action entrypoint (low-level).
  *
- * Creates a Job and returns immediately (no waiting).
+ * Creates a Job via the SDK `JobService` and returns immediately (no waiting).
+ * Requires the `auth` action to have exported NEBIUS_IAM_TOKEN.
  */
 
 import {
   buildJobSpecFromInputs,
-  createJob,
-  ensureCli,
+  createJobViaSdk,
+  createSdk,
+  jobService,
   fail,
   log,
   setOutput,
 } from '../core';
 
 async function run(): Promise<void> {
-  await ensureCli({ version: 'latest' });
   const spec = buildJobSpecFromInputs();
+  const service = jobService(createSdk());
 
   const job = await log.group('Create job', async () => {
-    const j = await createJob(spec);
+    const j = await createJobViaSdk(service, spec);
     log.info(`Created job ${j.id} (status: ${j.status}).`);
     return j;
   });
