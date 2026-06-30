@@ -70,7 +70,9 @@ jobs:
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
-      # 1) Submit the Job and return immediately (no waiting).
+      # 1) Create the Job. `nebius ai job create` blocks until the job is
+      #    provisioned (no async flag), so this step finishes once the job is up
+      #    and RUNNING, returning its id — it does NOT wait for completion.
       - name: Submit Axolotl fine-tune
         id: submit
         uses: ./actions/submit-job
@@ -95,10 +97,10 @@ jobs:
             --args
             -c "echo ${{ steps.cfg.outputs.b64 }} | base64 -d > /tmp/config.yaml && axolotl train /tmp/config.yaml"
 
-      # 2) Wait for the submitted Job to reach a terminal state, streaming logs.
-      #    Fails the step on FAILED/CANCELLED or when the poll timeout is hit.
-      #    Note: wait-for-job `timeout` is a poll ceiling in SECONDS (unlike the
-      #    submit `timeout` above, which is the Job's own run timeout).
+      # 2) Now that the job is provisioned, poll its status to a terminal state,
+      #    streaming logs. Fails the step on FAILED/CANCELLED or poll timeout.
+      #    `timeout` here is a poll ceiling in SECONDS (vs the submit `timeout`
+      #    above, which is the Job's own run timeout).
       - name: Wait for fine-tune
         id: wait
         uses: ./actions/wait-for-job
