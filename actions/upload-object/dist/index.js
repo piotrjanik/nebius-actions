@@ -95475,11 +95475,19 @@ const exec = __importStar(__nccwpck_require__(95236));
 const constants_1 = __nccwpck_require__(26214);
 /**
  * Append `--format json` only when the caller asked for JSON and didn't already
- * specify a `--format`. Pure — exported for unit tests.
+ * specify a `--format`. It ensures `--format json` is placed BEFORE the variadic
+ * `--args` flag if present, so it isn't swallowed by the CLI.
+ * Pure — exported for unit tests.
  */
 function withJsonFormat(args) {
     if (args.includes(constants_1.CLI_FORMAT_FLAG)) {
         return args;
+    }
+    const argsIndex = args.indexOf('--args');
+    if (argsIndex !== -1) {
+        const head = args.slice(0, argsIndex);
+        const tail = args.slice(argsIndex);
+        return [...head, constants_1.CLI_FORMAT_FLAG, constants_1.CLI_FORMAT_JSON, ...tail];
     }
     return [...args, constants_1.CLI_FORMAT_FLAG, constants_1.CLI_FORMAT_JSON];
 }
@@ -95838,7 +95846,7 @@ async function configureCliProfile(o) {
  *    specific CLI version via the install script.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = exports.CLI_ACCESS_KEY_GROUP = exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
+exports.CLI_STORAGE_BUCKET_GROUP = exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = exports.CLI_ACCESS_KEY_GROUP = exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -95991,6 +95999,8 @@ exports.S3_REGION_DEFAULT = 'eu-north1';
 exports.CLI_ACCESS_KEY_GROUP = ['iam', 'v2', 'access-key'];
 /** `nebius mysterybox payload ...` — CONFIRMED group (live CLI). */
 exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = ['mysterybox', 'payload'];
+/** `nebius storage bucket ...` — CONFIRMED group (live CLI). */
+exports.CLI_STORAGE_BUCKET_GROUP = ['storage', 'bucket'];
 
 
 /***/ }),
@@ -97108,6 +97118,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.objectUri = objectUri;
 exports.buildS3ClientConfig = buildS3ClientConfig;
 exports.putObject = putObject;
+exports.listObjects = listObjects;
+exports.deleteObjects = deleteObjects;
 const client_s3_1 = __nccwpck_require__(53711);
 /** `s3://bucket/key` (a leading slash on the key is trimmed). */
 function objectUri(bucket, key) {
@@ -97127,6 +97139,45 @@ async function putObject(t, c, body) {
     const client = new client_s3_1.S3Client(buildS3ClientConfig(t, c));
     try {
         await client.send(new client_s3_1.PutObjectCommand({ Bucket: t.bucket, Key: t.key.replace(/^\/+/, ''), Body: body }));
+    }
+    finally {
+        client.destroy();
+    }
+}
+/** List all object keys under a prefix (paginated). Throws on S3 error. */
+async function listObjects(loc, c, prefix) {
+    const client = new client_s3_1.S3Client(buildS3ClientConfig(loc, c));
+    const keys = [];
+    try {
+        let token;
+        do {
+            const res = await client.send(new client_s3_1.ListObjectsV2Command({ Bucket: loc.bucket, Prefix: prefix || undefined, ContinuationToken: token }));
+            for (const o of res.Contents ?? []) {
+                if (o.Key)
+                    keys.push(o.Key);
+            }
+            token = res.IsTruncated ? res.NextContinuationToken : undefined;
+        } while (token);
+    }
+    finally {
+        client.destroy();
+    }
+    return keys;
+}
+/** Delete objects by key, batched at the S3 limit of 1000 per request. No-op when empty. */
+async function deleteObjects(loc, c, keys) {
+    if (keys.length === 0) {
+        return;
+    }
+    const client = new client_s3_1.S3Client(buildS3ClientConfig(loc, c));
+    try {
+        for (let i = 0; i < keys.length; i += 1000) {
+            const batch = keys.slice(i, i + 1000);
+            await client.send(new client_s3_1.DeleteObjectsCommand({
+                Bucket: loc.bucket,
+                Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+            }));
+        }
     }
     finally {
         client.destroy();
