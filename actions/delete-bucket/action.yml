@@ -1,0 +1,40 @@
+name: 'Nebius Delete Bucket'
+description: 'Empty (S3) then delete a Nebius Object Storage bucket.'
+author: 'Nebius Actions'
+branding:
+  icon: 'trash-2'
+  color: 'blue'
+
+inputs:
+  bucket:
+    description: 'Bucket name (used to empty objects over S3) (required).'
+    required: true
+  bucket-id:
+    description: 'Bucket id (used for the control-plane delete) (required).'
+    required: true
+  service-account-id:
+    description: 'Service account to mint the ephemeral access key for (required).'
+    required: true
+  project-id:
+    description: 'Parent project for the access key (required).'
+    required: true
+  expires-in:
+    description: 'Ephemeral key TTL (e.g. 2h, 30m).'
+    required: false
+    default: '2h'
+  endpoint:
+    description: 'S3 endpoint for Nebius Object Storage.'
+    required: false
+    default: 'https://storage.eu-north1.nebius.cloud'
+  region:
+    description: 'S3 region.'
+    required: false
+    default: 'eu-north1'
+
+outputs:
+  deleted-count:
+    description: 'Number of objects deleted while emptying the bucket.'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'

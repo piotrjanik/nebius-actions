@@ -39,7 +39,7 @@
     "exactOptionalPropertyTypes": true,
 
     /* Type roots. */
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
 
     /* Emit. We only typecheck/bundle here (build is via ncc), so no tsc emit. */
     "noEmit": true,
