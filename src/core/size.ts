@@ -25,5 +25,11 @@ export function parseSizeBytes(input: string): number {
   }
   const value = Number(m[1]);
   const unit = (m[2] ?? '').toLowerCase();
-  return value * UNITS[unit];
+  const factor = UNITS[unit];
+  if (factor === undefined) {
+    // Unreachable: the regex only matches the known unit suffixes. Guarded
+    // explicitly so the lookup is type-safe without a silent fallback.
+    throw new Error(`parseSizeBytes: unparseable size '${input}'.`);
+  }
+  return value * factor;
 }
