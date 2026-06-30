@@ -65317,8 +65317,8 @@ const DISK_TYPES = {
 };
 /**
  * Parse a `<source>:<containerPath>[:rw|ro]` mount string.
- * VERIFY: the SDK `VolumeMount.source` accepts a bucket id directly (the CLI
- * `--volume <bucket-id>:/path:rw` did). Defaults to read-write.
+ * Confirmed (SDK 0.2.27): `VolumeMount.source` accepts a bucket name or id
+ * directly, as well as an S3 URI. Defaults to read-write.
  */
 function parseMount(m) {
     const parts = m.split(':');
@@ -143094,10 +143094,16 @@ async function run() {
     const jobTimeoutMs = (0, core_1.parseDurationMs)(spec.timeout);
     const pollTimeoutMs = jobTimeoutMs !== undefined ? jobTimeoutMs + core_1.POLL_TIMEOUT_BUFFER_MS : core_1.DEFAULT_POLL_TIMEOUT_MS;
     const created = await core_1.log.group('Create job', async () => {
-        const service = (0, core_1.jobService)((0, core_1.createSdk)());
-        const job = await (0, core_1.createJobViaSdk)(service, spec);
-        core_1.log.info(`Created job ${job.id} (status: ${job.status}).`);
-        return job;
+        const sdk = (0, core_1.createSdk)();
+        try {
+            const service = (0, core_1.jobService)(sdk);
+            const job = await (0, core_1.createJobViaSdk)(service, spec);
+            core_1.log.info(`Created job ${job.id} (status: ${job.status}).`);
+            return job;
+        }
+        finally {
+            await sdk.close();
+        }
     });
     (0, core_1.setOutput)('job-id', created.id);
     (0, core_1.setOutput)('status', created.status);

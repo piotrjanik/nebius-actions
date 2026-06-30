@@ -81,6 +81,10 @@ describe('buildJobSpec', () => {
     expect(spec.timeout?.asMilliseconds()).toBe(60 * 60 * 1000);
   });
 
+  it('joins a multi-element command into containerCommand', () => {
+    expect(buildJobSpec({ image: 'img', command: ['python', 'train.py'] }).containerCommand).toBe('python train.py');
+  });
+
   it('omits disk when no size is given', () => {
     expect(buildJobSpec({ image: 'img' }).disk).toBeUndefined();
   });

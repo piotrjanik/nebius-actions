@@ -17,16 +17,19 @@ import {
 
 async function run(): Promise<void> {
   const spec = buildJobSpecFromInputs();
-  const service = jobService(createSdk());
-
-  const job = await log.group('Create job', async () => {
-    const j = await createJobViaSdk(service, spec);
-    log.info(`Created job ${j.id} (status: ${j.status}).`);
-    return j;
-  });
-
-  setOutput('job-id', job.id);
-  setOutput('status', job.status);
+  const sdk = createSdk();
+  try {
+    const service = jobService(sdk);
+    const job = await log.group('Create job', async () => {
+      const j = await createJobViaSdk(service, spec);
+      log.info(`Created job ${j.id} (status: ${j.status}).`);
+      return j;
+    });
+    setOutput('job-id', job.id);
+    setOutput('status', job.status);
+  } finally {
+    await sdk.close();
+  }
 }
 
 run().catch((err) => fail(err));

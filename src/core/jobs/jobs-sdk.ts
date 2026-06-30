@@ -49,8 +49,8 @@ const DISK_TYPES: Record<string, DiskSpec_DiskType> = {
 
 /**
  * Parse a `<source>:<containerPath>[:rw|ro]` mount string.
- * VERIFY: the SDK `VolumeMount.source` accepts a bucket id directly (the CLI
- * `--volume <bucket-id>:/path:rw` did). Defaults to read-write.
+ * Confirmed (SDK 0.2.27): `VolumeMount.source` accepts a bucket name or id
+ * directly, as well as an S3 URI. Defaults to read-write.
  */
 export function parseMount(m: string): {
   source: string;

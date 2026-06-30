@@ -42,10 +42,15 @@ async function run(): Promise<void> {
     jobTimeoutMs !== undefined ? jobTimeoutMs + POLL_TIMEOUT_BUFFER_MS : DEFAULT_POLL_TIMEOUT_MS;
 
   const created = await log.group('Create job', async () => {
-    const service = jobService(createSdk());
-    const job = await createJobViaSdk(service, spec);
-    log.info(`Created job ${job.id} (status: ${job.status}).`);
-    return job;
+    const sdk = createSdk();
+    try {
+      const service = jobService(sdk);
+      const job = await createJobViaSdk(service, spec);
+      log.info(`Created job ${job.id} (status: ${job.status}).`);
+      return job;
+    } finally {
+      await sdk.close();
+    }
   });
 
   setOutput('job-id', created.id);
