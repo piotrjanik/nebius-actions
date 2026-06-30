@@ -1,0 +1,40 @@
+name: 'Nebius Check Object'
+description: 'Assert that at least one object exists under a bucket prefix (fails otherwise).'
+author: 'Nebius Actions'
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  bucket:
+    description: 'Bucket name (required).'
+    required: true
+  prefix:
+    description: 'Object key prefix to check (required).'
+    required: true
+  service-account-id:
+    description: 'Service account to mint the ephemeral access key for (required).'
+    required: true
+  project-id:
+    description: 'Parent project for the access key (required).'
+    required: true
+  expires-in:
+    description: 'Ephemeral key TTL (e.g. 2h, 30m).'
+    required: false
+    default: '2h'
+  endpoint:
+    description: 'S3 endpoint for Nebius Object Storage.'
+    required: false
+    default: 'https://storage.eu-north1.nebius.cloud'
+  region:
+    description: 'S3 region.'
+    required: false
+    default: 'eu-north1'
+
+outputs:
+  object-count:
+    description: 'Number of objects found under the prefix (>= 1 on success).'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
