@@ -91,10 +91,19 @@ jobs:
           # dataset cache, then the container args. Nebius space-splits the single
           # --args string (honoring the quotes), so the whole `-c "..."` reaches
           # bash intact; $-expansions happen container-side, not on the runner.
+          #
+          # `--format json` MUST come before `--args`: the CLI's `--args` is
+          # variadic and swallows every following token, so a trailing
+          # `--format json` (which the action would otherwise auto-append) gets
+          # eaten and the CLI emits its human table instead of JSON — which the
+          # action then fails to parse. Setting it here also suppresses the
+          # auto-append (the action skips it when `--format` is already present).
           extra-args: |
             --disk-size
             ${{ inputs.disk-size }}
             --preemptible
+            --format
+            json
             --args
             -c "echo ${{ steps.cfg.outputs.b64 }} | base64 -d > /tmp/config.yaml && axolotl train /tmp/config.yaml"
 
