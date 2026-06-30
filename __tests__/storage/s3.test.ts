@@ -65,8 +65,8 @@ describe('listObjects', () => {
       .mockResolvedValueOnce({ Contents: [{ Key: 'output/c' }], IsTruncated: false });
     const keys = await listObjects(LOC, CREDS, 'output/');
     expect(keys).toEqual(['output/a', 'output/b', 'output/c']);
-    expect(send.mock.calls[0][0].input.ContinuationToken).toBeUndefined();
-    expect(send.mock.calls[1][0].input.ContinuationToken).toBe('t1');
+    expect(send.mock.calls[0]![0].input.ContinuationToken).toBeUndefined();
+    expect(send.mock.calls[1]![0].input.ContinuationToken).toBe('t1');
     expect(destroy).toHaveBeenCalled();
   });
 
@@ -89,9 +89,9 @@ describe('deleteObjects', () => {
     const keys = Array.from({ length: 2500 }, (_, i) => `k${i}`);
     await deleteObjects(LOC, CREDS, keys);
     expect(send).toHaveBeenCalledTimes(3);
-    expect(send.mock.calls[0][0].input.Delete.Objects).toHaveLength(1000);
-    expect(send.mock.calls[1][0].input.Delete.Objects).toHaveLength(1000);
-    expect(send.mock.calls[2][0].input.Delete.Objects).toHaveLength(500);
-    expect(send.mock.calls[0][0].input.Delete.Objects[0]).toEqual({ Key: 'k0' });
+    expect(send.mock.calls[0]![0].input.Delete.Objects).toHaveLength(1000);
+    expect(send.mock.calls[1]![0].input.Delete.Objects).toHaveLength(1000);
+    expect(send.mock.calls[2]![0].input.Delete.Objects).toHaveLength(500);
+    expect(send.mock.calls[0]![0].input.Delete.Objects[0]).toEqual({ Key: 'k0' });
   });
 });
