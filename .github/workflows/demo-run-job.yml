@@ -139,9 +139,9 @@ jobs:
           bucket: ${{ steps.bucket.outputs.bucket-name }}
           key: config.yaml
 
-      # 1) Create the Job. `nebius ai job create` blocks until the job is
-      #    provisioned (no async flag), so this step finishes once the job is up
-      #    and RUNNING, returning its id — it does NOT wait for completion.
+      # 1) Create the Job via the SDK. submit-job returns as soon as the Job is
+      #    accepted (status CREATING), emitting its id — it does NOT wait for the
+      #    Job to start RUNNING or to complete.
       - name: Submit Axolotl fine-tune
         id: submit
         uses: ./actions/submit-job
@@ -157,14 +157,14 @@ jobs:
           timeout: 1h
           # Mount the bucket by its id. Nebius resolves the job's access to the
           # bucket from the project/service account — no S3 credentials, profile,
-          # or MysteryBox secret are needed on the `--volume` (that `s3://…:default@…`
-          # form requires a pre-configured AWS profile and is not what we want here).
+          # or MysteryBox secret are needed on the mount. submit-job parses each
+          # `<source>:<path>:<mode>` entry into the SDK volume spec (rw -> READ_WRITE).
           mounts: ${{ steps.bucket.outputs.bucket-id }}:/workspace/data:rw
           disk-size: ${{ inputs.disk-size }}
           preemptible: true
           args: -c "axolotl train /workspace/data/config.yaml"
 
-      # 2) Now that the job is provisioned, poll its status to a terminal state,
+      # 2) With the Job created, poll its status to a terminal state,
       #    streaming logs. Fails the step on FAILED/CANCELLED or poll timeout.
       #    `timeout` here is a poll ceiling in SECONDS (vs the submit `timeout`
       #    above, which is the Job's own run timeout).
