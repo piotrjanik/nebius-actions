@@ -64481,6 +64481,7 @@ exports.CLI_JOB_GROUP = ['ai', 'job'];
  * case-insensitive (see jobs.ts) so casing differences are tolerated.
  */
 exports.JOB_STATUS = {
+    creating: 'CREATING',
     queued: 'QUEUED',
     pending: 'PENDING',
     starting: 'STARTING',
@@ -64809,6 +64810,7 @@ __exportStar(__nccwpck_require__(3390), exports);
 __exportStar(__nccwpck_require__(626), exports);
 __exportStar(__nccwpck_require__(1773), exports);
 __exportStar(__nccwpck_require__(2334), exports);
+__exportStar(__nccwpck_require__(3910), exports);
 __exportStar(__nccwpck_require__(3256), exports);
 __exportStar(__nccwpck_require__(2874), exports);
 __exportStar(__nccwpck_require__(2744), exports);
@@ -65187,19 +65189,23 @@ function fail(err) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.buildJobSpecFromInputs = exports.mapJobJson = exports.buildCreateJobArgs = exports.isJobSuccess = exports.isJobTerminal = exports.streamJobLogs = exports.cancelJob = exports.getJob = exports.createJob = void 0;
+exports.parseMount = exports.buildJobMetadata = exports.buildJobSpec = exports.buildCreateJobRequest = exports.createJobViaSdk = exports.buildJobSpecFromInputs = exports.mapJobJson = exports.isJobSuccess = exports.isJobTerminal = exports.streamJobLogs = exports.cancelJob = exports.getJob = void 0;
 /** Public surface of the `jobs` module. */
 var jobs_1 = __nccwpck_require__(6938);
-Object.defineProperty(exports, "createJob", ({ enumerable: true, get: function () { return jobs_1.createJob; } }));
 Object.defineProperty(exports, "getJob", ({ enumerable: true, get: function () { return jobs_1.getJob; } }));
 Object.defineProperty(exports, "cancelJob", ({ enumerable: true, get: function () { return jobs_1.cancelJob; } }));
 Object.defineProperty(exports, "streamJobLogs", ({ enumerable: true, get: function () { return jobs_1.streamJobLogs; } }));
 Object.defineProperty(exports, "isJobTerminal", ({ enumerable: true, get: function () { return jobs_1.isJobTerminal; } }));
 Object.defineProperty(exports, "isJobSuccess", ({ enumerable: true, get: function () { return jobs_1.isJobSuccess; } }));
-Object.defineProperty(exports, "buildCreateJobArgs", ({ enumerable: true, get: function () { return jobs_1.buildCreateJobArgs; } }));
 Object.defineProperty(exports, "mapJobJson", ({ enumerable: true, get: function () { return jobs_1.mapJobJson; } }));
 var inputs_1 = __nccwpck_require__(1159);
 Object.defineProperty(exports, "buildJobSpecFromInputs", ({ enumerable: true, get: function () { return inputs_1.buildJobSpecFromInputs; } }));
+var jobs_sdk_1 = __nccwpck_require__(9819);
+Object.defineProperty(exports, "createJobViaSdk", ({ enumerable: true, get: function () { return jobs_sdk_1.createJobViaSdk; } }));
+Object.defineProperty(exports, "buildCreateJobRequest", ({ enumerable: true, get: function () { return jobs_sdk_1.buildCreateJobRequest; } }));
+Object.defineProperty(exports, "buildJobSpec", ({ enumerable: true, get: function () { return jobs_sdk_1.buildJobSpec; } }));
+Object.defineProperty(exports, "buildJobMetadata", ({ enumerable: true, get: function () { return jobs_sdk_1.buildJobMetadata; } }));
+Object.defineProperty(exports, "parseMount", ({ enumerable: true, get: function () { return jobs_sdk_1.parseMount; } }));
 
 
 /***/ }),
@@ -65213,32 +65219,39 @@ Object.defineProperty(exports, "buildJobSpecFromInputs", ({ enumerable: true, ge
  * Adapter from GitHub Actions inputs to a `JobSpec`.
  *
  * Shared by the `run-job` and `submit-job` entrypoints, which accept the same
- * set of job inputs. Kept here (next to the job domain) so the two entrypoints
- * stay thin and cannot drift apart.
+ * job inputs and create the job via the SDK (`jobs-sdk.ts`). The SDK takes a
+ * structured spec, so there is no raw `extra-args` passthrough — disk size,
+ * disk type, preemptible, and container args are first-class inputs.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildJobSpecFromInputs = buildJobSpecFromInputs;
 const inputs_1 = __nccwpck_require__(4303);
 const constants_1 = __nccwpck_require__(6214);
+const size_1 = __nccwpck_require__(3910);
 /** Read the standard job inputs and assemble a `JobSpec` (image is required). */
 function buildJobSpecFromInputs() {
     const image = (0, inputs_1.getString)('image', { required: true });
     const name = (0, inputs_1.getString)('name');
     const command = (0, inputs_1.getMultiline)('command');
+    const args = (0, inputs_1.getString)('args');
     const preset = (0, inputs_1.getString)('preset');
     const platform = (0, inputs_1.getString)('platform');
     const env = (0, inputs_1.getKeyValues)('env');
     const mounts = (0, inputs_1.getMultiline)('mounts');
     const timeout = (0, inputs_1.getString)('timeout');
+    const diskSize = (0, inputs_1.getString)('disk-size');
+    const diskType = (0, inputs_1.getString)('disk-type');
+    const preemptible = (0, inputs_1.getBool)('preemptible', { default: false });
     // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); when neither
-    // is set, `--parent-id` is omitted and the CLI uses its active-profile default.
+    // is set, parentId is omitted and the API uses the token's default project.
     const projectId = (0, inputs_1.getStringOrEnv)('project-id', constants_1.PROJECT_ID_ENV);
-    const extraArgs = (0, inputs_1.getMultiline)('extra-args');
-    const spec = { image };
+    const spec = { image, preemptible };
     if (name)
         spec.name = name;
     if (command.length > 0)
         spec.command = command;
+    if (args)
+        spec.args = args;
     if (preset)
         spec.preset = preset;
     if (platform)
@@ -65249,11 +65262,130 @@ function buildJobSpecFromInputs() {
         spec.mounts = mounts;
     if (timeout)
         spec.timeout = timeout;
+    if (diskSize)
+        spec.diskSizeBytes = (0, size_1.parseSizeBytes)(diskSize);
+    if (diskType)
+        spec.diskType = diskType;
     if (projectId)
         spec.projectId = projectId;
-    if (extraArgs.length > 0)
-        spec.extraArgs = extraArgs;
     return spec;
+}
+
+
+/***/ }),
+
+/***/ 9819:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/**
+ * Job creation over the `@nebius/js-sdk` `JobService` gRPC API (`nebius.ai.v1`).
+ *
+ * Mirrors the endpoints domain: pure builders map the domain `JobSpec` onto the
+ * SDK `JobSpec`, and the single I/O function takes an injected `JobServiceLike`
+ * so it is unit-testable with a fake (no SDK construction, no network).
+ *
+ * `create` returns a long-running Operation, not the Job — the new job id is
+ * `op.resourceId()`. We return it with an initial `CREATING` status; the real
+ * state is polled later by `wait-for-job` (still CLI-backed).
+ *
+ * Notes (verified against @nebius/js-sdk 0.2.27):
+ *   - Proto `.create()` factories accept `DeepPartial`; a `Long` field accepts a
+ *     plain `number`, so `disk.sizeBytes` is set as bytes directly.
+ *   - `timeout` is a dayjs `Duration` (`dayjs.duration(ms)`).
+ *   - Enum fields take SDK enum members (`JobSpec_VolumeMount_Mode.*`,
+ *     `DiskSpec_DiskType.*`), not raw strings.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseMount = parseMount;
+exports.buildJobMetadata = buildJobMetadata;
+exports.buildJobSpec = buildJobSpec;
+exports.buildCreateJobRequest = buildCreateJobRequest;
+exports.createJobViaSdk = createJobViaSdk;
+const index_1 = __nccwpck_require__(6375);
+const index_2 = __nccwpck_require__(9420);
+const index_3 = __nccwpck_require__(7101);
+const time_1 = __nccwpck_require__(2334);
+const constants_1 = __nccwpck_require__(6214);
+/** Map the `disk-type` input key onto the SDK disk-type enum. */
+const DISK_TYPES = {
+    'network-ssd': index_2.DiskSpec_DiskType.NETWORK_SSD,
+    'network-hdd': index_2.DiskSpec_DiskType.NETWORK_HDD,
+    'network-ssd-non-replicated': index_2.DiskSpec_DiskType.NETWORK_SSD_NON_REPLICATED,
+    'network-ssd-io-m3': index_2.DiskSpec_DiskType.NETWORK_SSD_IO_M3,
+};
+/**
+ * Parse a `<source>:<containerPath>[:rw|ro]` mount string.
+ * VERIFY: the SDK `VolumeMount.source` accepts a bucket id directly (the CLI
+ * `--volume <bucket-id>:/path:rw` did). Defaults to read-write.
+ */
+function parseMount(m) {
+    const parts = m.split(':');
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+        throw new Error(`parseMount: malformed mount '${m}' (expected <source>:/path[:rw|ro]).`);
+    }
+    const [source, containerPath, modeRaw] = parts;
+    const mode = (modeRaw ?? 'rw').toLowerCase() === 'ro'
+        ? index_1.JobSpec_VolumeMount_Mode.READ_ONLY
+        : index_1.JobSpec_VolumeMount_Mode.READ_WRITE;
+    return { source, containerPath, mode };
+}
+/** Build the SDK `ResourceMetadata` partial (pure). */
+function buildJobMetadata(s) {
+    return {
+        ...(s.name ? { name: s.name } : {}),
+        ...(s.projectId ? { parentId: s.projectId } : {}),
+    };
+}
+/** Build the SDK `JobSpec` partial from a domain spec (pure). */
+function buildJobSpec(s) {
+    if (!s.image) {
+        throw new Error('JobSpec.image is required.');
+    }
+    const spec = { image: s.image };
+    if (s.command && s.command.length > 0)
+        spec.containerCommand = s.command.join(' ');
+    if (s.args)
+        spec.args = s.args;
+    if (s.preset)
+        spec.preset = s.preset;
+    if (s.platform)
+        spec.platform = s.platform;
+    if (s.preemptible)
+        spec.preemptible = true;
+    const env = Object.entries(s.env ?? {});
+    if (env.length > 0) {
+        spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
+    }
+    if (s.mounts && s.mounts.length > 0) {
+        spec.volumes = s.mounts.map(parseMount);
+    }
+    const timeoutMs = (0, time_1.parseDurationMs)(s.timeout);
+    if (timeoutMs !== undefined) {
+        spec.timeout = index_3.dayjs.duration(timeoutMs);
+    }
+    if (s.diskSizeBytes !== undefined) {
+        const typeKey = (s.diskType ?? 'network-ssd').toLowerCase();
+        const type = DISK_TYPES[typeKey];
+        if (type === undefined) {
+            throw new Error(`buildJobSpec: unknown disk type '${s.diskType}'.`);
+        }
+        spec.disk = { sizeBytes: s.diskSizeBytes, type };
+    }
+    return spec;
+}
+/** Assemble the `CreateJobRequest` (pure). */
+function buildCreateJobRequest(s) {
+    return index_1.CreateJobRequest.create({
+        metadata: buildJobMetadata(s),
+        spec: index_1.JobSpec.create(buildJobSpec(s)),
+    });
+}
+/** Create a job via the SDK; returns immediately with the new id + CREATING. */
+async function createJobViaSdk(service, s) {
+    const op = await service.create(buildCreateJobRequest(s)).result;
+    return { id: op.resourceId(), status: constants_1.JOB_STATUS.creating, raw: op.raw?.() ?? op };
 }
 
 
@@ -65267,15 +65399,12 @@ function buildJobSpecFromInputs() {
 /**
  * Job domain wrappers over the `nebius ai job` CLI group.
  *
- * Arg-building is split into pure functions (`buildCreateJobArgs`) so it can be
- * unit-tested without invoking the CLI. CLI JSON is mapped into the typed `Job`
- * shape via `mapJobJson`; status helpers are case-insensitive to tolerate enum
- * casing differences (see constants VERIFY notes).
+ * CLI JSON is mapped into the typed `Job` shape via `mapJobJson`; status
+ * helpers are case-insensitive to tolerate enum casing differences (see
+ * constants VERIFY notes). Job creation goes through the SDK (see jobs-sdk.ts).
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.buildCreateJobArgs = buildCreateJobArgs;
 exports.mapJobJson = mapJobJson;
-exports.createJob = createJob;
 exports.getJob = getJob;
 exports.cancelJob = cancelJob;
 exports.streamJobLogs = streamJobLogs;
@@ -65286,57 +65415,6 @@ const log_1 = __nccwpck_require__(5578);
 const json_1 = __nccwpck_require__(6153);
 const constants_1 = __nccwpck_require__(6214);
 const JOB = [...constants_1.CLI_JOB_GROUP];
-/**
- * Build `nebius ai job create ...` args from a spec (pure).
- *
- * Flag names CONFIRMED against the live `nebius ai job create` CLI:
- *   --name --image --container-command --preset --platform --env --timeout
- *   --volume (mounts) and --parent-id (the project/parent the job is created in).
- * `extraArgs` is raw passthrough appended last so users can reach unmapped flags.
- */
-function buildCreateJobArgs(s) {
-    if (!s.image) {
-        throw new Error('JobSpec.image is required.');
-    }
-    const args = [...JOB, 'create'];
-    if (s.name) {
-        args.push('--name', s.name);
-    }
-    args.push('--image', s.image);
-    if (s.preset) {
-        args.push('--preset', s.preset);
-    }
-    if (s.platform) {
-        args.push('--platform', s.platform);
-    }
-    if (s.projectId) {
-        args.push('--parent-id', s.projectId);
-    }
-    if (s.timeout) {
-        args.push('--timeout', s.timeout);
-    }
-    if (s.env) {
-        for (const [k, v] of Object.entries(s.env)) {
-            args.push('--env', `${k}=${v}`);
-        }
-    }
-    // Mounts map to `--volume` (e.g. `<bucket-id>:/data:rw`), the flag the live CLI
-    // accepts; `--mount` does not exist. A bucket mounted by id needs no S3
-    // credentials — Nebius resolves access from the job's service account.
-    if (s.mounts) {
-        for (const m of s.mounts) {
-            args.push('--volume', m);
-        }
-    }
-    // Container command/args are passed via --container-command (CONFIRMED flag).
-    if (s.command && s.command.length > 0) {
-        args.push('--container-command', s.command.join(' '));
-    }
-    if (s.extraArgs && s.extraArgs.length > 0) {
-        args.push(...s.extraArgs);
-    }
-    return args;
-}
 /** Extract the container exit code from candidate JSON paths. */
 function extractExitCode(obj) {
     for (const path of constants_1.JOB_EXIT_CODE_FIELDS) {
@@ -65370,11 +65448,6 @@ function mapJobJson(raw) {
         job.exitCode = exitCode;
     }
     return job;
-}
-/** Create a job. */
-async function createJob(s) {
-    const res = await (0, exec_1.runCli)(buildCreateJobArgs(s), { json: true });
-    return mapJobJson(res.data);
 }
 /** Get a job by id. */
 async function getJob(id) {
@@ -65571,6 +65644,7 @@ async function pollUntil(o) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.createSdk = createSdk;
 exports.endpointService = endpointService;
+exports.jobService = jobService;
 const js_sdk_1 = __nccwpck_require__(1922);
 // `./api/*` is a wildcard subpath export; runtime resolves it via the exports
 // map, tsc via the tsconfig `paths` mapping (see endpoints.ts).
@@ -65602,6 +65676,16 @@ function createSdk(opts) {
 function endpointService(sdk) {
     return new index_1.EndpointService(sdk);
 }
+/**
+ * Build the Job service client for an SDK.
+ *
+ * Like `endpointService`, the generated client structurally satisfies the narrow
+ * `JobServiceLike`, so we cast at this single boundary to keep the jobs domain
+ * and its tests free of SDK type noise.
+ */
+function jobService(sdk) {
+    return new index_1.JobService(sdk);
+}
 
 
 /***/ }),
@@ -65612,11 +65696,57 @@ function endpointService(sdk) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.endpointService = exports.createSdk = void 0;
+exports.jobService = exports.endpointService = exports.createSdk = void 0;
 /** Public surface of the `sdk` module. */
 var client_1 = __nccwpck_require__(3645);
 Object.defineProperty(exports, "createSdk", ({ enumerable: true, get: function () { return client_1.createSdk; } }));
 Object.defineProperty(exports, "endpointService", ({ enumerable: true, get: function () { return client_1.endpointService; } }));
+Object.defineProperty(exports, "jobService", ({ enumerable: true, get: function () { return client_1.jobService; } }));
+
+
+/***/ }),
+
+/***/ 3910:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseSizeBytes = parseSizeBytes;
+/**
+ * Parse a binary size string (Ki/Mi/Gi/Ti) or a plain byte count into bytes.
+ *
+ * Used to map the `disk-size` action input (e.g. `250Gi`) onto the SDK
+ * `JobSpec.disk.sizeBytes` field. Binary units only (1Ki = 1024), matching how
+ * Nebius disk sizes are expressed. Throws on anything it cannot parse — no
+ * silent default.
+ */
+const UNITS = {
+    '': 1,
+    ki: 1024,
+    mi: 1024 ** 2,
+    gi: 1024 ** 3,
+    ti: 1024 ** 4,
+};
+function parseSizeBytes(input) {
+    const raw = (input ?? '').trim();
+    if (raw === '') {
+        throw new Error('parseSizeBytes: size is required.');
+    }
+    const m = /^(\d+)\s*(Ki|Mi|Gi|Ti)?$/i.exec(raw);
+    if (!m) {
+        throw new Error(`parseSizeBytes: unparseable size '${input}'.`);
+    }
+    const value = Number(m[1]);
+    const unit = (m[2] ?? '').toLowerCase();
+    const factor = UNITS[unit];
+    if (factor === undefined) {
+        // Unreachable: the regex only matches the known unit suffixes. Guarded
+        // explicitly so the lookup is type-safe without a silent fallback.
+        throw new Error(`parseSizeBytes: unparseable size '${input}'.`);
+    }
+    return value * factor;
+}
 
 
 /***/ }),
