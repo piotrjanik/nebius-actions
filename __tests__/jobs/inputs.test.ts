@@ -52,7 +52,7 @@ describe('buildJobSpecFromInputs', () => {
     expect(() => buildJobSpecFromInputs()).toThrow(/image/i);
   });
 
-  it('omits disk-size and preemptible when unset', () => {
+  it('omits disk-size and defaults preemptible to false when unset', () => {
     setInput('image', 'img');
     const spec = buildJobSpecFromInputs();
     expect(spec.diskSizeBytes).toBeUndefined();
