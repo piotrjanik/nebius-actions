@@ -9,12 +9,12 @@
 # logs, polls to a terminal state, and fails the step if the Job did not
 # succeed. (The all-in-one `run-job` action fuses these two into one step.)
 #
-# The Axolotl config is inlined in this workflow, uploaded to a pre-existing
-# Object Storage bucket (vars.NEBIUS_CONFIG_BUCKET) by the `upload-object`
-# action, and mounted read-only into the job at /workspace/cfg. The upload mints
-# a short-lived S3 access key from the service account (secret delivered to
-# MysteryBox) so no new GitHub secret is needed; the job mounts via
-# `…:ro:default@<secret-id>`. Adapters still write to ephemeral /tmp/output.
+# This workflow owns the bucket lifecycle: it CREATES a fresh per-run bucket,
+# uploads the inlined Axolotl config to it, mounts it read-WRITE into the job at
+# /workspace/data (so adapters persist into the bucket under output/), trains,
+# VERIFIES the output artifacts exist (check-object), and DELETES the bucket on
+# cleanup (always, even on failure). The upload mints a short-lived S3 access key
+# from the service account (secret -> MysteryBox); no new GitHub secret is needed.
 #
 # Auth: service-account key (NOT OIDC). Jobs use the `nebius` CLI, so `setup`
 # configures a key-based CLI profile (the `auth` action only exports a token for
@@ -27,7 +27,6 @@
 #   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
 #   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
 #   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
-#   vars.NEBIUS_CONFIG_BUCKET       - pre-existing Object Storage bucket for the config
 name: demo-run-job
 
 on:
@@ -82,7 +81,7 @@ jobs:
           logging_steps: 5
 
           dataset_prepared_path: /tmp/output/last_run_prepared
-          output_dir: /tmp/output
+          output_dir: /workspace/data/output
 
           lora_r: 8
           lora_alpha: 16
@@ -109,6 +108,14 @@ jobs:
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
+      # Create a fresh per-run bucket to hold the config and the trained adapters.
+      - name: Create bucket
+        id: bucket
+        uses: ./actions/create-bucket
+        with:
+          name: demo-axolotl-${{ github.run_id }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+
       # Upload the config to the bucket. Mints a short-lived S3 key from the SA
       # (secret -> MysteryBox) and returns the object URI + mount secret id.
       - name: Upload Axolotl config
@@ -116,8 +123,8 @@ jobs:
         uses: ./actions/upload-object
         with:
           source: ${{ runner.temp }}/config.yaml
-          bucket: ${{ vars.NEBIUS_CONFIG_BUCKET }}
-          key: ${{ github.run_id }}/config.yaml
+          bucket: ${{ steps.bucket.outputs.bucket-name }}
+          key: config.yaml
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
@@ -138,7 +145,7 @@ jobs:
           # The Job's own run timeout (passed to the CLI as --timeout).
           timeout: 1h
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
-          mounts: s3://${{ vars.NEBIUS_CONFIG_BUCKET }}:/workspace/cfg:ro:default@${{ steps.upload.outputs.secret-id }}
+          mounts: s3://${{ steps.bucket.outputs.bucket-name }}:/workspace/data:rw:default@${{ steps.upload.outputs.secret-id }}
           # Raw passthrough to `nebius ai job create`: bigger disk for the model +
           # dataset cache, then the container args. Nebius space-splits the single
           # --args string (honoring the quotes), so the whole `-c "..."` reaches
@@ -157,7 +164,7 @@ jobs:
             --format
             json
             --args
-            -c "axolotl train /workspace/cfg/config.yaml"
+            -c "axolotl train /workspace/data/config.yaml"
 
       # 2) Now that the job is provisioned, poll its status to a terminal state,
       #    streaming logs. Fails the step on FAILED/CANCELLED or poll timeout.
@@ -172,12 +179,33 @@ jobs:
           poll-interval: 10
           timeout: 3600
 
+      # Verify the fine-tune actually wrote adapters into the bucket.
+      - name: Verify model artifacts
+        id: check
+        uses: ./actions/check-object
+        with:
+          bucket: ${{ steps.bucket.outputs.bucket-name }}
+          prefix: output/
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+
       # 3) If the run is cancelled, cancel the Nebius Job too.
       - name: Cancel job on workflow cancellation
         if: cancelled() && steps.submit.outputs.job-id != ''
         uses: ./actions/cancel-job
         with:
           job-id: ${{ steps.submit.outputs.job-id }}
+
+      # Clean up: empty + delete the bucket. Runs even on failure/cancellation,
+      # but only if the bucket was actually created.
+      - name: Delete bucket
+        if: always() && steps.bucket.outputs.bucket-id != ''
+        uses: ./actions/delete-bucket
+        with:
+          bucket: ${{ steps.bucket.outputs.bucket-name }}
+          bucket-id: ${{ steps.bucket.outputs.bucket-id }}
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
       # Read step outputs via env (not ${{ }} inlined into the script body) so
       # values expand in the shell — the injection-safe pattern.
