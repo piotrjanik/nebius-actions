@@ -44,7 +44,7 @@ export async function checkObject(spec: CheckSpec, now: () => number = Date.now)
     name: `check-${spec.bucket}`,
     expiresAt,
   });
-  const secretAccessKey = await readAccessKeySecret(minted.accessKeyId);
+  const secretAccessKey = await readAccessKeySecret(minted.secretId);
   const keys = await listObjects(
     { endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket },
     { accessKeyId: minted.awsAccessKeyId, secretAccessKey },

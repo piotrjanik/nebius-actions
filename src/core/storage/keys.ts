@@ -3,19 +3,22 @@
  *
  * Mints a short-lived access key FROM the already-configured service account,
  * with the secret delivered into MysteryBox (`--secret-delivery-mode mystery_box`)
- * so the job can mount the bucket via `…:ro:default@<secret-id>`. The runner
- * fetches the plaintext secret (for its own S3 upload) via `get-secret`.
+ * so the job can mount the bucket via `…:ro:default@<secret-id>`. The create
+ * response carries only the MysteryBox handle (`status.secret_reference_id`); the
+ * runner resolves the plaintext secret (for its own S3 upload) via
+ * `mysterybox payload get`.
  *
  * Arg-building is a pure function so it is unit-testable without the CLI.
- * CLI JSON field names are probed tolerantly (see `// VERIFY:` notes).
+ * CLI JSON field names were confirmed against the live CLI (0.12.x).
  */
 
 import { runCli } from '../cli/exec';
 import { mask } from '../io/log';
 import { firstString } from '../json';
-import { CLI_ACCESS_KEY_GROUP } from '../constants';
+import { CLI_ACCESS_KEY_GROUP, CLI_MYSTERYBOX_PAYLOAD_GROUP } from '../constants';
 
 const GROUP = [...CLI_ACCESS_KEY_GROUP];
+const MYSTERYBOX_PAYLOAD = [...CLI_MYSTERYBOX_PAYLOAD_GROUP];
 
 export interface EphemeralKeySpec {
   projectId: string;
@@ -53,12 +56,15 @@ export function buildMintKeyArgs(s: EphemeralKeySpec): string[] {
 export async function mintEphemeralKey(s: EphemeralKeySpec): Promise<MintedKey> {
   const res = await runCli(buildMintKeyArgs(s), { json: true, silent: true });
   const obj = (res.data ?? {}) as Record<string, unknown>;
-  // VERIFY: exact field names from `iam v2 access-key create` JSON.
+  // Field names confirmed against live CLI 0.12.x: `metadata.id`,
+  // `status.aws_access_key_id`, `status.secret_reference_id`. Extra probes are
+  // tolerant fallbacks for older/SDK casings.
   const accessKeyId = firstString(obj, ['id', 'metadata.id', 'access_key_id', 'accessKeyId']);
   const awsAccessKeyId = firstString(obj, [
     'aws_access_key_id', 'status.aws_access_key_id', 'awsAccessKeyId', 'status.awsAccessKeyId',
   ]);
   const secretId = firstString(obj, [
+    'status.secret_reference_id', 'secret_reference_id', 'status.secretReferenceId',
     'status.secret_id', 'secret_id', 'status.secretId', 'status.mystery_box.secret_id',
   ]);
   if (!accessKeyId) throw new Error('access key id not found in create response.');
@@ -67,17 +73,38 @@ export async function mintEphemeralKey(s: EphemeralKeySpec): Promise<MintedKey> 
   return { accessKeyId, awsAccessKeyId, secretId };
 }
 
-/** Fetch and mask the plaintext AWS secret access key for a minted key. */
-export async function readAccessKeySecret(accessKeyId: string): Promise<string> {
-  if (!accessKeyId) throw new Error('readAccessKeySecret: accessKeyId is required.');
-  const res = await runCli([...GROUP, 'get-secret', '--id', accessKeyId], {
+/**
+ * Fetch and mask the plaintext AWS secret access key for a minted key.
+ *
+ * Keys minted with `--secret-delivery-mode mystery_box` reject
+ * `access-key get-secret`; the plaintext lives in the MysteryBox secret whose id
+ * is `status.secret_reference_id`. Read it via `mysterybox payload get`, whose
+ * JSON is `{ data: [{ key, string_value }] }`.
+ */
+export async function readAccessKeySecret(secretReferenceId: string): Promise<string> {
+  if (!secretReferenceId) throw new Error('readAccessKeySecret: secretReferenceId is required.');
+  const res = await runCli([...MYSTERYBOX_PAYLOAD, 'get', '--secret-id', secretReferenceId], {
     json: true,
     silent: true,
   });
   const obj = (res.data ?? {}) as Record<string, unknown>;
-  // VERIFY: exact field name for the secret in `get-secret` JSON.
-  const secret = firstString(obj, ['secret', 'aws_secret_access_key', 'awsSecretAccessKey', 'value']);
-  if (!secret) throw new Error('aws secret access key not found in get-secret response.');
+  const secret = payloadString(obj, 'secret');
+  if (!secret) throw new Error('aws secret access key not found in MysteryBox payload.');
   mask(secret);
   return secret;
+}
+
+/** Extract a payload entry's plaintext value from `mysterybox payload get` JSON. */
+function payloadString(obj: Record<string, unknown>, key: string): string | undefined {
+  const data = obj.data;
+  if (!Array.isArray(data)) return undefined;
+  for (const entry of data) {
+    if (entry && typeof entry === 'object') {
+      const e = entry as Record<string, unknown>;
+      if (e.key === key) {
+        return firstString(e, ['string_value', 'stringValue', 'value']);
+      }
+    }
+  }
+  return undefined;
 }
