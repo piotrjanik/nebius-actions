@@ -17,7 +17,7 @@ inputs:
   command:
     description: >-
       Container command, one whitespace-separated token per line. Tokens are
-      joined with a single space into the CLI --container-command value, so a
+      joined with a single space into the SDK containerCommand field, so a
       single token must not contain spaces (put each argument on its own line).
     required: false
   preset:
