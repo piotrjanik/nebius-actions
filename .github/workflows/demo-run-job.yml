@@ -16,9 +16,10 @@
 # cleanup (always, even on failure). The upload mints a short-lived S3 access key
 # from the service account (secret -> MysteryBox); no new GitHub secret is needed.
 #
-# Auth: service-account key (NOT OIDC). Jobs use the `nebius` CLI, so `setup`
-# configures a key-based CLI profile (the `auth` action only exports a token for
-# the SDK path — endpoints; the CLI needs its own ~/.nebius/config.yaml).
+# Auth: service-account key (NOT OIDC). `setup` configures a key-based CLI
+# profile for bucket ops and log streaming (the CLI needs its own
+# ~/.nebius/config.yaml). The `auth` action then exports NEBIUS_IAM_TOKEN for
+# the SDK job-create path.
 #
 # Requires:
 #   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the key belongs to
@@ -108,6 +109,16 @@ jobs:
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
+      # Mint an IAM token for the SDK path (submit-job creates the Job via the
+      # SDK, which reads NEBIUS_IAM_TOKEN). Key method — reuses the SA key.
+      - name: Authenticate (SDK token)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+
       # Create a fresh per-run bucket to hold the config and the trained adapters.
       # project-id / service-account-id come from `setup` (exported as
       # NEBIUS_PROJECT_ID / NEBIUS_SERVICE_ACCOUNT_ID), so the resource steps
@@ -140,34 +151,18 @@ jobs:
           platform: ${{ inputs.platform }}
           preset: ${{ inputs.preset }}
           # `bash` is the container entrypoint; the actual script is passed as
-          # `--args` below so the container expands the pipeline itself.
+          # `args` so the container expands the pipeline itself.
           command: bash
-          # The Job's own run timeout (passed to the CLI as --timeout).
+          # The Job's own run timeout (passed to the SDK as timeout).
           timeout: 1h
           # Mount the bucket by its id. Nebius resolves the job's access to the
           # bucket from the project/service account — no S3 credentials, profile,
           # or MysteryBox secret are needed on the `--volume` (that `s3://…:default@…`
           # form requires a pre-configured AWS profile and is not what we want here).
           mounts: ${{ steps.bucket.outputs.bucket-id }}:/workspace/data:rw
-          # Raw passthrough to `nebius ai job create`: bigger disk for the model +
-          # dataset cache, then the container args. Nebius space-splits the single
-          # --args string (honoring the quotes), so the whole `-c "..."` reaches
-          # bash intact; $-expansions happen container-side, not on the runner.
-          #
-          # `--format json` MUST come before `--args`: the CLI's `--args` is
-          # variadic and swallows every following token, so a trailing
-          # `--format json` (which the action would otherwise auto-append) gets
-          # eaten and the CLI emits its human table instead of JSON — which the
-          # action then fails to parse. Setting it here also suppresses the
-          # auto-append (the action skips it when `--format` is already present).
-          extra-args: |
-            --disk-size
-            ${{ inputs.disk-size }}
-            --preemptible
-            --format
-            json
-            --args
-            -c "axolotl train /workspace/data/config.yaml"
+          disk-size: ${{ inputs.disk-size }}
+          preemptible: true
+          args: -c "axolotl train /workspace/data/config.yaml"
 
       # 2) Now that the job is provisioned, poll its status to a terminal state,
       #    streaming logs. Fails the step on FAILED/CANCELLED or poll timeout.
