@@ -4,9 +4,14 @@
  * returns the count. The entrypoint fails the action when the count is 0.
  */
 
-import { getString } from '../io/inputs';
+import { getString, getStringOrEnv } from '../io/inputs';
 import { parseDurationMs } from '../time';
-import { S3_ENDPOINT_DEFAULT, S3_REGION_DEFAULT } from '../constants';
+import {
+  PROJECT_ID_ENV,
+  S3_ENDPOINT_DEFAULT,
+  S3_REGION_DEFAULT,
+  SERVICE_ACCOUNT_ID_ENV,
+} from '../constants';
 import { mintEphemeralKey, readAccessKeySecret } from './keys';
 import { listObjects } from './s3';
 
@@ -26,8 +31,8 @@ export function buildCheckSpecFromInputs(): CheckSpec {
   return {
     bucket: getString('bucket', { required: true }),
     prefix: getString('prefix', { required: true }),
-    serviceAccountId: getString('service-account-id', { required: true }),
-    projectId: getString('project-id', { required: true }),
+    serviceAccountId: getStringOrEnv('service-account-id', SERVICE_ACCOUNT_ID_ENV, { required: true }),
+    projectId: getStringOrEnv('project-id', PROJECT_ID_ENV, { required: true }),
     expiresIn: getString('expires-in', { default: '2h' }),
     endpoint: getString('endpoint', { default: S3_ENDPOINT_DEFAULT }),
     region: getString('region', { default: S3_REGION_DEFAULT }),

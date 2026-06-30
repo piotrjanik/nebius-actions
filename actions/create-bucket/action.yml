@@ -10,8 +10,11 @@ inputs:
     description: 'Bucket name (DNS-compatible, unique) (required).'
     required: true
   project-id:
-    description: 'Parent project id (required).'
-    required: true
+    description: >-
+      Parent project id. Optional when the `setup` action ran earlier with a
+      project-id — setup exports NEBIUS_PROJECT_ID for later steps, which this
+      action falls back to. Set it here to override.
+    required: false
   max-size-bytes:
     description: 'Maximum bucket size in bytes (0/unset = unlimited).'
     required: false

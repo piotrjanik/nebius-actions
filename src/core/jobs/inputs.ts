@@ -6,7 +6,8 @@
  * stay thin and cannot drift apart.
  */
 
-import { getString, getMultiline, getKeyValues } from '../io/inputs';
+import { getString, getStringOrEnv, getMultiline, getKeyValues } from '../io/inputs';
+import { PROJECT_ID_ENV } from '../constants';
 import type { JobSpec } from './jobs';
 
 /** Read the standard job inputs and assemble a `JobSpec` (image is required). */
@@ -19,7 +20,9 @@ export function buildJobSpecFromInputs(): JobSpec {
   const env = getKeyValues('env');
   const mounts = getMultiline('mounts');
   const timeout = getString('timeout');
-  const projectId = getString('project-id');
+  // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); when neither
+  // is set, `--parent-id` is omitted and the CLI uses its active-profile default.
+  const projectId = getStringOrEnv('project-id', PROJECT_ID_ENV);
   const extraArgs = getMultiline('extra-args');
 
   const spec: JobSpec = { image };

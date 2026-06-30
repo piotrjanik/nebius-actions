@@ -9,6 +9,18 @@ export function setOutput(name: string, value: string | number | boolean): void 
   core.setOutput(name, typeof value === 'string' ? value : String(value));
 }
 
+/**
+ * Export an environment variable so later steps in the same job inherit it
+ * (writes to `$GITHUB_ENV`) and so `runCli` calls within THIS step see it too —
+ * `core.exportVariable` sets `process.env` as well. No-op for empty values, so
+ * callers can pass an optional input through unconditionally.
+ */
+export function exportEnv(name: string, value: string): void {
+  if (value !== '') {
+    core.exportVariable(name, value);
+  }
+}
+
 /** Normalize any thrown value into a human-readable message. */
 export function normalizeError(err: unknown): string {
   if (err instanceof Error) {

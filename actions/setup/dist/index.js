@@ -64424,7 +64424,7 @@ async function configureCliProfile(o) {
  *    specific CLI version via the install script.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CLI_STORAGE_BUCKET_GROUP = exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = exports.CLI_ACCESS_KEY_GROUP = exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
+exports.CLI_STORAGE_BUCKET_GROUP = exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = exports.CLI_ACCESS_KEY_GROUP = exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.SERVICE_ACCOUNT_ID_ENV = exports.PROJECT_ID_ENV = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -64451,6 +64451,13 @@ exports.CLI_INSTALL_SCRIPT_URL = 'https://storage.eu-north1.nebius.cloud/cli/ins
  * CONFIRMED: `NEBIUS_IAM_TOKEN`.
  */
 exports.IAM_TOKEN_ENV = 'NEBIUS_IAM_TOKEN';
+/**
+ * Job-wide defaults the `setup` action exports (→ $GITHUB_ENV) so later resource
+ * steps need not repeat `project-id` / `service-account-id` on every action.
+ * Each action resolves its input first, then falls back to these env vars.
+ */
+exports.PROJECT_ID_ENV = 'NEBIUS_PROJECT_ID';
+exports.SERVICE_ACCOUNT_ID_ENV = 'NEBIUS_SERVICE_ACCOUNT_ID';
 /** Global CLI flag pair that selects machine-readable JSON output. CONFIRMED. */
 exports.CLI_FORMAT_FLAG = '--format';
 exports.CLI_FORMAT_JSON = 'json';
@@ -64816,16 +64823,18 @@ __exportStar(__nccwpck_require__(6214), exports);
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.mask = exports.log = exports.normalizeError = exports.fail = exports.setOutput = exports.getKeyValues = exports.getMultiline = exports.getNumber = exports.getBool = exports.getString = void 0;
+exports.mask = exports.log = exports.normalizeError = exports.fail = exports.exportEnv = exports.setOutput = exports.getKeyValues = exports.getMultiline = exports.getNumber = exports.getBool = exports.getStringOrEnv = exports.getString = void 0;
 /** Public surface of the `io` module. */
 var inputs_1 = __nccwpck_require__(4303);
 Object.defineProperty(exports, "getString", ({ enumerable: true, get: function () { return inputs_1.getString; } }));
+Object.defineProperty(exports, "getStringOrEnv", ({ enumerable: true, get: function () { return inputs_1.getStringOrEnv; } }));
 Object.defineProperty(exports, "getBool", ({ enumerable: true, get: function () { return inputs_1.getBool; } }));
 Object.defineProperty(exports, "getNumber", ({ enumerable: true, get: function () { return inputs_1.getNumber; } }));
 Object.defineProperty(exports, "getMultiline", ({ enumerable: true, get: function () { return inputs_1.getMultiline; } }));
 Object.defineProperty(exports, "getKeyValues", ({ enumerable: true, get: function () { return inputs_1.getKeyValues; } }));
 var outputs_1 = __nccwpck_require__(478);
 Object.defineProperty(exports, "setOutput", ({ enumerable: true, get: function () { return outputs_1.setOutput; } }));
+Object.defineProperty(exports, "exportEnv", ({ enumerable: true, get: function () { return outputs_1.exportEnv; } }));
 Object.defineProperty(exports, "fail", ({ enumerable: true, get: function () { return outputs_1.fail; } }));
 Object.defineProperty(exports, "normalizeError", ({ enumerable: true, get: function () { return outputs_1.normalizeError; } }));
 var log_1 = __nccwpck_require__(5578);
@@ -64883,6 +64892,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getString = getString;
+exports.getStringOrEnv = getStringOrEnv;
 exports.getBool = getBool;
 exports.getNumber = getNumber;
 exports.getMultiline = getMultiline;
@@ -64905,6 +64915,33 @@ function getString(name, opts) {
     }
     if (required) {
         throw new Error(`Input '${name}' is required but was not provided.`);
+    }
+    return '';
+}
+/**
+ * Read a string input, falling back to an environment variable when the input
+ * is empty.
+ *
+ * This lets a one-time `setup` step export a job-wide default (e.g.
+ * `NEBIUS_PROJECT_ID`) that every later resource action inherits, so callers
+ * need not repeat `project-id` / `service-account-id` on each step. Resolution
+ * order: input → env var → `default` → required-error.
+ * @throws when `required` and neither the input nor the env var is set.
+ */
+function getStringOrEnv(name, envName, opts) {
+    const raw = core.getInput(name);
+    if (raw !== '') {
+        return raw;
+    }
+    const fromEnv = (process.env[envName] ?? '').trim();
+    if (fromEnv !== '') {
+        return fromEnv;
+    }
+    if (opts?.default !== undefined) {
+        return opts.default;
+    }
+    if (opts?.required) {
+        throw new Error(`Input '${name}' is required (or set ${envName}, e.g. via the setup action), but neither was provided.`);
     }
     return '';
 }
@@ -65102,12 +65139,24 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setOutput = setOutput;
+exports.exportEnv = exportEnv;
 exports.normalizeError = normalizeError;
 exports.fail = fail;
 const core = __importStar(__nccwpck_require__(7484));
 /** Set an action output, stringifying scalars consistently. */
 function setOutput(name, value) {
     core.setOutput(name, typeof value === 'string' ? value : String(value));
+}
+/**
+ * Export an environment variable so later steps in the same job inherit it
+ * (writes to `$GITHUB_ENV`) and so `runCli` calls within THIS step see it too —
+ * `core.exportVariable` sets `process.env` as well. No-op for empty values, so
+ * callers can pass an optional input through unconditionally.
+ */
+function exportEnv(name, value) {
+    if (value !== '') {
+        core.exportVariable(name, value);
+    }
 }
 /** Normalize any thrown value into a human-readable message. */
 function normalizeError(err) {
@@ -65170,6 +65219,7 @@ Object.defineProperty(exports, "buildJobSpecFromInputs", ({ enumerable: true, ge
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildJobSpecFromInputs = buildJobSpecFromInputs;
 const inputs_1 = __nccwpck_require__(4303);
+const constants_1 = __nccwpck_require__(6214);
 /** Read the standard job inputs and assemble a `JobSpec` (image is required). */
 function buildJobSpecFromInputs() {
     const image = (0, inputs_1.getString)('image', { required: true });
@@ -65180,7 +65230,9 @@ function buildJobSpecFromInputs() {
     const env = (0, inputs_1.getKeyValues)('env');
     const mounts = (0, inputs_1.getMultiline)('mounts');
     const timeout = (0, inputs_1.getString)('timeout');
-    const projectId = (0, inputs_1.getString)('project-id');
+    // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); when neither
+    // is set, `--parent-id` is omitted and the CLI uses its active-profile default.
+    const projectId = (0, inputs_1.getStringOrEnv)('project-id', constants_1.PROJECT_ID_ENV);
     const extraArgs = (0, inputs_1.getMultiline)('extra-args');
     const spec = { image };
     if (name)
@@ -142920,6 +142972,13 @@ async function run() {
     else {
         core_1.log.info('install-cli=false: skipping CLI installation.');
     }
+    // Export project-id / service-account-id as job-wide defaults so later
+    // resource steps inherit them and need not repeat these inputs. Independent of
+    // the profile branch below — exportEnv no-ops on empty values.
+    const projectId = (0, core_1.getString)('project-id');
+    const serviceAccountId = (0, core_1.getString)('service-account-id');
+    (0, core_1.exportEnv)(core_1.PROJECT_ID_ENV, projectId);
+    (0, core_1.exportEnv)(core_1.SERVICE_ACCOUNT_ID_ENV, serviceAccountId);
     // Configure a key-based CLI profile only when a private key is supplied; with
     // no key the action stays install-only (backward compatible).
     const privateKey = (0, core_1.getString)('private-key');
@@ -142927,7 +142986,6 @@ async function run() {
         await core_1.log.group('Configure nebius CLI profile (service-account key)', async () => {
             const name = (0, core_1.getString)('profile');
             const endpoint = (0, core_1.getString)('endpoint');
-            const parentId = (0, core_1.getString)('project-id');
             const tenantId = (0, core_1.getString)('tenant-id');
             await (0, core_1.configureCliProfile)({
                 serviceAccountId: (0, core_1.getString)('service-account-id', { required: true }),
@@ -142935,7 +142993,7 @@ async function run() {
                 privateKeyPem: privateKey,
                 ...(name !== '' ? { name } : {}),
                 ...(endpoint !== '' ? { endpoint } : {}),
-                ...(parentId !== '' ? { parentId } : {}),
+                ...(projectId !== '' ? { parentId: projectId } : {}),
                 ...(tenantId !== '' ? { tenantId } : {}),
             });
             core_1.log.info('nebius CLI profile configured.');

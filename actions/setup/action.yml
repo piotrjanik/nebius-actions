@@ -29,13 +29,19 @@ inputs:
       secret; it is masked and written to a 0600 file under RUNNER_TEMP.
     required: false
   service-account-id:
-    description: 'Service account the key belongs to (required when `private-key` is set).'
+    description: >-
+      Service account the key belongs to (required when `private-key` is set).
+      When provided, it is also exported as NEBIUS_SERVICE_ACCOUNT_ID so later
+      resource steps (upload-object, check-object, delete-bucket) can omit it.
     required: false
   public-key-id:
     description: 'Public key id of the authorized key (required when `private-key` is set).'
     required: false
   project-id:
-    description: "Default parent project for the CLI profile (`private-key` only)."
+    description: >-
+      Default parent project. Sets the CLI profile's parent (`private-key` only)
+      and is exported as NEBIUS_PROJECT_ID so later resource steps (create-bucket,
+      submit-job, upload-object, …) can omit project-id.
     required: false
   tenant-id:
     description: 'Default tenant for the CLI profile (`private-key` only).'

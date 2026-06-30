@@ -13,11 +13,18 @@ inputs:
     description: 'Object key prefix to check (required).'
     required: true
   service-account-id:
-    description: 'Service account to mint the ephemeral access key for (required).'
-    required: true
+    description: >-
+      Service account to mint the ephemeral access key for. Optional when the
+      `setup` action ran earlier with a service-account-id — setup exports
+      NEBIUS_SERVICE_ACCOUNT_ID for later steps, which this action falls back to.
+      Set it here to override.
+    required: false
   project-id:
-    description: 'Parent project for the access key (required).'
-    required: true
+    description: >-
+      Parent project for the access key. Optional when the `setup` action ran
+      earlier with a project-id — setup exports NEBIUS_PROJECT_ID for later
+      steps, which this action falls back to. Set it here to override.
+    required: false
   expires-in:
     description: 'Ephemeral key TTL (e.g. 2h, 30m).'
     required: false

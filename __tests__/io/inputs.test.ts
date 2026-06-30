@@ -23,6 +23,7 @@ vi.mock('@actions/core', () => ({
 
 import {
   getString,
+  getStringOrEnv,
   getBool,
   getNumber,
   getMultiline,
@@ -58,6 +59,48 @@ describe('getString', () => {
   it('a present value beats both default and required', () => {
     setInput('image', 'ubuntu');
     expect(getString('image', { required: true, default: 'fallback' })).toBe('ubuntu');
+  });
+});
+
+describe('getStringOrEnv', () => {
+  const ENV = 'NEBIUS_TEST_FALLBACK';
+
+  beforeEach(() => {
+    delete process.env[ENV];
+  });
+
+  it('prefers the input over the env var', () => {
+    setInput('project-id', 'from-input');
+    process.env[ENV] = 'from-env';
+    expect(getStringOrEnv('project-id', ENV)).toBe('from-input');
+  });
+
+  it('falls back to the env var when the input is empty', () => {
+    process.env[ENV] = 'from-env';
+    expect(getStringOrEnv('project-id', ENV)).toBe('from-env');
+  });
+
+  it('trims the env var value', () => {
+    process.env[ENV] = '  spaced  ';
+    expect(getStringOrEnv('project-id', ENV)).toBe('spaced');
+  });
+
+  it('uses the default when both input and env are empty', () => {
+    expect(getStringOrEnv('project-id', ENV, { default: 'fallback' })).toBe('fallback');
+  });
+
+  it('returns "" when empty, not required, no default', () => {
+    expect(getStringOrEnv('project-id', ENV)).toBe('');
+  });
+
+  it('throws (naming both the input and the env var) when required and both missing', () => {
+    expect(() => getStringOrEnv('project-id', ENV, { required: true })).toThrow(/project-id/);
+    expect(() => getStringOrEnv('project-id', ENV, { required: true })).toThrow(ENV);
+  });
+
+  it('an empty-string env var does not satisfy required', () => {
+    process.env[ENV] = '   ';
+    expect(() => getStringOrEnv('project-id', ENV, { required: true })).toThrow(/required/);
   });
 });
 

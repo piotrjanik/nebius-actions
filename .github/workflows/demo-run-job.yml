@@ -109,12 +109,14 @@ jobs:
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
       # Create a fresh per-run bucket to hold the config and the trained adapters.
+      # project-id / service-account-id come from `setup` (exported as
+      # NEBIUS_PROJECT_ID / NEBIUS_SERVICE_ACCOUNT_ID), so the resource steps
+      # below need not repeat them.
       - name: Create bucket
         id: bucket
         uses: ./actions/create-bucket
         with:
           name: demo-axolotl-${{ github.run_id }}
-          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
       # Upload the config to the bucket. Mints a short-lived S3 key from the SA
       # (secret -> MysteryBox) and returns the object URI + mount secret id.
@@ -125,8 +127,6 @@ jobs:
           source: ${{ runner.temp }}/config.yaml
           bucket: ${{ steps.bucket.outputs.bucket-name }}
           key: config.yaml
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
-          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
       # 1) Create the Job. `nebius ai job create` blocks until the job is
       #    provisioned (no async flag), so this step finishes once the job is up
@@ -144,7 +144,6 @@ jobs:
           command: bash
           # The Job's own run timeout (passed to the CLI as --timeout).
           timeout: 1h
-          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           # Mount the bucket by its id. Nebius resolves the job's access to the
           # bucket from the project/service account — no S3 credentials, profile,
           # or MysteryBox secret are needed on the `--volume` (that `s3://…:default@…`
@@ -190,8 +189,6 @@ jobs:
         with:
           bucket: ${{ steps.bucket.outputs.bucket-name }}
           prefix: output/
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
-          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
       # 3) If the run is cancelled, cancel the Nebius Job too.
       - name: Cancel job on workflow cancellation
@@ -208,8 +205,6 @@ jobs:
         with:
           bucket: ${{ steps.bucket.outputs.bucket-name }}
           bucket-id: ${{ steps.bucket.outputs.bucket-id }}
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
-          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
 
       # Read step outputs via env (not ${{ }} inlined into the script body) so
       # values expand in the shell — the injection-safe pattern.

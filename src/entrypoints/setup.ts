@@ -13,11 +13,14 @@
 import {
   configureCliProfile,
   ensureCli,
+  exportEnv,
   fail,
   getBool,
   getString,
   log,
   DEFAULT_REGION,
+  PROJECT_ID_ENV,
+  SERVICE_ACCOUNT_ID_ENV,
 } from '../core';
 
 async function run(): Promise<void> {
@@ -35,6 +38,14 @@ async function run(): Promise<void> {
     log.info('install-cli=false: skipping CLI installation.');
   }
 
+  // Export project-id / service-account-id as job-wide defaults so later
+  // resource steps inherit them and need not repeat these inputs. Independent of
+  // the profile branch below — exportEnv no-ops on empty values.
+  const projectId = getString('project-id');
+  const serviceAccountId = getString('service-account-id');
+  exportEnv(PROJECT_ID_ENV, projectId);
+  exportEnv(SERVICE_ACCOUNT_ID_ENV, serviceAccountId);
+
   // Configure a key-based CLI profile only when a private key is supplied; with
   // no key the action stays install-only (backward compatible).
   const privateKey = getString('private-key');
@@ -42,7 +53,6 @@ async function run(): Promise<void> {
     await log.group('Configure nebius CLI profile (service-account key)', async () => {
       const name = getString('profile');
       const endpoint = getString('endpoint');
-      const parentId = getString('project-id');
       const tenantId = getString('tenant-id');
       await configureCliProfile({
         serviceAccountId: getString('service-account-id', { required: true }),
@@ -50,7 +60,7 @@ async function run(): Promise<void> {
         privateKeyPem: privateKey,
         ...(name !== '' ? { name } : {}),
         ...(endpoint !== '' ? { endpoint } : {}),
-        ...(parentId !== '' ? { parentId } : {}),
+        ...(projectId !== '' ? { parentId: projectId } : {}),
         ...(tenantId !== '' ? { tenantId } : {}),
       });
       log.info('nebius CLI profile configured.');
