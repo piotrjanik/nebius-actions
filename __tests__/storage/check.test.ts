@@ -32,7 +32,7 @@ describe('checkObject', () => {
     });
 
     expect(n).toBe(2);
-    expect(readAccessKeySecret).toHaveBeenCalledWith('ak');
+    expect(readAccessKeySecret).toHaveBeenCalledWith('mbx');
     expect(listObjects).toHaveBeenCalledWith(
       { endpoint: 'https://s3.example', region: 'eu-north1', bucket: 'b' },
       { accessKeyId: 'AK', secretAccessKey: 'SK' },

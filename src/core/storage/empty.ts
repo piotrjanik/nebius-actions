@@ -42,7 +42,7 @@ export async function emptyBucket(spec: EmptySpec, now: () => number = Date.now)
     name: `empty-${spec.bucket}`,
     expiresAt,
   });
-  const secretAccessKey = await readAccessKeySecret(minted.accessKeyId);
+  const secretAccessKey = await readAccessKeySecret(minted.secretId);
   const loc = { endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket };
   const creds = { accessKeyId: minted.awsAccessKeyId, secretAccessKey };
   const keys = await listObjects(loc, creds, '');

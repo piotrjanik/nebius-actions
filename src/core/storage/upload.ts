@@ -58,7 +58,7 @@ export async function uploadObject(
     name: `upload-${spec.bucket}`,
     expiresAt,
   });
-  const secretAccessKey = await readAccessKeySecret(minted.accessKeyId);
+  const secretAccessKey = await readAccessKeySecret(minted.secretId);
 
   const body = readFileSync(spec.source);
   await putObject(

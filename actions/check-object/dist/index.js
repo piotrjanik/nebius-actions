@@ -97030,7 +97030,7 @@ async function checkObject(spec, now = Date.now) {
         name: `check-${spec.bucket}`,
         expiresAt,
     });
-    const secretAccessKey = await (0, keys_1.readAccessKeySecret)(minted.accessKeyId);
+    const secretAccessKey = await (0, keys_1.readAccessKeySecret)(minted.secretId);
     const keys = await (0, s3_1.listObjects)({ endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket }, { accessKeyId: minted.awsAccessKeyId, secretAccessKey }, spec.prefix);
     return keys.length;
 }
@@ -97048,11 +97048,13 @@ async function checkObject(spec, now = Date.now) {
  *
  * Mints a short-lived access key FROM the already-configured service account,
  * with the secret delivered into MysteryBox (`--secret-delivery-mode mystery_box`)
- * so the job can mount the bucket via `…:ro:default@<secret-id>`. The runner
- * fetches the plaintext secret (for its own S3 upload) via `get-secret`.
+ * so the job can mount the bucket via `…:ro:default@<secret-id>`. The create
+ * response carries only the MysteryBox handle (`status.secret_reference_id`); the
+ * runner resolves the plaintext secret (for its own S3 upload) via
+ * `mysterybox payload get`.
  *
  * Arg-building is a pure function so it is unit-testable without the CLI.
- * CLI JSON field names are probed tolerantly (see `// VERIFY:` notes).
+ * CLI JSON field names were confirmed against the live CLI (0.12.x).
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildMintKeyArgs = buildMintKeyArgs;
@@ -97063,6 +97065,7 @@ const log_1 = __nccwpck_require__(45578);
 const json_1 = __nccwpck_require__(86153);
 const constants_1 = __nccwpck_require__(26214);
 const GROUP = [...constants_1.CLI_ACCESS_KEY_GROUP];
+const MYSTERYBOX_PAYLOAD = [...constants_1.CLI_MYSTERYBOX_PAYLOAD_GROUP];
 /** Build `nebius iam v2 access-key create ...` args (pure). */
 function buildMintKeyArgs(s) {
     if (!s.projectId)
@@ -97085,12 +97088,15 @@ function buildMintKeyArgs(s) {
 async function mintEphemeralKey(s) {
     const res = await (0, exec_1.runCli)(buildMintKeyArgs(s), { json: true, silent: true });
     const obj = (res.data ?? {});
-    // VERIFY: exact field names from `iam v2 access-key create` JSON.
+    // Field names confirmed against live CLI 0.12.x: `metadata.id`,
+    // `status.aws_access_key_id`, `status.secret_reference_id`. Extra probes are
+    // tolerant fallbacks for older/SDK casings.
     const accessKeyId = (0, json_1.firstString)(obj, ['id', 'metadata.id', 'access_key_id', 'accessKeyId']);
     const awsAccessKeyId = (0, json_1.firstString)(obj, [
         'aws_access_key_id', 'status.aws_access_key_id', 'awsAccessKeyId', 'status.awsAccessKeyId',
     ]);
     const secretId = (0, json_1.firstString)(obj, [
+        'status.secret_reference_id', 'secret_reference_id', 'status.secretReferenceId',
         'status.secret_id', 'secret_id', 'status.secretId', 'status.mystery_box.secret_id',
     ]);
     if (!accessKeyId)
@@ -97101,21 +97107,42 @@ async function mintEphemeralKey(s) {
         throw new Error('MysteryBox secret id not found in create response.');
     return { accessKeyId, awsAccessKeyId, secretId };
 }
-/** Fetch and mask the plaintext AWS secret access key for a minted key. */
-async function readAccessKeySecret(accessKeyId) {
-    if (!accessKeyId)
-        throw new Error('readAccessKeySecret: accessKeyId is required.');
-    const res = await (0, exec_1.runCli)([...GROUP, 'get-secret', '--id', accessKeyId], {
+/**
+ * Fetch and mask the plaintext AWS secret access key for a minted key.
+ *
+ * Keys minted with `--secret-delivery-mode mystery_box` reject
+ * `access-key get-secret`; the plaintext lives in the MysteryBox secret whose id
+ * is `status.secret_reference_id`. Read it via `mysterybox payload get`, whose
+ * JSON is `{ data: [{ key, string_value }] }`.
+ */
+async function readAccessKeySecret(secretReferenceId) {
+    if (!secretReferenceId)
+        throw new Error('readAccessKeySecret: secretReferenceId is required.');
+    const res = await (0, exec_1.runCli)([...MYSTERYBOX_PAYLOAD, 'get', '--secret-id', secretReferenceId], {
         json: true,
         silent: true,
     });
     const obj = (res.data ?? {});
-    // VERIFY: exact field name for the secret in `get-secret` JSON.
-    const secret = (0, json_1.firstString)(obj, ['secret', 'aws_secret_access_key', 'awsSecretAccessKey', 'value']);
+    const secret = payloadString(obj, 'secret');
     if (!secret)
-        throw new Error('aws secret access key not found in get-secret response.');
+        throw new Error('aws secret access key not found in MysteryBox payload.');
     (0, log_1.mask)(secret);
     return secret;
+}
+/** Extract a payload entry's plaintext value from `mysterybox payload get` JSON. */
+function payloadString(obj, key) {
+    const data = obj.data;
+    if (!Array.isArray(data))
+        return undefined;
+    for (const entry of data) {
+        if (entry && typeof entry === 'object') {
+            const e = entry;
+            if (e.key === key) {
+                return (0, json_1.firstString)(e, ['string_value', 'stringValue', 'value']);
+            }
+        }
+    }
+    return undefined;
 }
 
 
