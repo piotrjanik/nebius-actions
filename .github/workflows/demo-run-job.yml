@@ -33,13 +33,13 @@ on:
     inputs:
       platform:
         description: 'Compute platform'
-        default: 'gpu-h100-sxm'
+        default: 'gpu-l40s-a'
       preset:
         description: 'Compute preset'
-        default: '1gpu-16vcpu-200gb'
+        default: '1gpu-8cpu-32gb'
       disk-size:
         description: 'Job disk size'
-        default: '450Gi'
+        default: '250Gi'
 
 permissions:
   contents: read
@@ -94,6 +94,7 @@ jobs:
           extra-args: |
             --disk-size
             ${{ inputs.disk-size }}
+            --preemptible
             --args
             -c "echo ${{ steps.cfg.outputs.b64 }} | base64 -d > /tmp/config.yaml && axolotl train /tmp/config.yaml"
 
