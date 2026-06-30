@@ -145,7 +145,11 @@ jobs:
           # The Job's own run timeout (passed to the CLI as --timeout).
           timeout: 1h
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
-          mounts: s3://${{ steps.bucket.outputs.bucket-name }}:/workspace/data:rw:default@${{ steps.upload.outputs.secret-id }}
+          # Mount the bucket by its id. Nebius resolves the job's access to the
+          # bucket from the project/service account — no S3 credentials, profile,
+          # or MysteryBox secret are needed on the `--volume` (that `s3://…:default@…`
+          # form requires a pre-configured AWS profile and is not what we want here).
+          mounts: ${{ steps.bucket.outputs.bucket-id }}:/workspace/data:rw
           # Raw passthrough to `nebius ai job create`: bigger disk for the model +
           # dataset cache, then the container args. Nebius space-splits the single
           # --args string (honoring the quotes), so the whole `-c "..."` reaches

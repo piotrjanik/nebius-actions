@@ -96690,8 +96690,9 @@ function buildCreateJobArgs(s) {
             args.push('--env', `${k}=${v}`);
         }
     }
-    // Mounts map to `--volume` (e.g. `s3://bucket:/data:rw:profile`), the flag the
-    // live CLI accepts; `--mount` does not exist.
+    // Mounts map to `--volume` (e.g. `<bucket-id>:/data:rw`), the flag the live CLI
+    // accepts; `--mount` does not exist. A bucket mounted by id needs no S3
+    // credentials — Nebius resolves access from the job's service account.
     if (s.mounts) {
         for (const m of s.mounts) {
             args.push('--volume', m);
@@ -97105,12 +97106,15 @@ async function emptyBucket(spec, now = Date.now) {
 /**
  * Ephemeral S3 access-key minting via `nebius iam v2 access-key`.
  *
- * Mints a short-lived access key FROM the already-configured service account,
- * with the secret delivered into MysteryBox (`--secret-delivery-mode mystery_box`)
- * so the job can mount the bucket via `…:ro:default@<secret-id>`. The create
- * response carries only the MysteryBox handle (`status.secret_reference_id`); the
- * runner resolves the plaintext secret (for its own S3 upload) via
- * `mysterybox payload get`.
+ * Mints a short-lived access key FROM the already-configured service account so
+ * the runner can drive the S3 data plane (SigV4 PutObject) for `upload-object` —
+ * the SA bearer token does not work for S3. The secret is delivered into
+ * MysteryBox (`--secret-delivery-mode mystery_box`); the create response carries
+ * only the MysteryBox handle (`status.secret_reference_id`), and the runner
+ * resolves the plaintext via `mysterybox payload get`.
+ *
+ * NOTE: this key is for the runner's own upload, NOT for a job bucket mount —
+ * jobs mount a bucket by id (`--volume <bucket-id>:/path:rw`) with no S3 creds.
  *
  * Arg-building is a pure function so it is unit-testable without the CLI.
  * CLI JSON field names were confirmed against the live CLI (0.12.x).
