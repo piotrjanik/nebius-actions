@@ -7,7 +7,9 @@
 
 import {
   buildJobSpecFromInputs,
-  createJob,
+  createJobViaSdk,
+  createSdk,
+  jobService,
   ensureCli,
   fail,
   getBool,
@@ -40,7 +42,8 @@ async function run(): Promise<void> {
     jobTimeoutMs !== undefined ? jobTimeoutMs + POLL_TIMEOUT_BUFFER_MS : DEFAULT_POLL_TIMEOUT_MS;
 
   const created = await log.group('Create job', async () => {
-    const job = await createJob(spec);
+    const service = jobService(createSdk());
+    const job = await createJobViaSdk(service, spec);
     log.info(`Created job ${job.id} (status: ${job.status}).`);
     return job;
   });
