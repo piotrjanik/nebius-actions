@@ -25,11 +25,19 @@ export interface CliResult<T = unknown> {
 
 /**
  * Append `--format json` only when the caller asked for JSON and didn't already
- * specify a `--format`. Pure — exported for unit tests.
+ * specify a `--format`. It ensures `--format json` is placed BEFORE the variadic
+ * `--args` flag if present, so it isn't swallowed by the CLI.
+ * Pure — exported for unit tests.
  */
 export function withJsonFormat(args: string[]): string[] {
   if (args.includes(CLI_FORMAT_FLAG)) {
     return args;
+  }
+  const argsIndex = args.indexOf('--args');
+  if (argsIndex !== -1) {
+    const head = args.slice(0, argsIndex);
+    const tail = args.slice(argsIndex);
+    return [...head, CLI_FORMAT_FLAG, CLI_FORMAT_JSON, ...tail];
   }
   return [...args, CLI_FORMAT_FLAG, CLI_FORMAT_JSON];
 }
