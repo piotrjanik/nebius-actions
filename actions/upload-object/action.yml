@@ -1,0 +1,48 @@
+name: 'Nebius Upload Object'
+description: >-
+  Upload a local file to a pre-existing Nebius Object Storage bucket using a
+  short-lived access key minted from the configured service account. Outputs the
+  object URI and a MysteryBox secret id for mounting the bucket in a Job.
+author: 'Nebius Actions'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  source:
+    description: 'Local file path on the runner to upload (required).'
+    required: true
+  bucket:
+    description: 'Target bucket name (must already exist) (required).'
+    required: true
+  key:
+    description: 'Object key (or prefix/path) within the bucket (required).'
+    required: true
+  service-account-id:
+    description: 'Service account to mint the ephemeral access key for (required).'
+    required: true
+  project-id:
+    description: 'Parent project for the access key + MysteryBox secret (required).'
+    required: true
+  expires-in:
+    description: 'Ephemeral key TTL (e.g. 2h, 30m).'
+    required: false
+    default: '2h'
+  endpoint:
+    description: 'S3 endpoint for Nebius Object Storage.'
+    required: false
+    default: 'https://storage.eu-north1.nebius.cloud'
+  region:
+    description: 'S3 region.'
+    required: false
+    default: 'eu-north1'
+
+outputs:
+  object-uri:
+    description: 'The uploaded object URI (s3://bucket/key).'
+  secret-id:
+    description: 'MysteryBox secret id for the job mount (…:ro:default@<secret-id>).'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
