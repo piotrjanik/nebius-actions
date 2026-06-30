@@ -36,7 +36,7 @@ on:
         default: 'gpu-l40s-a'
       preset:
         description: 'Compute preset'
-        default: '1gpu-8cpu-32gb'
+        default: '1gpu-8vcpu-32gb'
       disk-size:
         description: 'Job disk size'
         default: '250Gi'
