@@ -7,17 +7,26 @@
  * (`objectUri`, `buildS3ClientConfig`) are unit-tested; the network call is thin.
  */
 
-import { S3Client, PutObjectCommand, type S3ClientConfig } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
 
 export interface S3Creds {
   accessKeyId: string;
   secretAccessKey: string;
 }
 
-export interface S3Target {
+export interface S3Location {
   endpoint: string;
   region: string;
   bucket: string;
+}
+
+export interface S3Target extends S3Location {
   key: string;
 }
 
@@ -46,6 +55,48 @@ export async function putObject(t: S3Target, c: S3Creds, body: Buffer | string):
     await client.send(
       new PutObjectCommand({ Bucket: t.bucket, Key: t.key.replace(/^\/+/, ''), Body: body }),
     );
+  } finally {
+    client.destroy();
+  }
+}
+
+/** List all object keys under a prefix (paginated). Throws on S3 error. */
+export async function listObjects(loc: S3Location, c: S3Creds, prefix: string): Promise<string[]> {
+  const client = new S3Client(buildS3ClientConfig(loc, c));
+  const keys: string[] = [];
+  try {
+    let token: string | undefined;
+    do {
+      const res = await client.send(
+        new ListObjectsV2Command({ Bucket: loc.bucket, Prefix: prefix || undefined, ContinuationToken: token }),
+      );
+      for (const o of res.Contents ?? []) {
+        if (o.Key) keys.push(o.Key);
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+  } finally {
+    client.destroy();
+  }
+  return keys;
+}
+
+/** Delete objects by key, batched at the S3 limit of 1000 per request. No-op when empty. */
+export async function deleteObjects(loc: S3Location, c: S3Creds, keys: string[]): Promise<void> {
+  if (keys.length === 0) {
+    return;
+  }
+  const client = new S3Client(buildS3ClientConfig(loc, c));
+  try {
+    for (let i = 0; i < keys.length; i += 1000) {
+      const batch = keys.slice(i, i + 1000);
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: loc.bucket,
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+    }
   } finally {
     client.destroy();
   }
