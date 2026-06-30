@@ -5,9 +5,14 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { getString } from '../io/inputs';
+import { getString, getStringOrEnv } from '../io/inputs';
 import { parseDurationMs } from '../time';
-import { S3_ENDPOINT_DEFAULT, S3_REGION_DEFAULT } from '../constants';
+import {
+  PROJECT_ID_ENV,
+  S3_ENDPOINT_DEFAULT,
+  S3_REGION_DEFAULT,
+  SERVICE_ACCOUNT_ID_ENV,
+} from '../constants';
 import { mintEphemeralKey, readAccessKeySecret } from './keys';
 import { putObject, objectUri } from './s3';
 
@@ -36,8 +41,8 @@ export function buildUploadSpecFromInputs(): UploadSpec {
     source: getString('source', { required: true }),
     bucket: getString('bucket', { required: true }),
     key: getString('key', { required: true }),
-    serviceAccountId: getString('service-account-id', { required: true }),
-    projectId: getString('project-id', { required: true }),
+    serviceAccountId: getStringOrEnv('service-account-id', SERVICE_ACCOUNT_ID_ENV, { required: true }),
+    projectId: getStringOrEnv('project-id', PROJECT_ID_ENV, { required: true }),
     expiresIn,
     endpoint: getString('endpoint', { default: S3_ENDPOINT_DEFAULT }),
     region: getString('region', { default: S3_REGION_DEFAULT }),

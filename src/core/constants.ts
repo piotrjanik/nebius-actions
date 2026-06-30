@@ -50,6 +50,14 @@ export const CLI_INSTALL_SCRIPT_URL = 'https://storage.eu-north1.nebius.cloud/cl
  */
 export const IAM_TOKEN_ENV = 'NEBIUS_IAM_TOKEN';
 
+/**
+ * Job-wide defaults the `setup` action exports (→ $GITHUB_ENV) so later resource
+ * steps need not repeat `project-id` / `service-account-id` on every action.
+ * Each action resolves its input first, then falls back to these env vars.
+ */
+export const PROJECT_ID_ENV = 'NEBIUS_PROJECT_ID';
+export const SERVICE_ACCOUNT_ID_ENV = 'NEBIUS_SERVICE_ACCOUNT_ID';
+
 /** Global CLI flag pair that selects machine-readable JSON output. CONFIRMED. */
 export const CLI_FORMAT_FLAG = '--format';
 export const CLI_FORMAT_JSON = 'json';

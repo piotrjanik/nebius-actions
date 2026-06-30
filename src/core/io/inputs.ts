@@ -31,6 +31,40 @@ export function getString(name: string, opts?: { required?: boolean; default?: s
 }
 
 /**
+ * Read a string input, falling back to an environment variable when the input
+ * is empty.
+ *
+ * This lets a one-time `setup` step export a job-wide default (e.g.
+ * `NEBIUS_PROJECT_ID`) that every later resource action inherits, so callers
+ * need not repeat `project-id` / `service-account-id` on each step. Resolution
+ * order: input → env var → `default` → required-error.
+ * @throws when `required` and neither the input nor the env var is set.
+ */
+export function getStringOrEnv(
+  name: string,
+  envName: string,
+  opts?: { required?: boolean; default?: string },
+): string {
+  const raw = core.getInput(name);
+  if (raw !== '') {
+    return raw;
+  }
+  const fromEnv = (process.env[envName] ?? '').trim();
+  if (fromEnv !== '') {
+    return fromEnv;
+  }
+  if (opts?.default !== undefined) {
+    return opts.default;
+  }
+  if (opts?.required) {
+    throw new Error(
+      `Input '${name}' is required (or set ${envName}, e.g. via the setup action), but neither was provided.`,
+    );
+  }
+  return '';
+}
+
+/**
  * Read a boolean input (YAML-ish: true/false/yes/no/1/0, case-insensitive).
  * Falls back to `default` (or false) when empty.
  */

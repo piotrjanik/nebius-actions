@@ -5,13 +5,13 @@
  * barrel) so this action's bundle stays free of @aws-sdk/client-s3.
  */
 
-import { ensureCli, fail, log, setOutput, getString } from '../core';
+import { ensureCli, fail, log, setOutput, getString, getStringOrEnv, PROJECT_ID_ENV } from '../core';
 import { createBucket } from '../core/storage/bucket';
 
 async function run(): Promise<void> {
   await ensureCli({ version: 'latest' });
   const name = getString('name', { required: true });
-  const projectId = getString('project-id', { required: true });
+  const projectId = getStringOrEnv('project-id', PROJECT_ID_ENV, { required: true });
   const maxSizeBytes = getString('max-size-bytes');
 
   const ref = await log.group('Create bucket', async () => {
