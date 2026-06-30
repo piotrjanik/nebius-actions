@@ -10,9 +10,10 @@
 import { SDK } from '@nebius/js-sdk';
 // `./api/*` is a wildcard subpath export; runtime resolves it via the exports
 // map, tsc via the tsconfig `paths` mapping (see endpoints.ts).
-import { EndpointService } from '@nebius/js-sdk/api/nebius/ai/v1/index';
+import { EndpointService, JobService } from '@nebius/js-sdk/api/nebius/ai/v1/index';
 import { IAM_TOKEN_ENV } from '../constants';
 import type { EndpointServiceLike } from '../endpoints/endpoints';
+import type { JobServiceLike } from '../jobs/jobs-sdk';
 
 /**
  * Construct an SDK authenticated with the exported IAM token.
@@ -42,4 +43,15 @@ export function createSdk(opts?: { domain?: string }): SDK {
  */
 export function endpointService(sdk: SDK): EndpointServiceLike {
   return new EndpointService(sdk) as unknown as EndpointServiceLike;
+}
+
+/**
+ * Build the Job service client for an SDK.
+ *
+ * Like `endpointService`, the generated client structurally satisfies the narrow
+ * `JobServiceLike`, so we cast at this single boundary to keep the jobs domain
+ * and its tests free of SDK type noise.
+ */
+export function jobService(sdk: SDK): JobServiceLike {
+  return new JobService(sdk) as unknown as JobServiceLike;
 }
