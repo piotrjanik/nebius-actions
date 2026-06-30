@@ -1,0 +1,27 @@
+name: 'Nebius Create Bucket'
+description: 'Create a Nebius Object Storage bucket (control plane).'
+author: 'Nebius Actions'
+branding:
+  icon: 'database'
+  color: 'blue'
+
+inputs:
+  name:
+    description: 'Bucket name (DNS-compatible, unique) (required).'
+    required: true
+  project-id:
+    description: 'Parent project id (required).'
+    required: true
+  max-size-bytes:
+    description: 'Maximum bucket size in bytes (0/unset = unlimited).'
+    required: false
+
+outputs:
+  bucket-name:
+    description: 'The created bucket name.'
+  bucket-id:
+    description: 'The created bucket id (for deletion).'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
