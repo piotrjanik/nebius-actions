@@ -11,6 +11,7 @@ export * from './auth';
 export * from './cli';
 export * from './poll';
 export * from './time';
+export * from './size';
 export * from './jobs';
 export * from './endpoints';
 export * from './sdk';
