@@ -201,3 +201,6 @@ export const CLI_ACCESS_KEY_GROUP = ['iam', 'v2', 'access-key'] as const;
 
 /** `nebius mysterybox payload ...` — CONFIRMED group (live CLI). */
 export const CLI_MYSTERYBOX_PAYLOAD_GROUP = ['mysterybox', 'payload'] as const;
+
+/** `nebius storage bucket ...` — CONFIRMED group (live CLI). */
+export const CLI_STORAGE_BUCKET_GROUP = ['storage', 'bucket'] as const;
