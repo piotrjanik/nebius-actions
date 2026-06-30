@@ -87,6 +87,7 @@ export const CLI_JOB_GROUP = ['ai', 'job'] as const;
  * case-insensitive (see jobs.ts) so casing differences are tolerated.
  */
 export const JOB_STATUS = {
+  creating: 'CREATING',
   queued: 'QUEUED',
   pending: 'PENDING',
   starting: 'STARTING',
