@@ -26,84 +26,16 @@ vi.mock('../../src/core/io/log', () => ({
 }));
 
 import {
-  buildCreateJobArgs,
   mapJobJson,
-  createJob,
   getJob,
   cancelJob,
   streamJobLogs,
   isJobTerminal,
   isJobSuccess,
-  type JobSpec,
 } from '../../src/core/jobs/jobs';
 
 beforeEach(() => {
   runCli.mockReset();
-});
-
-describe('buildCreateJobArgs', () => {
-  it('builds a minimal create command with the ai job group', () => {
-    expect(buildCreateJobArgs({ image: 'ubuntu:22.04' })).toEqual([
-      'ai',
-      'job',
-      'create',
-      '--image',
-      'ubuntu:22.04',
-    ]);
-  });
-
-  it('throws when image is missing', () => {
-    expect(() => buildCreateJobArgs({} as JobSpec)).toThrow(/image is required/);
-  });
-
-  it('maps every spec field to the confirmed flags in order', () => {
-    const spec: JobSpec = {
-      name: 'train',
-      image: 'img:1',
-      preset: 'gpu-h100',
-      platform: 'gpu',
-      projectId: 'proj-1',
-      timeout: '1h',
-      env: { A: '1', B: '2' },
-      mounts: ['/data:/data'],
-      command: ['python', 'train.py'],
-    };
-    expect(buildCreateJobArgs(spec)).toEqual([
-      'ai',
-      'job',
-      'create',
-      '--name',
-      'train',
-      '--image',
-      'img:1',
-      '--preset',
-      'gpu-h100',
-      '--platform',
-      'gpu',
-      '--parent-id',
-      'proj-1',
-      '--timeout',
-      '1h',
-      '--env',
-      'A=1',
-      '--env',
-      'B=2',
-      '--volume',
-      '/data:/data',
-      '--container-command',
-      'python train.py',
-    ]);
-  });
-
-  it('appends extraArgs last as raw passthrough', () => {
-    const args = buildCreateJobArgs({ image: 'img', extraArgs: ['--foo', 'bar'] });
-    expect(args.slice(-2)).toEqual(['--foo', 'bar']);
-  });
-
-  it('omits the command flag when command is empty', () => {
-    const args = buildCreateJobArgs({ image: 'img', command: [] });
-    expect(args).not.toContain('--container-command');
-  });
 });
 
 describe('mapJobJson', () => {
@@ -142,17 +74,7 @@ describe('mapJobJson', () => {
   });
 });
 
-describe('createJob / getJob / cancelJob / streamJobLogs (verb building)', () => {
-  it('createJob runs `ai job create ...` with json and maps the result', async () => {
-    runCli.mockResolvedValue({ data: { id: 'job-9', status: 'QUEUED' } });
-    const job = await createJob({ image: 'img' });
-
-    const [args, opts] = runCli.mock.calls[0]!;
-    expect(args).toEqual(['ai', 'job', 'create', '--image', 'img']);
-    expect(opts).toEqual({ json: true });
-    expect(job).toMatchObject({ id: 'job-9', status: 'QUEUED' });
-  });
-
+describe('getJob / cancelJob / streamJobLogs (verb building)', () => {
   it('getJob runs `ai job get --id <id>` with json', async () => {
     runCli.mockResolvedValue({ data: { id: 'job-1', status: 'RUNNING' } });
     await getJob('job-1');
