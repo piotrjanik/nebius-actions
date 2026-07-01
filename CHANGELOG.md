@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.3](https://github.com/piotrjanik/nebius-actions/compare/v0.1.2...v0.1.3) (2026-07-01)
+
+
+### Features
+
+* **check-object:** verify objects exist under a bucket prefix ([480a1cf](https://github.com/piotrjanik/nebius-actions/commit/480a1cfc8f33ea6e8698c77d0a10cf85f5208b92))
+* **core:** add parseSizeBytes for disk-size mapping ([164441c](https://github.com/piotrjanik/nebius-actions/commit/164441cc71978baed52e7b9cfc32835651468d1c))
+* **create-bucket:** bucket control-plane wrappers and action ([5724317](https://github.com/piotrjanik/nebius-actions/commit/5724317871e3cdb8dc900d95fc86c46e12db342f))
+* **delete-bucket:** empty over S3 then delete bucket ([cda20af](https://github.com/piotrjanik/nebius-actions/commit/cda20af73eb40d8ecebc3ea4faf73011fe84f3eb))
+* **jobs:** action inputs for SDK create (args/disk-size/disk-type/preemptible) ([bfacae5](https://github.com/piotrjanik/nebius-actions/commit/bfacae5c59e2d835a72b6221ff844c6d669ff9d6))
+* **jobs:** add SDK-based job creation (jobs-sdk) ([b139264](https://github.com/piotrjanik/nebius-actions/commit/b139264665448f73e524dc1e2f5da6a249675d3c))
+* **jobs:** create jobs via SDK in submit-job and run-job ([e217b2a](https://github.com/piotrjanik/nebius-actions/commit/e217b2a26fc9bedcc3eb74bafa4d79e62d56a438))
+* **jobs:** map disk-size/disk-type/preemptible/args inputs; drop extra-args ([4311a61](https://github.com/piotrjanik/nebius-actions/commit/4311a61603a999864e66d8563e4a96dbd406aa53))
+* **sdk:** add jobService client helper ([1b364e0](https://github.com/piotrjanik/nebius-actions/commit/1b364e02cf4334ac3a89e437883fe4bc33a0998d))
+* **setup:** export project-id/service-account-id as job-wide defaults ([7dea672](https://github.com/piotrjanik/nebius-actions/commit/7dea672912185bf1e783d2345f41e42eef208aa8))
+* **storage:** S3 list/delete helpers and S3Location type ([8d9f1f6](https://github.com/piotrjanik/nebius-actions/commit/8d9f1f63c77ac37a7a127f44ee3363bbdf28e63a))
+* **upload-object:** upload a file to a Nebius bucket via SA-minted S3 key ([1dfb032](https://github.com/piotrjanik/nebius-actions/commit/1dfb0323f6d83d868217e5f74b9bc59742995dcc))
+
+
+### Bug Fixes
+
+* **cli:** ensure `--format json` is placed before `--args` flag ([a87d4b3](https://github.com/piotrjanik/nebius-actions/commit/a87d4b30c554301f0162713862449eac260ade8c))
+* **core:** type-safe unit lookup in parseSizeBytes (strict index access) ([2cf1758](https://github.com/piotrjanik/nebius-actions/commit/2cf1758603ac9d3ebac6c535b68285577577a69c))
+* **jobs:** resolve subnet for SDK job create ([d7089a8](https://github.com/piotrjanik/nebius-actions/commit/d7089a8e584c8b0e3ce9176e7b03f74cea162e85))
+* regenerate committed dist bundles ([a643373](https://github.com/piotrjanik/nebius-actions/commit/a6433734db669726ea502bcc2aa451055bef3695))
+* **run-job:** mount demo bucket by id, not via s3:// profile@secret ([1f6edcb](https://github.com/piotrjanik/nebius-actions/commit/1f6edcbdda8787e1545175aaca2f0778ca8f03e7))
+* **storage:** resolve mystery_box secret via MysteryBox payload ([f4847db](https://github.com/piotrjanik/nebius-actions/commit/f4847dbb3337040ee2e0de798c0191945977c864))
+
+
+### Code Refactoring
+
+* **jobs:** close SDK after job create; fix stale docs + test gaps ([3de1139](https://github.com/piotrjanik/nebius-actions/commit/3de113908875f0e954364c6ec1ad2a5313656537))
+* **jobs:** remove dead CLI job-create path ([75455dd](https://github.com/piotrjanik/nebius-actions/commit/75455dd8e3af8d287574e58ede55a5946498e723))
+
 ## [0.1.2](https://github.com/piotrjanik/nebius-actions/compare/v0.1.1...v0.1.2) (2026-06-29)
 
 
