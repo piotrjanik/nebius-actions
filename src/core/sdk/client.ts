@@ -11,9 +11,10 @@ import { SDK } from '@nebius/js-sdk';
 // `./api/*` is a wildcard subpath export; runtime resolves it via the exports
 // map, tsc via the tsconfig `paths` mapping (see endpoints.ts).
 import { EndpointService, JobService } from '@nebius/js-sdk/api/nebius/ai/v1/index';
+import { SubnetService } from '@nebius/js-sdk/api/nebius/vpc/v1/index';
 import { IAM_TOKEN_ENV } from '../constants';
 import type { EndpointServiceLike } from '../endpoints/endpoints';
-import type { JobServiceLike } from '../jobs/jobs-sdk';
+import type { JobServiceLike, SubnetServiceLike } from '../jobs/jobs-sdk';
 
 /**
  * Construct an SDK authenticated with the exported IAM token.
@@ -54,4 +55,12 @@ export function endpointService(sdk: SDK): EndpointServiceLike {
  */
 export function jobService(sdk: SDK): JobServiceLike {
   return new JobService(sdk) as unknown as JobServiceLike;
+}
+
+/**
+ * Build the VPC Subnet service client for an SDK. Used to resolve a default
+ * subnet for a job when the caller does not pass one explicitly.
+ */
+export function subnetService(sdk: SDK): SubnetServiceLike {
+  return new SubnetService(sdk) as unknown as SubnetServiceLike;
 }
