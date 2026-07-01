@@ -30,6 +30,7 @@ describe('buildJobSpecFromInputs', () => {
     setInput('disk-size', '250Gi');
     setInput('disk-type', 'network-ssd');
     setInput('preemptible', 'true');
+    setInput('subnet-id', 'subnet-1');
     setInput('project-id', 'proj-1');
 
     expect(buildJobSpecFromInputs()).toEqual({
@@ -44,6 +45,7 @@ describe('buildJobSpecFromInputs', () => {
       diskSizeBytes: 250 * 1024 ** 3,
       diskType: 'network-ssd',
       preemptible: true,
+      subnetId: 'subnet-1',
       projectId: 'proj-1',
     });
   });

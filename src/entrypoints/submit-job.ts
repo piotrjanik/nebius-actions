@@ -10,6 +10,8 @@ import {
   createJobViaSdk,
   createSdk,
   jobService,
+  resolveSubnetId,
+  subnetService,
   fail,
   log,
   setOutput,
@@ -21,6 +23,12 @@ async function run(): Promise<void> {
   try {
     const service = jobService(sdk);
     const job = await log.group('Create job', async () => {
+      // The SDK requires a subnet; resolve the project's first subnet when the
+      // caller did not pass one explicitly.
+      if (!spec.subnetId) {
+        spec.subnetId = await resolveSubnetId(subnetService(sdk), spec.projectId ?? '');
+        log.info(`Using subnet ${spec.subnetId}.`);
+      }
       const j = await createJobViaSdk(service, spec);
       log.info(`Created job ${j.id} (status: ${j.status}).`);
       return j;

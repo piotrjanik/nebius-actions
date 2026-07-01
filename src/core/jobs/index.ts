@@ -12,9 +12,11 @@ export {
 export { buildJobSpecFromInputs } from './inputs';
 export {
   createJobViaSdk,
+  resolveSubnetId,
   buildCreateJobRequest,
   buildJobSpec,
   buildJobMetadata,
   parseMount,
   type JobServiceLike,
+  type SubnetServiceLike,
 } from './jobs-sdk';

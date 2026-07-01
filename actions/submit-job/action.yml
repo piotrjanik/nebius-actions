@@ -49,6 +49,11 @@ inputs:
     description: 'Run on preemptible compute.'
     required: false
     default: 'false'
+  subnet-id:
+    description: >-
+      Subnet the job runs in. Optional — when unset, the first subnet in the
+      job's project is used.
+    required: false
   project-id:
     description: 'Nebius project id.'
     required: false

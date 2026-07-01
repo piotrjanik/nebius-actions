@@ -31,6 +31,7 @@ export function buildJobSpecFromInputs(): JobSpec {
   const timeout = getString('timeout');
   const diskSize = getString('disk-size');
   const diskType = getString('disk-type');
+  const subnetId = getString('subnet-id');
   const preemptible = getBool('preemptible', { default: false });
   // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); when neither
   // is set, parentId is omitted and the API uses the token's default project.
@@ -47,6 +48,7 @@ export function buildJobSpecFromInputs(): JobSpec {
   if (timeout) spec.timeout = timeout;
   if (diskSize) spec.diskSizeBytes = parseSizeBytes(diskSize);
   if (diskType) spec.diskType = diskType;
+  if (subnetId) spec.subnetId = subnetId;
   if (projectId) spec.projectId = projectId;
   return spec;
 }
