@@ -33,6 +33,8 @@ export interface JobSpec {
   diskType?: string;
   /** Run the job on preemptible compute. */
   preemptible?: boolean;
+  /** Subnet the job runs in; when unset it is resolved from the project. */
+  subnetId?: string;
   projectId?: string;
 }
 

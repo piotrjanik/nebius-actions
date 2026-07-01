@@ -23,6 +23,7 @@ import {
   JobSpec_VolumeMount_Mode,
 } from '@nebius/js-sdk/api/nebius/ai/v1/index';
 import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
+import { ListSubnetsRequest } from '@nebius/js-sdk/api/nebius/vpc/v1/index';
 import { dayjs } from '@nebius/js-sdk/runtime/protos/index';
 import { parseDurationMs } from '../time';
 import { JOB_STATUS } from '../constants';
@@ -37,6 +38,39 @@ export interface OperationLike {
 /** Minimal Job service surface (satisfied by the SDK's `JobService`). */
 export interface JobServiceLike {
   create(req: CreateJobRequest): { result: Promise<OperationLike> };
+}
+
+/** Minimal Subnet service surface (satisfied by the SDK's `SubnetService`). */
+export interface SubnetServiceLike {
+  list(req: ListSubnetsRequest): PromiseLike<{
+    items?: { metadata?: { id?: string } }[];
+  }>;
+}
+
+/**
+ * Resolve a subnet id for the job's project by listing the project's subnets and
+ * taking the first. The SDK requires `JobSpec.subnetId` (the CLI resolved it
+ * implicitly); this reproduces that so callers need not supply one. Callers may
+ * still pass an explicit `subnet-id` to skip this.
+ * @throws when no project id is available or the project has no subnets.
+ */
+export async function resolveSubnetId(
+  service: SubnetServiceLike,
+  projectId: string,
+): Promise<string> {
+  if (!projectId) {
+    throw new Error(
+      'resolveSubnetId: a project id is required to look up a subnet — set project-id (or pass subnet-id explicitly).',
+    );
+  }
+  const res = await service.list(ListSubnetsRequest.create({ parentId: projectId }));
+  const id = res.items?.[0]?.metadata?.id;
+  if (!id) {
+    throw new Error(
+      `resolveSubnetId: no subnets found in project '${projectId}' — pass subnet-id explicitly.`,
+    );
+  }
+  return id;
 }
 
 /** Map the `disk-type` input key onto the SDK disk-type enum. */
@@ -84,6 +118,7 @@ interface SdkJobSpecPartial {
   preset?: string;
   platform?: string;
   preemptible?: boolean;
+  subnetId?: string;
   environmentVariables?: { name: string; value: string }[];
   volumes?: { source: string; containerPath: string; mode: JobSpec_VolumeMount_Mode }[];
   timeout?: ReturnType<typeof dayjs.duration>;
@@ -102,6 +137,7 @@ export function buildJobSpec(s: JobSpec): SdkJobSpecPartial {
   if (s.preset) spec.preset = s.preset;
   if (s.platform) spec.platform = s.platform;
   if (s.preemptible) spec.preemptible = true;
+  if (s.subnetId) spec.subnetId = s.subnetId;
 
   const env = Object.entries(s.env ?? {});
   if (env.length > 0) {

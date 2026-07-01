@@ -7,8 +7,10 @@ import {
   buildJobSpec,
   buildCreateJobRequest,
   createJobViaSdk,
+  resolveSubnetId,
   type JobServiceLike,
   type OperationLike,
+  type SubnetServiceLike,
 } from '../../src/core/jobs/jobs-sdk';
 import type { JobSpec } from '../../src/core/jobs/jobs';
 
@@ -85,6 +87,11 @@ describe('buildJobSpec', () => {
     expect(buildJobSpec({ image: 'img', command: ['python', 'train.py'] }).containerCommand).toBe('python train.py');
   });
 
+  it('maps subnetId when provided, omits it otherwise', () => {
+    expect(buildJobSpec({ image: 'img', subnetId: 'subnet-9' }).subnetId).toBe('subnet-9');
+    expect(buildJobSpec({ image: 'img' }).subnetId).toBeUndefined();
+  });
+
   it('omits disk when no size is given', () => {
     expect(buildJobSpec({ image: 'img' }).disk).toBeUndefined();
   });
@@ -123,5 +130,31 @@ describe('createJobViaSdk', () => {
     expect(job.id).toBe('job-xyz');
     expect(job.status).toBe('CREATING');
     expect(received).toBeDefined();
+  });
+});
+
+describe('resolveSubnetId', () => {
+  it('returns the first subnet id in the project', async () => {
+    let listedParent: string | undefined;
+    const fake: SubnetServiceLike = {
+      list(req) {
+        listedParent = (req as unknown as { parentId: string }).parentId;
+        return Promise.resolve({
+          items: [{ metadata: { id: 'subnet-1' } }, { metadata: { id: 'subnet-2' } }],
+        });
+      },
+    };
+    expect(await resolveSubnetId(fake, 'proj-1')).toBe('subnet-1');
+    expect(listedParent).toBe('proj-1');
+  });
+
+  it('throws when no project id is given', async () => {
+    const fake: SubnetServiceLike = { list: () => Promise.resolve({ items: [] }) };
+    await expect(resolveSubnetId(fake, '')).rejects.toThrow(/project id is required/i);
+  });
+
+  it('throws when the project has no subnets', async () => {
+    const fake: SubnetServiceLike = { list: () => Promise.resolve({ items: [] }) };
+    await expect(resolveSubnetId(fake, 'proj-1')).rejects.toThrow(/no subnets/i);
   });
 });

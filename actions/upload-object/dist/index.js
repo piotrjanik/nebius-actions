@@ -96611,7 +96611,7 @@ function fail(err) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.parseMount = exports.buildJobMetadata = exports.buildJobSpec = exports.buildCreateJobRequest = exports.createJobViaSdk = exports.buildJobSpecFromInputs = exports.mapJobJson = exports.isJobSuccess = exports.isJobTerminal = exports.streamJobLogs = exports.cancelJob = exports.getJob = void 0;
+exports.parseMount = exports.buildJobMetadata = exports.buildJobSpec = exports.buildCreateJobRequest = exports.resolveSubnetId = exports.createJobViaSdk = exports.buildJobSpecFromInputs = exports.mapJobJson = exports.isJobSuccess = exports.isJobTerminal = exports.streamJobLogs = exports.cancelJob = exports.getJob = void 0;
 /** Public surface of the `jobs` module. */
 var jobs_1 = __nccwpck_require__(6938);
 Object.defineProperty(exports, "getJob", ({ enumerable: true, get: function () { return jobs_1.getJob; } }));
@@ -96624,6 +96624,7 @@ var inputs_1 = __nccwpck_require__(71159);
 Object.defineProperty(exports, "buildJobSpecFromInputs", ({ enumerable: true, get: function () { return inputs_1.buildJobSpecFromInputs; } }));
 var jobs_sdk_1 = __nccwpck_require__(99819);
 Object.defineProperty(exports, "createJobViaSdk", ({ enumerable: true, get: function () { return jobs_sdk_1.createJobViaSdk; } }));
+Object.defineProperty(exports, "resolveSubnetId", ({ enumerable: true, get: function () { return jobs_sdk_1.resolveSubnetId; } }));
 Object.defineProperty(exports, "buildCreateJobRequest", ({ enumerable: true, get: function () { return jobs_sdk_1.buildCreateJobRequest; } }));
 Object.defineProperty(exports, "buildJobSpec", ({ enumerable: true, get: function () { return jobs_sdk_1.buildJobSpec; } }));
 Object.defineProperty(exports, "buildJobMetadata", ({ enumerable: true, get: function () { return jobs_sdk_1.buildJobMetadata; } }));
@@ -96663,6 +96664,7 @@ function buildJobSpecFromInputs() {
     const timeout = (0, inputs_1.getString)('timeout');
     const diskSize = (0, inputs_1.getString)('disk-size');
     const diskType = (0, inputs_1.getString)('disk-type');
+    const subnetId = (0, inputs_1.getString)('subnet-id');
     const preemptible = (0, inputs_1.getBool)('preemptible', { default: false });
     // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); when neither
     // is set, parentId is omitted and the API uses the token's default project.
@@ -96688,6 +96690,8 @@ function buildJobSpecFromInputs() {
         spec.diskSizeBytes = (0, size_1.parseSizeBytes)(diskSize);
     if (diskType)
         spec.diskType = diskType;
+    if (subnetId)
+        spec.subnetId = subnetId;
     if (projectId)
         spec.projectId = projectId;
     return spec;
@@ -96720,6 +96724,7 @@ function buildJobSpecFromInputs() {
  *     `DiskSpec_DiskType.*`), not raw strings.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.resolveSubnetId = resolveSubnetId;
 exports.parseMount = parseMount;
 exports.buildJobMetadata = buildJobMetadata;
 exports.buildJobSpec = buildJobSpec;
@@ -96727,9 +96732,28 @@ exports.buildCreateJobRequest = buildCreateJobRequest;
 exports.createJobViaSdk = createJobViaSdk;
 const index_1 = __nccwpck_require__(26375);
 const index_2 = __nccwpck_require__(79420);
-const index_3 = __nccwpck_require__(7101);
+const index_3 = __nccwpck_require__(34314);
+const index_4 = __nccwpck_require__(7101);
 const time_1 = __nccwpck_require__(22334);
 const constants_1 = __nccwpck_require__(26214);
+/**
+ * Resolve a subnet id for the job's project by listing the project's subnets and
+ * taking the first. The SDK requires `JobSpec.subnetId` (the CLI resolved it
+ * implicitly); this reproduces that so callers need not supply one. Callers may
+ * still pass an explicit `subnet-id` to skip this.
+ * @throws when no project id is available or the project has no subnets.
+ */
+async function resolveSubnetId(service, projectId) {
+    if (!projectId) {
+        throw new Error('resolveSubnetId: a project id is required to look up a subnet — set project-id (or pass subnet-id explicitly).');
+    }
+    const res = await service.list(index_3.ListSubnetsRequest.create({ parentId: projectId }));
+    const id = res.items?.[0]?.metadata?.id;
+    if (!id) {
+        throw new Error(`resolveSubnetId: no subnets found in project '${projectId}' — pass subnet-id explicitly.`);
+    }
+    return id;
+}
 /** Map the `disk-type` input key onto the SDK disk-type enum. */
 const DISK_TYPES = {
     'network-ssd': index_2.DiskSpec_DiskType.NETWORK_SSD,
@@ -96776,6 +96800,8 @@ function buildJobSpec(s) {
         spec.platform = s.platform;
     if (s.preemptible)
         spec.preemptible = true;
+    if (s.subnetId)
+        spec.subnetId = s.subnetId;
     const env = Object.entries(s.env ?? {});
     if (env.length > 0) {
         spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
@@ -96785,7 +96811,7 @@ function buildJobSpec(s) {
     }
     const timeoutMs = (0, time_1.parseDurationMs)(s.timeout);
     if (timeoutMs !== undefined) {
-        spec.timeout = index_3.dayjs.duration(timeoutMs);
+        spec.timeout = index_4.dayjs.duration(timeoutMs);
     }
     if (s.diskSizeBytes !== undefined) {
         const typeKey = (s.diskType ?? 'network-ssd').toLowerCase();
@@ -97067,10 +97093,12 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.createSdk = createSdk;
 exports.endpointService = endpointService;
 exports.jobService = jobService;
+exports.subnetService = subnetService;
 const js_sdk_1 = __nccwpck_require__(21922);
 // `./api/*` is a wildcard subpath export; runtime resolves it via the exports
 // map, tsc via the tsconfig `paths` mapping (see endpoints.ts).
 const index_1 = __nccwpck_require__(26375);
+const index_2 = __nccwpck_require__(34314);
 const constants_1 = __nccwpck_require__(26214);
 /**
  * Construct an SDK authenticated with the exported IAM token.
@@ -97108,6 +97136,13 @@ function endpointService(sdk) {
 function jobService(sdk) {
     return new index_1.JobService(sdk);
 }
+/**
+ * Build the VPC Subnet service client for an SDK. Used to resolve a default
+ * subnet for a job when the caller does not pass one explicitly.
+ */
+function subnetService(sdk) {
+    return new index_2.SubnetService(sdk);
+}
 
 
 /***/ }),
@@ -97118,12 +97153,13 @@ function jobService(sdk) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.jobService = exports.endpointService = exports.createSdk = void 0;
+exports.subnetService = exports.jobService = exports.endpointService = exports.createSdk = void 0;
 /** Public surface of the `sdk` module. */
 var client_1 = __nccwpck_require__(93645);
 Object.defineProperty(exports, "createSdk", ({ enumerable: true, get: function () { return client_1.createSdk; } }));
 Object.defineProperty(exports, "endpointService", ({ enumerable: true, get: function () { return client_1.endpointService; } }));
 Object.defineProperty(exports, "jobService", ({ enumerable: true, get: function () { return client_1.jobService; } }));
+Object.defineProperty(exports, "subnetService", ({ enumerable: true, get: function () { return client_1.subnetService; } }));
 
 
 /***/ }),
@@ -155765,6 +155801,17160 @@ function createBaseUserAccountStatus() {
         state: exports.UserAccountStatus_State.STATE_UNSPECIFIED,
     };
     return applyUserAccountStatusCustom(message);
+}
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 34314:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/* Generated by Nebius TS generator. DO NOT EDIT! */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PoolServiceServiceDescription = exports.DeletePoolRequest = exports.UpdatePoolRequest = exports.CreatePoolRequest = exports.ListPoolsResponse = exports.ListPoolsBySourcePoolRequest = exports.ListPoolsRequest = exports.GetPoolByNameRequest = exports.GetPoolRequest = exports.NetworkStatus = exports.NetworkPool = exports.IPv4PublicNetworkPools = exports.IPv4PrivateNetworkPools = exports.NetworkSpec = exports.Network = exports.NetworkStatus_State = exports.NetworkService = exports.NetworkServiceBaseClient = exports.NetworkServiceServiceDescription = exports.DeleteNetworkRequest = exports.UpdateNetworkRequest = exports.CreateDefaultNetworkRequest = exports.CreateNetworkRequest = exports.ListNetworksResponse = exports.ListNetworksRequest = exports.GetNetworkByNameRequest = exports.GetNetworkRequest = exports.LoadBalancerAssignment = exports.NetworkInterfaceAssignment = exports.Assignment = exports.AllocationDetails = exports.AllocationStatus = exports.IPv4PublicAllocationSpec = exports.IPv4PrivateAllocationSpec = exports.AllocationSpec = exports.Allocation = exports.NetworkInterfaceAssignment_Type = exports.AllocationStatus_State = exports.AllocationService = exports.AllocationServiceBaseClient = exports.AllocationServiceServiceDescription = exports.DeleteAllocationRequest = exports.UpdateAllocationRequest = exports.CreateAllocationRequest = exports.ListAllocationsResponse = exports.ListAllocationsBySubnetRequest = exports.ListAllocationsByPoolRequest = exports.ListAllocationsRequest = exports.GetAllocationByNameRequest = exports.GetAllocationRequest = void 0;
+exports.GetSecurityGroupByNameRequest = exports.GetSecurityGroupRequest = exports.DefaultEgressGatewayState = exports.AllocationNextHopState = exports.NextHopState = exports.RouteStatus = exports.AllocationNextHop = exports.NextHop = exports.DestinationMatch = exports.RouteSpec = exports.Route = exports.RouteStatus_Type = exports.RouteStatus_State = exports.RouteTableAssignment = exports.RouteTableStatus = exports.RouteTableSpec = exports.RouteTable = exports.RouteTableStatus_State = exports.RouteTableService = exports.RouteTableServiceBaseClient = exports.RouteTableServiceServiceDescription = exports.DeleteRouteTableRequest = exports.UpdateRouteTableRequest = exports.CreateRouteTableRequest = exports.ListRouteTablesResponse = exports.ListRouteTablesByNetworkRequest = exports.ListRouteTablesRequest = exports.GetRouteTableByNameRequest = exports.GetRouteTableRequest = exports.RouteService = exports.RouteServiceBaseClient = exports.RouteServiceServiceDescription = exports.DeleteRouteRequest = exports.UpdateRouteRequest = exports.CreateRouteRequest = exports.ListRoutesResponse = exports.ListRoutesRequest = exports.GetRouteByNameRequest = exports.GetRouteRequest = exports.PoolAssignment = exports.PoolStatus = exports.PoolCidr = exports.PoolSpec = exports.Pool = exports.PoolStatus_State = exports.IpVisibility = exports.IpVersion = exports.AddressBlockState = exports.PoolService = exports.PoolServiceBaseClient = void 0;
+exports.IPv4PublicSubnetPools = exports.IPv4PrivateSubnetPools = exports.SubnetSpec = exports.Subnet = exports.SubnetStatus_State = exports.SubnetService = exports.SubnetServiceBaseClient = exports.SubnetServiceServiceDescription = exports.DeleteSubnetRequest = exports.UpdateSubnetRequest = exports.CreateSubnetRequest = exports.ListSubnetsResponse = exports.ListSubnetsByNetworkRequest = exports.ListSubnetsRequest = exports.GetSubnetByNameRequest = exports.GetSubnetRequest = exports.RuleMatchStatus = exports.SecurityRuleStatus = exports.RuleEgress = exports.RuleIngress = exports.SecurityRuleSpec = exports.SecurityRule = exports.SecurityRuleStatus_State = exports.RuleType = exports.RuleAccessAction = exports.RuleProtocol = exports.RuleDirection = exports.SecurityRuleService = exports.SecurityRuleServiceBaseClient = exports.SecurityRuleServiceServiceDescription = exports.DeleteSecurityRuleRequest = exports.UpdateSecurityRuleRequest = exports.CreateSecurityRuleRequest = exports.ListSecurityRulesResponse = exports.ListSecurityRulesRequest = exports.GetSecurityRuleByNameRequest = exports.GetSecurityRuleRequest = exports.SecurityGroupStatus = exports.SecurityGroupSpec = exports.SecurityGroup = exports.SecurityGroupStatus_State = exports.SecurityGroupService = exports.SecurityGroupServiceBaseClient = exports.SecurityGroupServiceServiceDescription = exports.DeleteSecurityGroupRequest = exports.UpdateSecurityGroupRequest = exports.CreateSecurityGroupRequest = exports.ListSecurityGroupsResponse = exports.ListSecurityGroupsByNetworkRequest = exports.ListSecurityGroupsRequest = void 0;
+exports.TargetStatus = exports.TargetGroupStatus = exports.ComputeInstance = exports.Target = exports.TargetGroupSpec = exports.TargetGroup = exports.TargetStatus_TargetState = exports.TargetGroupService = exports.TargetGroupServiceBaseClient = exports.TargetGroupServiceServiceDescription = exports.UpdateTargetGroupRequest = exports.GetTargetGroupRequest = exports.SubnetAssociatedRouteTable = exports.SubnetStatus = exports.SubnetCidr = exports.SubnetPool = void 0;
+const index_js_1 = __nccwpck_require__(7101);
+const util_1 = __nccwpck_require__(39023);
+const protobuf_js_1 = __nccwpck_require__(74846);
+const logging_js_1 = __nccwpck_require__(79087);
+const grpc_js_1 = __nccwpck_require__(83033);
+const request_js_1 = __nccwpck_require__(58544);
+const operation_js_1 = __nccwpck_require__(99624);
+const index_js_2 = __nccwpck_require__(64266);
+const __deprecatedWarned = new Set();
+exports.GetAllocationRequest = {
+    $type: "nebius.vpc.v1.GetAllocationRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetAllocationRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetAllocationRequestCustom({
+            $type: "nebius.vpc.v1.GetAllocationRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetAllocationRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetAllocationRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetAllocationRequest);
+function GetAllocationRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetAllocationRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetAllocationRequestCustom(message) {
+    message[logging_js_1.custom] = GetAllocationRequestCustomInspect;
+    message[logging_js_1.customJson] = GetAllocationRequestCustomJson;
+    return message;
+}
+function createBaseGetAllocationRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetAllocationRequest",
+        id: "",
+    };
+    return applyGetAllocationRequestCustom(message);
+}
+exports.GetAllocationByNameRequest = {
+    $type: "nebius.vpc.v1.GetAllocationByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetAllocationByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetAllocationByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetAllocationByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetAllocationByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetAllocationByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetAllocationByNameRequest);
+function GetAllocationByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetAllocationByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetAllocationByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetAllocationByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetAllocationByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetAllocationByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetAllocationByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetAllocationByNameRequestCustom(message);
+}
+exports.ListAllocationsRequest = {
+    $type: "nebius.vpc.v1.ListAllocationsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAllocationsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAllocationsRequestCustom({
+            $type: "nebius.vpc.v1.ListAllocationsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAllocationsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAllocationsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAllocationsRequest);
+function ListAllocationsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAllocationsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListAllocationsRequestCustom(message) {
+    message[logging_js_1.custom] = ListAllocationsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListAllocationsRequestCustomJson;
+    return message;
+}
+function createBaseListAllocationsRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListAllocationsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListAllocationsRequestCustom(message);
+}
+exports.ListAllocationsByPoolRequest = {
+    $type: "nebius.vpc.v1.ListAllocationsByPoolRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.poolId !== "") {
+            writer.uint32(10).string(message.poolId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAllocationsByPoolRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.poolId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAllocationsByPoolRequestCustom({
+            $type: "nebius.vpc.v1.ListAllocationsByPoolRequest",
+            poolId: (0, index_js_1.isSet)(object.poolId ?? object.pool_id)
+                ? String(object.poolId ?? object.pool_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.poolId !== "") {
+            obj[pick("poolId", "pool_id")] = message.poolId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAllocationsByPoolRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAllocationsByPoolRequest();
+        message.poolId = (object.poolId !== undefined && object.poolId !== null)
+            ? object.poolId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAllocationsByPoolRequest);
+function ListAllocationsByPoolRequestCustomInspect() {
+    const parts = [];
+    if (this.poolId !== "")
+        parts.push("poolId" + "=" + (0, util_1.inspect)(this.poolId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAllocationsByPoolRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.poolId !== "")
+        obj.poolId = (0, logging_js_1.inspectJson)(this.poolId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListAllocationsByPoolRequestCustom(message) {
+    message[logging_js_1.custom] = ListAllocationsByPoolRequestCustomInspect;
+    message[logging_js_1.customJson] = ListAllocationsByPoolRequestCustomJson;
+    return message;
+}
+function createBaseListAllocationsByPoolRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListAllocationsByPoolRequest",
+        poolId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListAllocationsByPoolRequestCustom(message);
+}
+exports.ListAllocationsBySubnetRequest = {
+    $type: "nebius.vpc.v1.ListAllocationsBySubnetRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.subnetId !== "") {
+            writer.uint32(10).string(message.subnetId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAllocationsBySubnetRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.subnetId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAllocationsBySubnetRequestCustom({
+            $type: "nebius.vpc.v1.ListAllocationsBySubnetRequest",
+            subnetId: (0, index_js_1.isSet)(object.subnetId ?? object.subnet_id)
+                ? String(object.subnetId ?? object.subnet_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.subnetId !== "") {
+            obj[pick("subnetId", "subnet_id")] = message.subnetId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAllocationsBySubnetRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAllocationsBySubnetRequest();
+        message.subnetId = (object.subnetId !== undefined && object.subnetId !== null)
+            ? object.subnetId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAllocationsBySubnetRequest);
+function ListAllocationsBySubnetRequestCustomInspect() {
+    const parts = [];
+    if (this.subnetId !== "")
+        parts.push("subnetId" + "=" + (0, util_1.inspect)(this.subnetId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAllocationsBySubnetRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.subnetId !== "")
+        obj.subnetId = (0, logging_js_1.inspectJson)(this.subnetId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListAllocationsBySubnetRequestCustom(message) {
+    message[logging_js_1.custom] = ListAllocationsBySubnetRequestCustomInspect;
+    message[logging_js_1.customJson] = ListAllocationsBySubnetRequestCustomJson;
+    return message;
+}
+function createBaseListAllocationsBySubnetRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListAllocationsBySubnetRequest",
+        subnetId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListAllocationsBySubnetRequestCustom(message);
+}
+exports.ListAllocationsResponse = {
+    $type: "nebius.vpc.v1.ListAllocationsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Allocation.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAllocationsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Allocation.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAllocationsResponseCustom({
+            $type: "nebius.vpc.v1.ListAllocationsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Allocation.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Allocation.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAllocationsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAllocationsResponse();
+        message.items = object.items?.map((e) => exports.Allocation.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAllocationsResponse);
+function ListAllocationsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAllocationsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListAllocationsResponseCustom(message) {
+    message[logging_js_1.custom] = ListAllocationsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListAllocationsResponseCustomJson;
+    return message;
+}
+function createBaseListAllocationsResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListAllocationsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListAllocationsResponseCustom(message);
+}
+exports.CreateAllocationRequest = {
+    $type: "nebius.vpc.v1.CreateAllocationRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AllocationSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateAllocationRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.AllocationSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateAllocationRequestCustom({
+            $type: "nebius.vpc.v1.CreateAllocationRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.AllocationSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.AllocationSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateAllocationRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateAllocationRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.AllocationSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateAllocationRequest);
+function CreateAllocationRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateAllocationRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateAllocationRequestCustom(message) {
+    message[logging_js_1.custom] = CreateAllocationRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateAllocationRequestCustomJson;
+    return message;
+}
+function createBaseCreateAllocationRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateAllocationRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateAllocationRequestCustom(message);
+}
+exports.UpdateAllocationRequest = {
+    $type: "nebius.vpc.v1.UpdateAllocationRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AllocationSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateAllocationRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.AllocationSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateAllocationRequestCustom({
+            $type: "nebius.vpc.v1.UpdateAllocationRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.AllocationSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.AllocationSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateAllocationRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateAllocationRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.AllocationSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateAllocationRequest);
+function UpdateAllocationRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateAllocationRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateAllocationRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateAllocationRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateAllocationRequestCustomJson;
+    return message;
+}
+function createBaseUpdateAllocationRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateAllocationRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateAllocationRequestCustom(message);
+}
+exports.DeleteAllocationRequest = {
+    $type: "nebius.vpc.v1.DeleteAllocationRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteAllocationRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteAllocationRequestCustom({
+            $type: "nebius.vpc.v1.DeleteAllocationRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteAllocationRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteAllocationRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteAllocationRequest);
+function DeleteAllocationRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteAllocationRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteAllocationRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteAllocationRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteAllocationRequestCustomJson;
+    return message;
+}
+function createBaseDeleteAllocationRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteAllocationRequest",
+        id: "",
+    };
+    return applyDeleteAllocationRequestCustom(message);
+}
+exports.AllocationServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.AllocationService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetAllocationRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetAllocationRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Allocation.encode(value).finish()),
+        responseDeserialize: (value) => exports.Allocation.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.AllocationService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetAllocationByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetAllocationByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Allocation.encode(value).finish()),
+        responseDeserialize: (value) => exports.Allocation.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.AllocationService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListAllocationsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListAllocationsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListAllocationsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListAllocationsResponse.decode(value),
+    },
+    listByPool: {
+        path: "/nebius.vpc.v1.AllocationService/ListByPool",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListAllocationsByPoolRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListAllocationsByPoolRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListAllocationsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListAllocationsResponse.decode(value),
+    },
+    listBySubnet: {
+        path: "/nebius.vpc.v1.AllocationService/ListBySubnet",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListAllocationsBySubnetRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListAllocationsBySubnetRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListAllocationsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListAllocationsResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.AllocationService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateAllocationRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateAllocationRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.AllocationService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateAllocationRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateAllocationRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.AllocationService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteAllocationRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteAllocationRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.AllocationServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.AllocationServiceServiceDescription, "nebius.vpc.v1.AllocationService");
+class AllocationService {
+    sdk;
+    $type = "nebius.vpc.v1.AllocationService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.AllocationServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listByPool(...args) {
+        const spec = this.spec.listByPool;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listBySubnet(...args) {
+        const spec = this.spec.listBySubnet;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.AllocationService = AllocationService;
+const AllocationStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " Default state, unspecified.",
+    CREATING: " Allocation is being created.",
+    ALLOCATED: " Allocation is ready for use.",
+    ASSIGNED: " Allocation is used.",
+    DELETING: " Allocation is being deleted.",
+};
+exports.AllocationStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.AllocationStatus.State", {
+    /**
+     *  Default state, unspecified.
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Allocation is being created.
+     */
+    CREATING: 1,
+    /**
+     *  Allocation is ready for use.
+     */
+    ALLOCATED: 2,
+    /**
+     *  Allocation is used.
+     */
+    ASSIGNED: 3,
+    /**
+     *  Allocation is being deleted.
+     */
+    DELETING: 4,
+}, AllocationStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.AllocationStatus_State);
+const NetworkInterfaceAssignment_Type_VALUE_COMMENTS = {
+    PRIMARY: " Allocation is attached as the interface private IPv4 address.\n",
+    ALIAS: " Allocation is attached as an IP alias.\n",
+    PUBLIC: " Allocation is attached as the interface public IPv4 address.\n",
+};
+exports.NetworkInterfaceAssignment_Type = (0, index_js_1.createEnum)("nebius.vpc.v1.NetworkInterfaceAssignment.Type", {
+    TYPE_UNSPECIFIED: 0,
+    /**
+     *  Allocation is attached as the interface private IPv4 address.
+     *
+     */
+    PRIMARY: 1,
+    /**
+     *  Allocation is attached as an IP alias.
+     *
+     */
+    ALIAS: 2,
+    /**
+     *  Allocation is attached as the interface public IPv4 address.
+     *
+     */
+    PUBLIC: 3,
+}, NetworkInterfaceAssignment_Type_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.NetworkInterfaceAssignment_Type);
+exports.Allocation = {
+    $type: "nebius.vpc.v1.Allocation",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AllocationSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.AllocationStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAllocation();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.AllocationSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.AllocationStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAllocationCustom({
+            $type: "nebius.vpc.v1.Allocation",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.AllocationSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.AllocationStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.AllocationSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.AllocationStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Allocation.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAllocation();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.AllocationSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.AllocationStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Allocation);
+function AllocationCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AllocationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyAllocationCustom(message) {
+    message[logging_js_1.custom] = AllocationCustomInspect;
+    message[logging_js_1.customJson] = AllocationCustomJson;
+    return message;
+}
+function createBaseAllocation() {
+    const message = {
+        $type: "nebius.vpc.v1.Allocation",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyAllocationCustom(message);
+}
+exports.AllocationSpec = {
+    $type: "nebius.vpc.v1.AllocationSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.ipSpec?.$case === undefined) { /* noop */ }
+        else if (message.ipSpec?.$case === "ipv4Private") {
+            const w = writer.uint32(10).fork();
+            exports.IPv4PrivateAllocationSpec.encode(message.ipSpec.ipv4Private, w);
+            w.join();
+        }
+        else if (message.ipSpec?.$case === "ipv4Public") {
+            const w = writer.uint32(18).fork();
+            exports.IPv4PublicAllocationSpec.encode(message.ipSpec.ipv4Public, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAllocationSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.ipSpec = {
+                        $case: "ipv4Private",
+                        ipv4Private: exports.IPv4PrivateAllocationSpec.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.ipSpec = {
+                        $case: "ipv4Public",
+                        ipv4Public: exports.IPv4PublicAllocationSpec.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAllocationSpecCustom({
+            $type: "nebius.vpc.v1.AllocationSpec",
+            ipSpec: (() => {
+                if ((0, index_js_1.isSet)(object.ipv4Private) || (0, index_js_1.isSet)(object.ipv4_private)) {
+                    return {
+                        $case: "ipv4Private",
+                        ipv4Private: exports.IPv4PrivateAllocationSpec.fromJSON(object.ipv4Private ?? object.ipv4_private)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.ipv4Public) || (0, index_js_1.isSet)(object.ipv4_public)) {
+                    return {
+                        $case: "ipv4Public",
+                        ipv4Public: exports.IPv4PublicAllocationSpec.fromJSON(object.ipv4Public ?? object.ipv4_public)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        switch (message.ipSpec?.$case) {
+            case "ipv4Private": {
+                obj[pick("ipv4Private", "ipv4_private")] = exports.IPv4PrivateAllocationSpec.toJSON(message.ipSpec.ipv4Private, use);
+                break;
+            }
+            case "ipv4Public": {
+                obj[pick("ipv4Public", "ipv4_public")] = exports.IPv4PublicAllocationSpec.toJSON(message.ipSpec.ipv4Public, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AllocationSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAllocationSpec();
+        switch (object.ipSpec?.$case) {
+            case "ipv4Private": {
+                if (object.ipSpec.ipv4Private !== undefined && object.ipSpec.ipv4Private !== null) {
+                    message.ipSpec = {
+                        $case: "ipv4Private",
+                        ipv4Private: exports.IPv4PrivateAllocationSpec.fromPartial(object.ipSpec.ipv4Private),
+                    };
+                }
+                break;
+            }
+            case "ipv4Public": {
+                if (object.ipSpec.ipv4Public !== undefined && object.ipSpec.ipv4Public !== null) {
+                    message.ipSpec = {
+                        $case: "ipv4Public",
+                        ipv4Public: exports.IPv4PublicAllocationSpec.fromPartial(object.ipSpec.ipv4Public),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AllocationSpec);
+function AllocationSpecCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AllocationSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyAllocationSpecCustom(message) {
+    message[logging_js_1.custom] = AllocationSpecCustomInspect;
+    message[logging_js_1.customJson] = AllocationSpecCustomJson;
+    return message;
+}
+function createBaseAllocationSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.AllocationSpec",
+        ipSpec: undefined,
+    };
+    return applyAllocationSpecCustom(message);
+}
+exports.IPv4PrivateAllocationSpec = {
+    $type: "nebius.vpc.v1.IPv4PrivateAllocationSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.cidr !== "") {
+            writer.uint32(10).string(message.cidr);
+        }
+        if (message.pool?.$case === undefined) { /* noop */ }
+        else if (message.pool?.$case === "subnetId") {
+            writer.uint32(18).string(message.pool.subnetId);
+        }
+        else if (message.pool?.$case === "poolId") {
+            writer.uint32(26).string(message.pool.poolId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseIPv4PrivateAllocationSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.cidr = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.pool = {
+                        $case: "subnetId",
+                        subnetId: reader.string()
+                    };
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pool = {
+                        $case: "poolId",
+                        poolId: reader.string()
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyIPv4PrivateAllocationSpecCustom({
+            $type: "nebius.vpc.v1.IPv4PrivateAllocationSpec",
+            cidr: (0, index_js_1.isSet)(object.cidr ?? object.cidr)
+                ? String(object.cidr ?? object.cidr)
+                : "",
+            pool: (() => {
+                if ((0, index_js_1.isSet)(object.subnetId) || (0, index_js_1.isSet)(object.subnet_id)) {
+                    return {
+                        $case: "subnetId",
+                        subnetId: String(object.subnetId ?? object.subnet_id)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.poolId) || (0, index_js_1.isSet)(object.pool_id)) {
+                    return {
+                        $case: "poolId",
+                        poolId: String(object.poolId ?? object.pool_id)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidr !== "") {
+            obj[pick("cidr", "cidr")] = message.cidr;
+        }
+        switch (message.pool?.$case) {
+            case "subnetId": {
+                obj[pick("subnetId", "subnet_id")] = message.pool.subnetId;
+                break;
+            }
+            case "poolId": {
+                obj[pick("poolId", "pool_id")] = message.pool.poolId;
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.IPv4PrivateAllocationSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseIPv4PrivateAllocationSpec();
+        message.cidr = (object.cidr !== undefined && object.cidr !== null)
+            ? object.cidr
+            : "";
+        switch (object.pool?.$case) {
+            case "subnetId": {
+                if (object.pool?.subnetId !== undefined && object.pool?.subnetId !== null) {
+                    message.pool = {
+                        $case: "subnetId",
+                        subnetId: object.pool.subnetId,
+                    };
+                }
+                break;
+            }
+            case "poolId": {
+                if (object.pool?.poolId !== undefined && object.pool?.poolId !== null) {
+                    message.pool = {
+                        $case: "poolId",
+                        poolId: object.pool.poolId,
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.IPv4PrivateAllocationSpec);
+function IPv4PrivateAllocationSpecCustomInspect() {
+    const parts = [];
+    if (this.cidr !== "")
+        parts.push("cidr" + "=" + (0, util_1.inspect)(this.cidr));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function IPv4PrivateAllocationSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.cidr !== "")
+        obj.cidr = (0, logging_js_1.inspectJson)(this.cidr);
+    return obj;
+}
+function applyIPv4PrivateAllocationSpecCustom(message) {
+    message[logging_js_1.custom] = IPv4PrivateAllocationSpecCustomInspect;
+    message[logging_js_1.customJson] = IPv4PrivateAllocationSpecCustomJson;
+    return message;
+}
+function createBaseIPv4PrivateAllocationSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.IPv4PrivateAllocationSpec",
+        cidr: "",
+        pool: undefined,
+    };
+    return applyIPv4PrivateAllocationSpecCustom(message);
+}
+exports.IPv4PublicAllocationSpec = {
+    $type: "nebius.vpc.v1.IPv4PublicAllocationSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.cidr !== "") {
+            writer.uint32(10).string(message.cidr);
+        }
+        if (message.pool?.$case === undefined) { /* noop */ }
+        else if (message.pool?.$case === "subnetId") {
+            writer.uint32(18).string(message.pool.subnetId);
+        }
+        else if (message.pool?.$case === "poolId") {
+            writer.uint32(26).string(message.pool.poolId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseIPv4PublicAllocationSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.cidr = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.pool = {
+                        $case: "subnetId",
+                        subnetId: reader.string()
+                    };
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pool = {
+                        $case: "poolId",
+                        poolId: reader.string()
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyIPv4PublicAllocationSpecCustom({
+            $type: "nebius.vpc.v1.IPv4PublicAllocationSpec",
+            cidr: (0, index_js_1.isSet)(object.cidr ?? object.cidr)
+                ? String(object.cidr ?? object.cidr)
+                : "",
+            pool: (() => {
+                if ((0, index_js_1.isSet)(object.subnetId) || (0, index_js_1.isSet)(object.subnet_id)) {
+                    return {
+                        $case: "subnetId",
+                        subnetId: String(object.subnetId ?? object.subnet_id)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.poolId) || (0, index_js_1.isSet)(object.pool_id)) {
+                    return {
+                        $case: "poolId",
+                        poolId: String(object.poolId ?? object.pool_id)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidr !== "") {
+            obj[pick("cidr", "cidr")] = message.cidr;
+        }
+        switch (message.pool?.$case) {
+            case "subnetId": {
+                obj[pick("subnetId", "subnet_id")] = message.pool.subnetId;
+                break;
+            }
+            case "poolId": {
+                obj[pick("poolId", "pool_id")] = message.pool.poolId;
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.IPv4PublicAllocationSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseIPv4PublicAllocationSpec();
+        message.cidr = (object.cidr !== undefined && object.cidr !== null)
+            ? object.cidr
+            : "";
+        switch (object.pool?.$case) {
+            case "subnetId": {
+                if (object.pool?.subnetId !== undefined && object.pool?.subnetId !== null) {
+                    message.pool = {
+                        $case: "subnetId",
+                        subnetId: object.pool.subnetId,
+                    };
+                }
+                break;
+            }
+            case "poolId": {
+                if (object.pool?.poolId !== undefined && object.pool?.poolId !== null) {
+                    message.pool = {
+                        $case: "poolId",
+                        poolId: object.pool.poolId,
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.IPv4PublicAllocationSpec);
+function IPv4PublicAllocationSpecCustomInspect() {
+    const parts = [];
+    if (this.cidr !== "")
+        parts.push("cidr" + "=" + (0, util_1.inspect)(this.cidr));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function IPv4PublicAllocationSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.cidr !== "")
+        obj.cidr = (0, logging_js_1.inspectJson)(this.cidr);
+    return obj;
+}
+function applyIPv4PublicAllocationSpecCustom(message) {
+    message[logging_js_1.custom] = IPv4PublicAllocationSpecCustomInspect;
+    message[logging_js_1.customJson] = IPv4PublicAllocationSpecCustomJson;
+    return message;
+}
+function createBaseIPv4PublicAllocationSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.IPv4PublicAllocationSpec",
+        cidr: "",
+        pool: undefined,
+    };
+    return applyIPv4PublicAllocationSpecCustom(message);
+}
+exports.AllocationStatus = {
+    $type: "nebius.vpc.v1.AllocationStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.AllocationStatus_State.STATE_UNSPECIFIED) !== exports.AllocationStatus_State.STATE_UNSPECIFIED) {
+            exports.AllocationStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.details !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AllocationDetails.encode(message.details, w);
+            w.join();
+        }
+        if (message.assignment !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.Assignment.encode(message.assignment, w);
+            w.join();
+        }
+        if (message.static === true) {
+            writer.uint32(32).bool(message.static);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAllocationStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.AllocationStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.details = exports.AllocationDetails.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.assignment = exports.Assignment.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.static = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAllocationStatusCustom({
+            $type: "nebius.vpc.v1.AllocationStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.AllocationStatus_State.fromJSON(object.state ?? object.state)
+                : exports.AllocationStatus_State.STATE_UNSPECIFIED,
+            details: (0, index_js_1.isSet)(object.details ?? object.details)
+                ? exports.AllocationDetails.fromJSON(object.details ?? object.details)
+                : undefined,
+            assignment: (0, index_js_1.isSet)(object.assignment ?? object.assignment)
+                ? exports.Assignment.fromJSON(object.assignment ?? object.assignment)
+                : undefined,
+            static: (0, index_js_1.isSet)(object.static ?? object.static)
+                ? Boolean(object.static ?? object.static)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.AllocationStatus_State.STATE_UNSPECIFIED) !== exports.AllocationStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.AllocationStatus_State.toJSON(message.state);
+        }
+        if (message.details !== undefined) {
+            obj[pick("details", "details")] = message.details
+                ? exports.AllocationDetails.toJSON(message.details, use)
+                : undefined;
+        }
+        if (message.assignment !== undefined) {
+            obj[pick("assignment", "assignment")] = message.assignment
+                ? exports.Assignment.toJSON(message.assignment, use)
+                : undefined;
+        }
+        if (message.static === true) {
+            obj[pick("static", "static")] = message.static;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AllocationStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAllocationStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.AllocationStatus_State.fromJSON(object.state.name)
+            : exports.AllocationStatus_State.STATE_UNSPECIFIED;
+        message.details = (object.details !== undefined && object.details !== null)
+            ? exports.AllocationDetails.fromPartial(object.details)
+            : undefined;
+        message.assignment = (object.assignment !== undefined && object.assignment !== null)
+            ? exports.Assignment.fromPartial(object.assignment)
+            : undefined;
+        message.static = (object.static !== undefined && object.static !== null)
+            ? object.static
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AllocationStatus);
+function AllocationStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.details !== undefined)
+        parts.push("details" + "=" + (0, util_1.inspect)(this.details));
+    if (this.assignment !== undefined)
+        parts.push("assignment" + "=" + (0, util_1.inspect)(this.assignment));
+    if (this.static === true)
+        parts.push("static" + "=" + (0, util_1.inspect)(this.static));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AllocationStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.details !== undefined)
+        obj.details = (0, logging_js_1.inspectJson)(this.details);
+    if (this.assignment !== undefined)
+        obj.assignment = (0, logging_js_1.inspectJson)(this.assignment);
+    if (this.static === true)
+        obj.static = (0, logging_js_1.inspectJson)(this.static);
+    return obj;
+}
+function applyAllocationStatusCustom(message) {
+    message[logging_js_1.custom] = AllocationStatusCustomInspect;
+    message[logging_js_1.customJson] = AllocationStatusCustomJson;
+    return message;
+}
+function createBaseAllocationStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.AllocationStatus",
+        state: exports.AllocationStatus_State.STATE_UNSPECIFIED,
+        details: undefined,
+        assignment: undefined,
+        static: false,
+    };
+    return applyAllocationStatusCustom(message);
+}
+exports.AllocationDetails = {
+    $type: "nebius.vpc.v1.AllocationDetails",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.allocatedCidr !== "") {
+            writer.uint32(10).string(message.allocatedCidr);
+        }
+        if (message.poolId !== "") {
+            writer.uint32(18).string(message.poolId);
+        }
+        if ((message.version ?? exports.IpVersion.IP_VERSION_UNSPECIFIED) !== exports.IpVersion.IP_VERSION_UNSPECIFIED) {
+            exports.IpVersion.encodeField(writer, 4, message.version);
+        }
+        if (message.subnetId !== "") {
+            writer.uint32(42).string(message.subnetId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAllocationDetails();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.allocatedCidr = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.poolId = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.version = exports.IpVersion.fromNumber(reader.int32());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.subnetId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAllocationDetailsCustom({
+            $type: "nebius.vpc.v1.AllocationDetails",
+            allocatedCidr: (0, index_js_1.isSet)(object.allocatedCidr ?? object.allocated_cidr)
+                ? String(object.allocatedCidr ?? object.allocated_cidr)
+                : "",
+            poolId: (0, index_js_1.isSet)(object.poolId ?? object.pool_id)
+                ? String(object.poolId ?? object.pool_id)
+                : "",
+            version: (0, index_js_1.isSet)(object.version ?? object.version)
+                ? exports.IpVersion.fromJSON(object.version ?? object.version)
+                : exports.IpVersion.IP_VERSION_UNSPECIFIED,
+            subnetId: (0, index_js_1.isSet)(object.subnetId ?? object.subnet_id)
+                ? String(object.subnetId ?? object.subnet_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.allocatedCidr !== "") {
+            obj[pick("allocatedCidr", "allocated_cidr")] = message.allocatedCidr;
+        }
+        if (message.poolId !== "") {
+            obj[pick("poolId", "pool_id")] = message.poolId;
+        }
+        if ((message.version ?? exports.IpVersion.IP_VERSION_UNSPECIFIED) !== exports.IpVersion.IP_VERSION_UNSPECIFIED) {
+            obj[pick("version", "version")] = exports.IpVersion.toJSON(message.version);
+        }
+        if (message.subnetId !== "") {
+            obj[pick("subnetId", "subnet_id")] = message.subnetId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AllocationDetails.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAllocationDetails();
+        message.allocatedCidr = (object.allocatedCidr !== undefined && object.allocatedCidr !== null)
+            ? object.allocatedCidr
+            : "";
+        message.poolId = (object.poolId !== undefined && object.poolId !== null)
+            ? object.poolId
+            : "";
+        message.version = (object.version !== undefined && object.version !== null)
+            ? exports.IpVersion.fromJSON(object.version.name)
+            : exports.IpVersion.IP_VERSION_UNSPECIFIED;
+        message.subnetId = (object.subnetId !== undefined && object.subnetId !== null)
+            ? object.subnetId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AllocationDetails);
+function AllocationDetailsCustomInspect() {
+    const parts = [];
+    if (this.allocatedCidr !== "")
+        parts.push("allocatedCidr" + "=" + (0, util_1.inspect)(this.allocatedCidr));
+    if (this.poolId !== "")
+        parts.push("poolId" + "=" + (0, util_1.inspect)(this.poolId));
+    if (this.version !== undefined)
+        parts.push("version" + "=" + (0, util_1.inspect)(this.version));
+    if (this.subnetId !== "")
+        parts.push("subnetId" + "=" + (0, util_1.inspect)(this.subnetId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AllocationDetailsCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.allocatedCidr !== "")
+        obj.allocatedCidr = (0, logging_js_1.inspectJson)(this.allocatedCidr);
+    if (this.poolId !== "")
+        obj.poolId = (0, logging_js_1.inspectJson)(this.poolId);
+    if (this.version !== undefined)
+        obj.version = (0, logging_js_1.inspectJson)(this.version);
+    if (this.subnetId !== "")
+        obj.subnetId = (0, logging_js_1.inspectJson)(this.subnetId);
+    return obj;
+}
+function applyAllocationDetailsCustom(message) {
+    message[logging_js_1.custom] = AllocationDetailsCustomInspect;
+    message[logging_js_1.customJson] = AllocationDetailsCustomJson;
+    return message;
+}
+function createBaseAllocationDetails() {
+    const message = {
+        $type: "nebius.vpc.v1.AllocationDetails",
+        allocatedCidr: "",
+        poolId: "",
+        version: exports.IpVersion.IP_VERSION_UNSPECIFIED,
+        subnetId: "",
+    };
+    return applyAllocationDetailsCustom(message);
+}
+exports.Assignment = {
+    $type: "nebius.vpc.v1.Assignment",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.type?.$case === undefined) { /* noop */ }
+        else if (message.type?.$case === "networkInterface") {
+            const w = writer.uint32(10).fork();
+            exports.NetworkInterfaceAssignment.encode(message.type.networkInterface, w);
+            w.join();
+        }
+        else if (message.type?.$case === "loadBalancer") {
+            const w = writer.uint32(18).fork();
+            exports.LoadBalancerAssignment.encode(message.type.loadBalancer, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAssignment();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.type = {
+                        $case: "networkInterface",
+                        networkInterface: exports.NetworkInterfaceAssignment.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.type = {
+                        $case: "loadBalancer",
+                        loadBalancer: exports.LoadBalancerAssignment.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAssignmentCustom({
+            $type: "nebius.vpc.v1.Assignment",
+            type: (() => {
+                if ((0, index_js_1.isSet)(object.networkInterface) || (0, index_js_1.isSet)(object.network_interface)) {
+                    return {
+                        $case: "networkInterface",
+                        networkInterface: exports.NetworkInterfaceAssignment.fromJSON(object.networkInterface ?? object.network_interface)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.loadBalancer) || (0, index_js_1.isSet)(object.load_balancer)) {
+                    return {
+                        $case: "loadBalancer",
+                        loadBalancer: exports.LoadBalancerAssignment.fromJSON(object.loadBalancer ?? object.load_balancer)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        switch (message.type?.$case) {
+            case "networkInterface": {
+                obj[pick("networkInterface", "network_interface")] = exports.NetworkInterfaceAssignment.toJSON(message.type.networkInterface, use);
+                break;
+            }
+            case "loadBalancer": {
+                obj[pick("loadBalancer", "load_balancer")] = exports.LoadBalancerAssignment.toJSON(message.type.loadBalancer, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Assignment.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAssignment();
+        switch (object.type?.$case) {
+            case "networkInterface": {
+                if (object.type.networkInterface !== undefined && object.type.networkInterface !== null) {
+                    message.type = {
+                        $case: "networkInterface",
+                        networkInterface: exports.NetworkInterfaceAssignment.fromPartial(object.type.networkInterface),
+                    };
+                }
+                break;
+            }
+            case "loadBalancer": {
+                if (object.type.loadBalancer !== undefined && object.type.loadBalancer !== null) {
+                    message.type = {
+                        $case: "loadBalancer",
+                        loadBalancer: exports.LoadBalancerAssignment.fromPartial(object.type.loadBalancer),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Assignment);
+function AssignmentCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AssignmentCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyAssignmentCustom(message) {
+    message[logging_js_1.custom] = AssignmentCustomInspect;
+    message[logging_js_1.customJson] = AssignmentCustomJson;
+    return message;
+}
+function createBaseAssignment() {
+    const message = {
+        $type: "nebius.vpc.v1.Assignment",
+        type: undefined,
+    };
+    return applyAssignmentCustom(message);
+}
+exports.NetworkInterfaceAssignment = {
+    $type: "nebius.vpc.v1.NetworkInterfaceAssignment",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.instanceId !== "") {
+            writer.uint32(10).string(message.instanceId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if ((message.type ?? exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED) !== exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED) {
+            exports.NetworkInterfaceAssignment_Type.encodeField(writer, 3, message.type);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNetworkInterfaceAssignment();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.instanceId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.type = exports.NetworkInterfaceAssignment_Type.fromNumber(reader.int32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNetworkInterfaceAssignmentCustom({
+            $type: "nebius.vpc.v1.NetworkInterfaceAssignment",
+            instanceId: (0, index_js_1.isSet)(object.instanceId ?? object.instance_id)
+                ? String(object.instanceId ?? object.instance_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+            type: (0, index_js_1.isSet)(object.type ?? object.type)
+                ? exports.NetworkInterfaceAssignment_Type.fromJSON(object.type ?? object.type)
+                : exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.instanceId !== "") {
+            obj[pick("instanceId", "instance_id")] = message.instanceId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        if ((message.type ?? exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED) !== exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED) {
+            obj[pick("type", "type")] = exports.NetworkInterfaceAssignment_Type.toJSON(message.type);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NetworkInterfaceAssignment.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNetworkInterfaceAssignment();
+        message.instanceId = (object.instanceId !== undefined && object.instanceId !== null)
+            ? object.instanceId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        message.type = (object.type !== undefined && object.type !== null)
+            ? exports.NetworkInterfaceAssignment_Type.fromJSON(object.type.name)
+            : exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NetworkInterfaceAssignment);
+function NetworkInterfaceAssignmentCustomInspect() {
+    const parts = [];
+    if (this.instanceId !== "")
+        parts.push("instanceId" + "=" + (0, util_1.inspect)(this.instanceId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    if (this.type !== undefined)
+        parts.push("type" + "=" + (0, util_1.inspect)(this.type));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NetworkInterfaceAssignmentCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.instanceId !== "")
+        obj.instanceId = (0, logging_js_1.inspectJson)(this.instanceId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    if (this.type !== undefined)
+        obj.type = (0, logging_js_1.inspectJson)(this.type);
+    return obj;
+}
+function applyNetworkInterfaceAssignmentCustom(message) {
+    message[logging_js_1.custom] = NetworkInterfaceAssignmentCustomInspect;
+    message[logging_js_1.customJson] = NetworkInterfaceAssignmentCustomJson;
+    return message;
+}
+function createBaseNetworkInterfaceAssignment() {
+    const message = {
+        $type: "nebius.vpc.v1.NetworkInterfaceAssignment",
+        instanceId: "",
+        name: "",
+        type: exports.NetworkInterfaceAssignment_Type.TYPE_UNSPECIFIED,
+    };
+    return applyNetworkInterfaceAssignmentCustom(message);
+}
+exports.LoadBalancerAssignment = {
+    $type: "nebius.vpc.v1.LoadBalancerAssignment",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLoadBalancerAssignment();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLoadBalancerAssignmentCustom({
+            $type: "nebius.vpc.v1.LoadBalancerAssignment",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LoadBalancerAssignment.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLoadBalancerAssignment();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LoadBalancerAssignment);
+function LoadBalancerAssignmentCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LoadBalancerAssignmentCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyLoadBalancerAssignmentCustom(message) {
+    message[logging_js_1.custom] = LoadBalancerAssignmentCustomInspect;
+    message[logging_js_1.customJson] = LoadBalancerAssignmentCustomJson;
+    return message;
+}
+function createBaseLoadBalancerAssignment() {
+    const message = {
+        $type: "nebius.vpc.v1.LoadBalancerAssignment",
+        id: "",
+    };
+    return applyLoadBalancerAssignmentCustom(message);
+}
+exports.GetNetworkRequest = {
+    $type: "nebius.vpc.v1.GetNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetNetworkRequestCustom({
+            $type: "nebius.vpc.v1.GetNetworkRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetNetworkRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetNetworkRequest);
+function GetNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = GetNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = GetNetworkRequestCustomJson;
+    return message;
+}
+function createBaseGetNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetNetworkRequest",
+        id: "",
+    };
+    return applyGetNetworkRequestCustom(message);
+}
+exports.GetNetworkByNameRequest = {
+    $type: "nebius.vpc.v1.GetNetworkByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetNetworkByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetNetworkByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetNetworkByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetNetworkByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetNetworkByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetNetworkByNameRequest);
+function GetNetworkByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetNetworkByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetNetworkByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetNetworkByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetNetworkByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetNetworkByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetNetworkByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetNetworkByNameRequestCustom(message);
+}
+exports.ListNetworksRequest = {
+    $type: "nebius.vpc.v1.ListNetworksRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListNetworksRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListNetworksRequestCustom({
+            $type: "nebius.vpc.v1.ListNetworksRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListNetworksRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListNetworksRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListNetworksRequest);
+function ListNetworksRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListNetworksRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListNetworksRequestCustom(message) {
+    message[logging_js_1.custom] = ListNetworksRequestCustomInspect;
+    message[logging_js_1.customJson] = ListNetworksRequestCustomJson;
+    return message;
+}
+function createBaseListNetworksRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListNetworksRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListNetworksRequestCustom(message);
+}
+exports.ListNetworksResponse = {
+    $type: "nebius.vpc.v1.ListNetworksResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Network.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListNetworksResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Network.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListNetworksResponseCustom({
+            $type: "nebius.vpc.v1.ListNetworksResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Network.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Network.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListNetworksResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListNetworksResponse();
+        message.items = object.items?.map((e) => exports.Network.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListNetworksResponse);
+function ListNetworksResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListNetworksResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListNetworksResponseCustom(message) {
+    message[logging_js_1.custom] = ListNetworksResponseCustomInspect;
+    message[logging_js_1.customJson] = ListNetworksResponseCustomJson;
+    return message;
+}
+function createBaseListNetworksResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListNetworksResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListNetworksResponseCustom(message);
+}
+exports.CreateNetworkRequest = {
+    $type: "nebius.vpc.v1.CreateNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.NetworkSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.NetworkSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateNetworkRequestCustom({
+            $type: "nebius.vpc.v1.CreateNetworkRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.NetworkSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.NetworkSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateNetworkRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.NetworkSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateNetworkRequest);
+function CreateNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = CreateNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateNetworkRequestCustomJson;
+    return message;
+}
+function createBaseCreateNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateNetworkRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateNetworkRequestCustom(message);
+}
+exports.CreateDefaultNetworkRequest = {
+    $type: "nebius.vpc.v1.CreateDefaultNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateDefaultNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateDefaultNetworkRequestCustom({
+            $type: "nebius.vpc.v1.CreateDefaultNetworkRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateDefaultNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateDefaultNetworkRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateDefaultNetworkRequest);
+function CreateDefaultNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateDefaultNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    return obj;
+}
+function applyCreateDefaultNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = CreateDefaultNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateDefaultNetworkRequestCustomJson;
+    return message;
+}
+function createBaseCreateDefaultNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateDefaultNetworkRequest",
+        metadata: undefined,
+    };
+    return applyCreateDefaultNetworkRequestCustom(message);
+}
+exports.UpdateNetworkRequest = {
+    $type: "nebius.vpc.v1.UpdateNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.NetworkSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.NetworkSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateNetworkRequestCustom({
+            $type: "nebius.vpc.v1.UpdateNetworkRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.NetworkSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.NetworkSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateNetworkRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.NetworkSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateNetworkRequest);
+function UpdateNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateNetworkRequestCustomJson;
+    return message;
+}
+function createBaseUpdateNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateNetworkRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateNetworkRequestCustom(message);
+}
+exports.DeleteNetworkRequest = {
+    $type: "nebius.vpc.v1.DeleteNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteNetworkRequestCustom({
+            $type: "nebius.vpc.v1.DeleteNetworkRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteNetworkRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteNetworkRequest);
+function DeleteNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteNetworkRequestCustomJson;
+    return message;
+}
+function createBaseDeleteNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteNetworkRequest",
+        id: "",
+    };
+    return applyDeleteNetworkRequestCustom(message);
+}
+exports.NetworkServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.NetworkService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Network.encode(value).finish()),
+        responseDeserialize: (value) => exports.Network.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.NetworkService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetNetworkByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetNetworkByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Network.encode(value).finish()),
+        responseDeserialize: (value) => exports.Network.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.NetworkService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListNetworksRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListNetworksRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListNetworksResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListNetworksResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.NetworkService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    createDefault: {
+        path: "/nebius.vpc.v1.NetworkService/CreateDefault",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateDefaultNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateDefaultNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.NetworkService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateNetworkRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.NetworkService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.NetworkServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.NetworkServiceServiceDescription, "nebius.vpc.v1.NetworkService");
+class NetworkService {
+    sdk;
+    $type = "nebius.vpc.v1.NetworkService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.NetworkServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    createDefault(...args) {
+        const spec = this.spec.createDefault;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.NetworkService = NetworkService;
+const NetworkStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " Default state, unspecified.",
+    CREATING: " Network is being created.",
+    READY: " Network is ready for use.",
+    DELETING: " Network is being deleted.",
+};
+exports.NetworkStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.NetworkStatus.State", {
+    /**
+     *  Default state, unspecified.
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Network is being created.
+     */
+    CREATING: 1,
+    /**
+     *  Network is ready for use.
+     */
+    READY: 2,
+    /**
+     *  Network is being deleted.
+     */
+    DELETING: 3,
+}, NetworkStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.NetworkStatus_State);
+exports.Network = {
+    $type: "nebius.vpc.v1.Network",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.NetworkSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.NetworkStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNetwork();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.NetworkSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.NetworkStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNetworkCustom({
+            $type: "nebius.vpc.v1.Network",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.NetworkSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.NetworkStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.NetworkSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.NetworkStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Network.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNetwork();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.NetworkSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.NetworkStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Network);
+function NetworkCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NetworkCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyNetworkCustom(message) {
+    message[logging_js_1.custom] = NetworkCustomInspect;
+    message[logging_js_1.customJson] = NetworkCustomJson;
+    return message;
+}
+function createBaseNetwork() {
+    const message = {
+        $type: "nebius.vpc.v1.Network",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyNetworkCustom(message);
+}
+exports.NetworkSpec = {
+    $type: "nebius.vpc.v1.NetworkSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.ipv4PrivatePools !== undefined) {
+            const w = writer.uint32(10).fork();
+            exports.IPv4PrivateNetworkPools.encode(message.ipv4PrivatePools, w);
+            w.join();
+        }
+        if (message.ipv4PublicPools !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.IPv4PublicNetworkPools.encode(message.ipv4PublicPools, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNetworkSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.ipv4PrivatePools = exports.IPv4PrivateNetworkPools.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.ipv4PublicPools = exports.IPv4PublicNetworkPools.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNetworkSpecCustom({
+            $type: "nebius.vpc.v1.NetworkSpec",
+            ipv4PrivatePools: (0, index_js_1.isSet)(object.ipv4PrivatePools ?? object.ipv4_private_pools)
+                ? exports.IPv4PrivateNetworkPools.fromJSON(object.ipv4PrivatePools ?? object.ipv4_private_pools)
+                : undefined,
+            ipv4PublicPools: (0, index_js_1.isSet)(object.ipv4PublicPools ?? object.ipv4_public_pools)
+                ? exports.IPv4PublicNetworkPools.fromJSON(object.ipv4PublicPools ?? object.ipv4_public_pools)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.ipv4PrivatePools !== undefined) {
+            obj[pick("ipv4PrivatePools", "ipv4_private_pools")] = message.ipv4PrivatePools
+                ? exports.IPv4PrivateNetworkPools.toJSON(message.ipv4PrivatePools, use)
+                : undefined;
+        }
+        if (message.ipv4PublicPools !== undefined) {
+            obj[pick("ipv4PublicPools", "ipv4_public_pools")] = message.ipv4PublicPools
+                ? exports.IPv4PublicNetworkPools.toJSON(message.ipv4PublicPools, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NetworkSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNetworkSpec();
+        message.ipv4PrivatePools = (object.ipv4PrivatePools !== undefined && object.ipv4PrivatePools !== null)
+            ? exports.IPv4PrivateNetworkPools.fromPartial(object.ipv4PrivatePools)
+            : undefined;
+        message.ipv4PublicPools = (object.ipv4PublicPools !== undefined && object.ipv4PublicPools !== null)
+            ? exports.IPv4PublicNetworkPools.fromPartial(object.ipv4PublicPools)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NetworkSpec);
+function NetworkSpecCustomInspect() {
+    const parts = [];
+    if (this.ipv4PrivatePools !== undefined)
+        parts.push("ipv4PrivatePools" + "=" + (0, util_1.inspect)(this.ipv4PrivatePools));
+    if (this.ipv4PublicPools !== undefined)
+        parts.push("ipv4PublicPools" + "=" + (0, util_1.inspect)(this.ipv4PublicPools));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NetworkSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.ipv4PrivatePools !== undefined)
+        obj.ipv4PrivatePools = (0, logging_js_1.inspectJson)(this.ipv4PrivatePools);
+    if (this.ipv4PublicPools !== undefined)
+        obj.ipv4PublicPools = (0, logging_js_1.inspectJson)(this.ipv4PublicPools);
+    return obj;
+}
+function applyNetworkSpecCustom(message) {
+    message[logging_js_1.custom] = NetworkSpecCustomInspect;
+    message[logging_js_1.customJson] = NetworkSpecCustomJson;
+    return message;
+}
+function createBaseNetworkSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.NetworkSpec",
+        ipv4PrivatePools: undefined,
+        ipv4PublicPools: undefined,
+    };
+    return applyNetworkSpecCustom(message);
+}
+exports.IPv4PrivateNetworkPools = {
+    $type: "nebius.vpc.v1.IPv4PrivateNetworkPools",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.pools ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.NetworkPool.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseIPv4PrivateNetworkPools();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.pools.push(exports.NetworkPool.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyIPv4PrivateNetworkPoolsCustom({
+            $type: "nebius.vpc.v1.IPv4PrivateNetworkPools",
+            pools: globalThis.Array.isArray(object?.pools ?? object?.pools)
+                ? (object.pools ?? object.pools).map((e) => exports.NetworkPool.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.pools?.length) {
+            obj[pick("pools", "pools")] = message.pools.map((e) => e ? exports.NetworkPool.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.IPv4PrivateNetworkPools.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseIPv4PrivateNetworkPools();
+        message.pools = object.pools?.map((e) => exports.NetworkPool.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.IPv4PrivateNetworkPools);
+function IPv4PrivateNetworkPoolsCustomInspect() {
+    const parts = [];
+    if ((this.pools?.length ?? 0) !== 0)
+        parts.push("pools" + "=" + (0, util_1.inspect)(this.pools));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function IPv4PrivateNetworkPoolsCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.pools?.length ?? 0) !== 0)
+        obj.pools = (0, logging_js_1.inspectJson)(this.pools);
+    return obj;
+}
+function applyIPv4PrivateNetworkPoolsCustom(message) {
+    message[logging_js_1.custom] = IPv4PrivateNetworkPoolsCustomInspect;
+    message[logging_js_1.customJson] = IPv4PrivateNetworkPoolsCustomJson;
+    return message;
+}
+function createBaseIPv4PrivateNetworkPools() {
+    const message = {
+        $type: "nebius.vpc.v1.IPv4PrivateNetworkPools",
+        pools: [],
+    };
+    return applyIPv4PrivateNetworkPoolsCustom(message);
+}
+exports.IPv4PublicNetworkPools = {
+    $type: "nebius.vpc.v1.IPv4PublicNetworkPools",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.pools ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.NetworkPool.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseIPv4PublicNetworkPools();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.pools.push(exports.NetworkPool.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyIPv4PublicNetworkPoolsCustom({
+            $type: "nebius.vpc.v1.IPv4PublicNetworkPools",
+            pools: globalThis.Array.isArray(object?.pools ?? object?.pools)
+                ? (object.pools ?? object.pools).map((e) => exports.NetworkPool.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.pools?.length) {
+            obj[pick("pools", "pools")] = message.pools.map((e) => e ? exports.NetworkPool.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.IPv4PublicNetworkPools.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseIPv4PublicNetworkPools();
+        message.pools = object.pools?.map((e) => exports.NetworkPool.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.IPv4PublicNetworkPools);
+function IPv4PublicNetworkPoolsCustomInspect() {
+    const parts = [];
+    if ((this.pools?.length ?? 0) !== 0)
+        parts.push("pools" + "=" + (0, util_1.inspect)(this.pools));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function IPv4PublicNetworkPoolsCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.pools?.length ?? 0) !== 0)
+        obj.pools = (0, logging_js_1.inspectJson)(this.pools);
+    return obj;
+}
+function applyIPv4PublicNetworkPoolsCustom(message) {
+    message[logging_js_1.custom] = IPv4PublicNetworkPoolsCustomInspect;
+    message[logging_js_1.customJson] = IPv4PublicNetworkPoolsCustomJson;
+    return message;
+}
+function createBaseIPv4PublicNetworkPools() {
+    const message = {
+        $type: "nebius.vpc.v1.IPv4PublicNetworkPools",
+        pools: [],
+    };
+    return applyIPv4PublicNetworkPoolsCustom(message);
+}
+exports.NetworkPool = {
+    $type: "nebius.vpc.v1.NetworkPool",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNetworkPool();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNetworkPoolCustom({
+            $type: "nebius.vpc.v1.NetworkPool",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NetworkPool.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNetworkPool();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NetworkPool);
+function NetworkPoolCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NetworkPoolCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyNetworkPoolCustom(message) {
+    message[logging_js_1.custom] = NetworkPoolCustomInspect;
+    message[logging_js_1.customJson] = NetworkPoolCustomJson;
+    return message;
+}
+function createBaseNetworkPool() {
+    const message = {
+        $type: "nebius.vpc.v1.NetworkPool",
+        id: "",
+    };
+    return applyNetworkPoolCustom(message);
+}
+exports.NetworkStatus = {
+    $type: "nebius.vpc.v1.NetworkStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.NetworkStatus_State.STATE_UNSPECIFIED) !== exports.NetworkStatus_State.STATE_UNSPECIFIED) {
+            exports.NetworkStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.defaultRouteTableId !== "") {
+            writer.uint32(42).string(message.defaultRouteTableId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNetworkStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.NetworkStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.defaultRouteTableId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNetworkStatusCustom({
+            $type: "nebius.vpc.v1.NetworkStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.NetworkStatus_State.fromJSON(object.state ?? object.state)
+                : exports.NetworkStatus_State.STATE_UNSPECIFIED,
+            defaultRouteTableId: (0, index_js_1.isSet)(object.defaultRouteTableId ?? object.default_route_table_id)
+                ? String(object.defaultRouteTableId ?? object.default_route_table_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.NetworkStatus_State.STATE_UNSPECIFIED) !== exports.NetworkStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.NetworkStatus_State.toJSON(message.state);
+        }
+        if (message.defaultRouteTableId !== "") {
+            obj[pick("defaultRouteTableId", "default_route_table_id")] = message.defaultRouteTableId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NetworkStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNetworkStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.NetworkStatus_State.fromJSON(object.state.name)
+            : exports.NetworkStatus_State.STATE_UNSPECIFIED;
+        message.defaultRouteTableId = (object.defaultRouteTableId !== undefined && object.defaultRouteTableId !== null)
+            ? object.defaultRouteTableId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NetworkStatus);
+function NetworkStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.defaultRouteTableId !== "")
+        parts.push("defaultRouteTableId" + "=" + (0, util_1.inspect)(this.defaultRouteTableId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NetworkStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.defaultRouteTableId !== "")
+        obj.defaultRouteTableId = (0, logging_js_1.inspectJson)(this.defaultRouteTableId);
+    return obj;
+}
+function applyNetworkStatusCustom(message) {
+    message[logging_js_1.custom] = NetworkStatusCustomInspect;
+    message[logging_js_1.customJson] = NetworkStatusCustomJson;
+    return message;
+}
+function createBaseNetworkStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.NetworkStatus",
+        state: exports.NetworkStatus_State.STATE_UNSPECIFIED,
+        defaultRouteTableId: "",
+    };
+    return applyNetworkStatusCustom(message);
+}
+exports.GetPoolRequest = {
+    $type: "nebius.vpc.v1.GetPoolRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetPoolRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetPoolRequestCustom({
+            $type: "nebius.vpc.v1.GetPoolRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetPoolRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetPoolRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetPoolRequest);
+function GetPoolRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetPoolRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetPoolRequestCustom(message) {
+    message[logging_js_1.custom] = GetPoolRequestCustomInspect;
+    message[logging_js_1.customJson] = GetPoolRequestCustomJson;
+    return message;
+}
+function createBaseGetPoolRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetPoolRequest",
+        id: "",
+    };
+    return applyGetPoolRequestCustom(message);
+}
+exports.GetPoolByNameRequest = {
+    $type: "nebius.vpc.v1.GetPoolByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetPoolByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetPoolByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetPoolByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetPoolByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetPoolByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetPoolByNameRequest);
+function GetPoolByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetPoolByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetPoolByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetPoolByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetPoolByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetPoolByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetPoolByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetPoolByNameRequestCustom(message);
+}
+exports.ListPoolsRequest = {
+    $type: "nebius.vpc.v1.ListPoolsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListPoolsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListPoolsRequestCustom({
+            $type: "nebius.vpc.v1.ListPoolsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListPoolsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListPoolsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListPoolsRequest);
+function ListPoolsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListPoolsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListPoolsRequestCustom(message) {
+    message[logging_js_1.custom] = ListPoolsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListPoolsRequestCustomJson;
+    return message;
+}
+function createBaseListPoolsRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListPoolsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListPoolsRequestCustom(message);
+}
+exports.ListPoolsBySourcePoolRequest = {
+    $type: "nebius.vpc.v1.ListPoolsBySourcePoolRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.poolId !== "") {
+            writer.uint32(10).string(message.poolId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListPoolsBySourcePoolRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.poolId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListPoolsBySourcePoolRequestCustom({
+            $type: "nebius.vpc.v1.ListPoolsBySourcePoolRequest",
+            poolId: (0, index_js_1.isSet)(object.poolId ?? object.pool_id)
+                ? String(object.poolId ?? object.pool_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.poolId !== "") {
+            obj[pick("poolId", "pool_id")] = message.poolId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListPoolsBySourcePoolRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListPoolsBySourcePoolRequest();
+        message.poolId = (object.poolId !== undefined && object.poolId !== null)
+            ? object.poolId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListPoolsBySourcePoolRequest);
+function ListPoolsBySourcePoolRequestCustomInspect() {
+    const parts = [];
+    if (this.poolId !== "")
+        parts.push("poolId" + "=" + (0, util_1.inspect)(this.poolId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListPoolsBySourcePoolRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.poolId !== "")
+        obj.poolId = (0, logging_js_1.inspectJson)(this.poolId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListPoolsBySourcePoolRequestCustom(message) {
+    message[logging_js_1.custom] = ListPoolsBySourcePoolRequestCustomInspect;
+    message[logging_js_1.customJson] = ListPoolsBySourcePoolRequestCustomJson;
+    return message;
+}
+function createBaseListPoolsBySourcePoolRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListPoolsBySourcePoolRequest",
+        poolId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListPoolsBySourcePoolRequestCustom(message);
+}
+exports.ListPoolsResponse = {
+    $type: "nebius.vpc.v1.ListPoolsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Pool.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListPoolsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Pool.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListPoolsResponseCustom({
+            $type: "nebius.vpc.v1.ListPoolsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Pool.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Pool.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListPoolsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListPoolsResponse();
+        message.items = object.items?.map((e) => exports.Pool.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListPoolsResponse);
+function ListPoolsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListPoolsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListPoolsResponseCustom(message) {
+    message[logging_js_1.custom] = ListPoolsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListPoolsResponseCustomJson;
+    return message;
+}
+function createBaseListPoolsResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListPoolsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListPoolsResponseCustom(message);
+}
+exports.CreatePoolRequest = {
+    $type: "nebius.vpc.v1.CreatePoolRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.PoolSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreatePoolRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.PoolSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreatePoolRequestCustom({
+            $type: "nebius.vpc.v1.CreatePoolRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.PoolSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.PoolSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreatePoolRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreatePoolRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.PoolSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreatePoolRequest);
+function CreatePoolRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreatePoolRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreatePoolRequestCustom(message) {
+    message[logging_js_1.custom] = CreatePoolRequestCustomInspect;
+    message[logging_js_1.customJson] = CreatePoolRequestCustomJson;
+    return message;
+}
+function createBaseCreatePoolRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreatePoolRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreatePoolRequestCustom(message);
+}
+exports.UpdatePoolRequest = {
+    $type: "nebius.vpc.v1.UpdatePoolRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.PoolSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdatePoolRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.PoolSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdatePoolRequestCustom({
+            $type: "nebius.vpc.v1.UpdatePoolRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.PoolSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.PoolSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdatePoolRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdatePoolRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.PoolSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdatePoolRequest);
+function UpdatePoolRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdatePoolRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdatePoolRequestCustom(message) {
+    message[logging_js_1.custom] = UpdatePoolRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdatePoolRequestCustomJson;
+    return message;
+}
+function createBaseUpdatePoolRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdatePoolRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdatePoolRequestCustom(message);
+}
+exports.DeletePoolRequest = {
+    $type: "nebius.vpc.v1.DeletePoolRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeletePoolRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeletePoolRequestCustom({
+            $type: "nebius.vpc.v1.DeletePoolRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeletePoolRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeletePoolRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeletePoolRequest);
+function DeletePoolRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeletePoolRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeletePoolRequestCustom(message) {
+    message[logging_js_1.custom] = DeletePoolRequestCustomInspect;
+    message[logging_js_1.customJson] = DeletePoolRequestCustomJson;
+    return message;
+}
+function createBaseDeletePoolRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeletePoolRequest",
+        id: "",
+    };
+    return applyDeletePoolRequestCustom(message);
+}
+exports.PoolServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.PoolService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetPoolRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetPoolRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Pool.encode(value).finish()),
+        responseDeserialize: (value) => exports.Pool.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.PoolService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetPoolByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetPoolByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Pool.encode(value).finish()),
+        responseDeserialize: (value) => exports.Pool.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.PoolService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListPoolsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListPoolsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListPoolsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListPoolsResponse.decode(value),
+    },
+    listBySourcePool: {
+        path: "/nebius.vpc.v1.PoolService/ListBySourcePool",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListPoolsBySourcePoolRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListPoolsBySourcePoolRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListPoolsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListPoolsResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.PoolService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreatePoolRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreatePoolRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.PoolService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdatePoolRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdatePoolRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.PoolService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeletePoolRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeletePoolRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.PoolServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.PoolServiceServiceDescription, "nebius.vpc.v1.PoolService");
+class PoolService {
+    sdk;
+    $type = "nebius.vpc.v1.PoolService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.PoolServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listBySourcePool(...args) {
+        const spec = this.spec.listBySourcePool;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.PoolService = PoolService;
+const AddressBlockState_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " Not used, mandated by the protocol.",
+    AVAILABLE: " Default state. Provision of the IP addresses from this CIDR block is allowed.",
+    DISABLED: " Provision of the IP addresses from this CIDR block is denied.",
+};
+exports.AddressBlockState = (0, index_js_1.createEnum)("nebius.vpc.v1.AddressBlockState", {
+    /**
+     *  Not used, mandated by the protocol.
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Default state. Provision of the IP addresses from this CIDR block is allowed.
+     */
+    AVAILABLE: 1,
+    /**
+     *  Provision of the IP addresses from this CIDR block is denied.
+     */
+    DISABLED: 2,
+}, AddressBlockState_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.AddressBlockState);
+const IpVersion_VALUE_COMMENTS = {
+    IP_VERSION_UNSPECIFIED: " Default, unspecified IP version.",
+    IPV4: " IPv4 address.",
+    IPV6: " IPv6 address.",
+};
+exports.IpVersion = (0, index_js_1.createEnum)("nebius.vpc.v1.IpVersion", {
+    /**
+     *  Default, unspecified IP version.
+     */
+    IP_VERSION_UNSPECIFIED: 0,
+    /**
+     *  IPv4 address.
+     */
+    IPV4: 1,
+    /**
+     *  IPv6 address.
+     */
+    IPV6: 2,
+}, IpVersion_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.IpVersion);
+const IpVisibility_VALUE_COMMENTS = {
+    IP_VISIBILITY_UNSPECIFIED: " Default, unspecified IP visibility.",
+    PRIVATE: " Private address.",
+    PUBLIC: " Public address.",
+};
+exports.IpVisibility = (0, index_js_1.createEnum)("nebius.vpc.v1.IpVisibility", {
+    /**
+     *  Default, unspecified IP visibility.
+     */
+    IP_VISIBILITY_UNSPECIFIED: 0,
+    /**
+     *  Private address.
+     */
+    PRIVATE: 1,
+    /**
+     *  Public address.
+     */
+    PUBLIC: 2,
+}, IpVisibility_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.IpVisibility);
+const PoolStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " Default, unspecified state.",
+    CREATING: " Pool is being created.",
+    READY: " Pool is ready for use.",
+    DELETING: " Pool is being deleted.",
+};
+exports.PoolStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.PoolStatus.State", {
+    /**
+     *  Default, unspecified state.
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Pool is being created.
+     */
+    CREATING: 1,
+    /**
+     *  Pool is ready for use.
+     */
+    READY: 2,
+    /**
+     *  Pool is being deleted.
+     */
+    DELETING: 3,
+}, PoolStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.PoolStatus_State);
+exports.Pool = {
+    $type: "nebius.vpc.v1.Pool",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.PoolSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.PoolStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePool();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.PoolSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.PoolStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPoolCustom({
+            $type: "nebius.vpc.v1.Pool",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.PoolSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.PoolStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.PoolSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.PoolStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Pool.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePool();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.PoolSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.PoolStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Pool);
+function PoolCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PoolCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyPoolCustom(message) {
+    message[logging_js_1.custom] = PoolCustomInspect;
+    message[logging_js_1.customJson] = PoolCustomJson;
+    return message;
+}
+function createBasePool() {
+    const message = {
+        $type: "nebius.vpc.v1.Pool",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyPoolCustom(message);
+}
+exports.PoolSpec = {
+    $type: "nebius.vpc.v1.PoolSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.sourcePoolId !== "") {
+            writer.uint32(10).string(message.sourcePoolId);
+        }
+        if ((message.version ?? exports.IpVersion.IP_VERSION_UNSPECIFIED) !== exports.IpVersion.IP_VERSION_UNSPECIFIED) {
+            exports.IpVersion.encodeField(writer, 3, message.version);
+        }
+        if ((message.visibility ?? exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED) !== exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED) {
+            exports.IpVisibility.encodeField(writer, 5, message.visibility);
+        }
+        for (const v of (message.cidrs ?? [])) {
+            const w = writer.uint32(34).fork();
+            exports.PoolCidr.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePoolSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.sourcePoolId = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.version = exports.IpVersion.fromNumber(reader.int32());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 40)
+                        break;
+                    message.visibility = exports.IpVisibility.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.cidrs.push(exports.PoolCidr.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPoolSpecCustom({
+            $type: "nebius.vpc.v1.PoolSpec",
+            sourcePoolId: (0, index_js_1.isSet)(object.sourcePoolId ?? object.source_pool_id)
+                ? String(object.sourcePoolId ?? object.source_pool_id)
+                : "",
+            version: (0, index_js_1.isSet)(object.version ?? object.version)
+                ? exports.IpVersion.fromJSON(object.version ?? object.version)
+                : exports.IpVersion.IP_VERSION_UNSPECIFIED,
+            visibility: (0, index_js_1.isSet)(object.visibility ?? object.visibility)
+                ? exports.IpVisibility.fromJSON(object.visibility ?? object.visibility)
+                : exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED,
+            cidrs: globalThis.Array.isArray(object?.cidrs ?? object?.cidrs)
+                ? (object.cidrs ?? object.cidrs).map((e) => exports.PoolCidr.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.sourcePoolId !== "") {
+            obj[pick("sourcePoolId", "source_pool_id")] = message.sourcePoolId;
+        }
+        if ((message.version ?? exports.IpVersion.IP_VERSION_UNSPECIFIED) !== exports.IpVersion.IP_VERSION_UNSPECIFIED) {
+            obj[pick("version", "version")] = exports.IpVersion.toJSON(message.version);
+        }
+        if ((message.visibility ?? exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED) !== exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED) {
+            obj[pick("visibility", "visibility")] = exports.IpVisibility.toJSON(message.visibility);
+        }
+        if (message.cidrs?.length) {
+            obj[pick("cidrs", "cidrs")] = message.cidrs.map((e) => e ? exports.PoolCidr.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.PoolSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePoolSpec();
+        message.sourcePoolId = (object.sourcePoolId !== undefined && object.sourcePoolId !== null)
+            ? object.sourcePoolId
+            : "";
+        message.version = (object.version !== undefined && object.version !== null)
+            ? exports.IpVersion.fromJSON(object.version.name)
+            : exports.IpVersion.IP_VERSION_UNSPECIFIED;
+        message.visibility = (object.visibility !== undefined && object.visibility !== null)
+            ? exports.IpVisibility.fromJSON(object.visibility.name)
+            : exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED;
+        message.cidrs = object.cidrs?.map((e) => exports.PoolCidr.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.PoolSpec);
+function PoolSpecCustomInspect() {
+    const parts = [];
+    if (this.sourcePoolId !== "")
+        parts.push("sourcePoolId" + "=" + (0, util_1.inspect)(this.sourcePoolId));
+    if (this.version !== undefined)
+        parts.push("version" + "=" + (0, util_1.inspect)(this.version));
+    if (this.visibility !== undefined)
+        parts.push("visibility" + "=" + (0, util_1.inspect)(this.visibility));
+    if ((this.cidrs?.length ?? 0) !== 0)
+        parts.push("cidrs" + "=" + (0, util_1.inspect)(this.cidrs));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PoolSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.sourcePoolId !== "")
+        obj.sourcePoolId = (0, logging_js_1.inspectJson)(this.sourcePoolId);
+    if (this.version !== undefined)
+        obj.version = (0, logging_js_1.inspectJson)(this.version);
+    if (this.visibility !== undefined)
+        obj.visibility = (0, logging_js_1.inspectJson)(this.visibility);
+    if ((this.cidrs?.length ?? 0) !== 0)
+        obj.cidrs = (0, logging_js_1.inspectJson)(this.cidrs);
+    return obj;
+}
+function applyPoolSpecCustom(message) {
+    message[logging_js_1.custom] = PoolSpecCustomInspect;
+    message[logging_js_1.customJson] = PoolSpecCustomJson;
+    return message;
+}
+function createBasePoolSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.PoolSpec",
+        sourcePoolId: "",
+        version: exports.IpVersion.IP_VERSION_UNSPECIFIED,
+        visibility: exports.IpVisibility.IP_VISIBILITY_UNSPECIFIED,
+        cidrs: [],
+    };
+    return applyPoolSpecCustom(message);
+}
+exports.PoolCidr = {
+    $type: "nebius.vpc.v1.PoolCidr",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.cidr !== "") {
+            writer.uint32(10).string(message.cidr);
+        }
+        if ((message.state ?? exports.AddressBlockState.STATE_UNSPECIFIED) !== exports.AddressBlockState.STATE_UNSPECIFIED) {
+            exports.AddressBlockState.encodeField(writer, 2, message.state);
+        }
+        if (message.maxMaskLength !== undefined && !message.maxMaskLength.isZero?.()) {
+            writer.uint32(24).int64(message.maxMaskLength.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePoolCidr();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.cidr = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.state = exports.AddressBlockState.fromNumber(reader.int32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.maxMaskLength = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPoolCidrCustom({
+            $type: "nebius.vpc.v1.PoolCidr",
+            cidr: (0, index_js_1.isSet)(object.cidr ?? object.cidr)
+                ? String(object.cidr ?? object.cidr)
+                : "",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.AddressBlockState.fromJSON(object.state ?? object.state)
+                : exports.AddressBlockState.STATE_UNSPECIFIED,
+            maxMaskLength: (0, index_js_1.isSet)(object.maxMaskLength ?? object.max_mask_length)
+                ? index_js_1.Long.fromValue(object.maxMaskLength ?? object.max_mask_length)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidr !== "") {
+            obj[pick("cidr", "cidr")] = message.cidr;
+        }
+        if ((message.state ?? exports.AddressBlockState.STATE_UNSPECIFIED) !== exports.AddressBlockState.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.AddressBlockState.toJSON(message.state);
+        }
+        if (!message.maxMaskLength?.isZero?.()) {
+            obj[pick("maxMaskLength", "max_mask_length")] = (message.maxMaskLength || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.PoolCidr.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePoolCidr();
+        message.cidr = (object.cidr !== undefined && object.cidr !== null)
+            ? object.cidr
+            : "";
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.AddressBlockState.fromJSON(object.state.name)
+            : exports.AddressBlockState.STATE_UNSPECIFIED;
+        message.maxMaskLength = (object.maxMaskLength !== undefined && object.maxMaskLength !== null)
+            ? index_js_1.Long.fromValue(object.maxMaskLength)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.PoolCidr);
+function PoolCidrCustomInspect() {
+    const parts = [];
+    if (this.cidr !== "")
+        parts.push("cidr" + "=" + (0, util_1.inspect)(this.cidr));
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (!this.maxMaskLength?.isZero?.())
+        parts.push("maxMaskLength" + "=" + (0, util_1.inspect)(this.maxMaskLength));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PoolCidrCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.cidr !== "")
+        obj.cidr = (0, logging_js_1.inspectJson)(this.cidr);
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (!this.maxMaskLength?.isZero?.())
+        obj.maxMaskLength = (0, logging_js_1.inspectJson)(this.maxMaskLength);
+    return obj;
+}
+function applyPoolCidrCustom(message) {
+    message[logging_js_1.custom] = PoolCidrCustomInspect;
+    message[logging_js_1.customJson] = PoolCidrCustomJson;
+    return message;
+}
+function createBasePoolCidr() {
+    const message = {
+        $type: "nebius.vpc.v1.PoolCidr",
+        cidr: "",
+        state: exports.AddressBlockState.STATE_UNSPECIFIED,
+        maxMaskLength: index_js_1.Long.ZERO,
+    };
+    return applyPoolCidrCustom(message);
+}
+exports.PoolStatus = {
+    $type: "nebius.vpc.v1.PoolStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.PoolStatus_State.STATE_UNSPECIFIED) !== exports.PoolStatus_State.STATE_UNSPECIFIED) {
+            exports.PoolStatus_State.encodeField(writer, 1, message.state);
+        }
+        for (const v of (message.cidrs ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        if (message.scopeId !== "") {
+            writer.uint32(26).string(message.scopeId);
+        }
+        if (message.assignment !== undefined) {
+            const w = writer.uint32(34).fork();
+            exports.PoolAssignment.encode(message.assignment, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePoolStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.PoolStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.cidrs.push(reader.string());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.scopeId = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.assignment = exports.PoolAssignment.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPoolStatusCustom({
+            $type: "nebius.vpc.v1.PoolStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.PoolStatus_State.fromJSON(object.state ?? object.state)
+                : exports.PoolStatus_State.STATE_UNSPECIFIED,
+            cidrs: globalThis.Array.isArray(object?.cidrs ?? object?.cidrs)
+                ? (object.cidrs ?? object.cidrs).map((e) => String(e))
+                : [],
+            scopeId: (0, index_js_1.isSet)(object.scopeId ?? object.scope_id)
+                ? String(object.scopeId ?? object.scope_id)
+                : "",
+            assignment: (0, index_js_1.isSet)(object.assignment ?? object.assignment)
+                ? exports.PoolAssignment.fromJSON(object.assignment ?? object.assignment)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.PoolStatus_State.STATE_UNSPECIFIED) !== exports.PoolStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.PoolStatus_State.toJSON(message.state);
+        }
+        if (message.cidrs?.length) {
+            obj[pick("cidrs", "cidrs")] = message.cidrs.map((e) => e);
+        }
+        if (message.scopeId !== "") {
+            obj[pick("scopeId", "scope_id")] = message.scopeId;
+        }
+        if (message.assignment !== undefined) {
+            obj[pick("assignment", "assignment")] = message.assignment
+                ? exports.PoolAssignment.toJSON(message.assignment, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.PoolStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePoolStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.PoolStatus_State.fromJSON(object.state.name)
+            : exports.PoolStatus_State.STATE_UNSPECIFIED;
+        message.cidrs = object.cidrs?.map((e) => e) || [];
+        message.scopeId = (object.scopeId !== undefined && object.scopeId !== null)
+            ? object.scopeId
+            : "";
+        message.assignment = (object.assignment !== undefined && object.assignment !== null)
+            ? exports.PoolAssignment.fromPartial(object.assignment)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.PoolStatus);
+function PoolStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if ((this.cidrs?.length ?? 0) !== 0)
+        parts.push("cidrs" + "=" + (0, util_1.inspect)(this.cidrs));
+    if (this.scopeId !== "")
+        parts.push("scopeId" + "=" + (0, util_1.inspect)(this.scopeId));
+    if (this.assignment !== undefined)
+        parts.push("assignment" + "=" + (0, util_1.inspect)(this.assignment));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PoolStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if ((this.cidrs?.length ?? 0) !== 0)
+        obj.cidrs = (0, logging_js_1.inspectJson)(this.cidrs);
+    if (this.scopeId !== "")
+        obj.scopeId = (0, logging_js_1.inspectJson)(this.scopeId);
+    if (this.assignment !== undefined)
+        obj.assignment = (0, logging_js_1.inspectJson)(this.assignment);
+    return obj;
+}
+function applyPoolStatusCustom(message) {
+    message[logging_js_1.custom] = PoolStatusCustomInspect;
+    message[logging_js_1.customJson] = PoolStatusCustomJson;
+    return message;
+}
+function createBasePoolStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.PoolStatus",
+        state: exports.PoolStatus_State.STATE_UNSPECIFIED,
+        cidrs: [],
+        scopeId: "",
+        assignment: undefined,
+    };
+    return applyPoolStatusCustom(message);
+}
+exports.PoolAssignment = {
+    $type: "nebius.vpc.v1.PoolAssignment",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.networks ?? [])) {
+            writer.uint32(10).string(v);
+        }
+        for (const v of (message.subnets ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePoolAssignment();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networks.push(reader.string());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.subnets.push(reader.string());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPoolAssignmentCustom({
+            $type: "nebius.vpc.v1.PoolAssignment",
+            networks: globalThis.Array.isArray(object?.networks ?? object?.networks)
+                ? (object.networks ?? object.networks).map((e) => String(e))
+                : [],
+            subnets: globalThis.Array.isArray(object?.subnets ?? object?.subnets)
+                ? (object.subnets ?? object.subnets).map((e) => String(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networks?.length) {
+            obj[pick("networks", "networks")] = message.networks.map((e) => e);
+        }
+        if (message.subnets?.length) {
+            obj[pick("subnets", "subnets")] = message.subnets.map((e) => e);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.PoolAssignment.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePoolAssignment();
+        message.networks = object.networks?.map((e) => e) || [];
+        message.subnets = object.subnets?.map((e) => e) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.PoolAssignment);
+function PoolAssignmentCustomInspect() {
+    const parts = [];
+    if ((this.networks?.length ?? 0) !== 0)
+        parts.push("networks" + "=" + (0, util_1.inspect)(this.networks));
+    if ((this.subnets?.length ?? 0) !== 0)
+        parts.push("subnets" + "=" + (0, util_1.inspect)(this.subnets));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PoolAssignmentCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.networks?.length ?? 0) !== 0)
+        obj.networks = (0, logging_js_1.inspectJson)(this.networks);
+    if ((this.subnets?.length ?? 0) !== 0)
+        obj.subnets = (0, logging_js_1.inspectJson)(this.subnets);
+    return obj;
+}
+function applyPoolAssignmentCustom(message) {
+    message[logging_js_1.custom] = PoolAssignmentCustomInspect;
+    message[logging_js_1.customJson] = PoolAssignmentCustomJson;
+    return message;
+}
+function createBasePoolAssignment() {
+    const message = {
+        $type: "nebius.vpc.v1.PoolAssignment",
+        networks: [],
+        subnets: [],
+    };
+    return applyPoolAssignmentCustom(message);
+}
+exports.GetRouteRequest = {
+    $type: "nebius.vpc.v1.GetRouteRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetRouteRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetRouteRequestCustom({
+            $type: "nebius.vpc.v1.GetRouteRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetRouteRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetRouteRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetRouteRequest);
+function GetRouteRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetRouteRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetRouteRequestCustom(message) {
+    message[logging_js_1.custom] = GetRouteRequestCustomInspect;
+    message[logging_js_1.customJson] = GetRouteRequestCustomJson;
+    return message;
+}
+function createBaseGetRouteRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetRouteRequest",
+        id: "",
+    };
+    return applyGetRouteRequestCustom(message);
+}
+exports.GetRouteByNameRequest = {
+    $type: "nebius.vpc.v1.GetRouteByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetRouteByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetRouteByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetRouteByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetRouteByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetRouteByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetRouteByNameRequest);
+function GetRouteByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetRouteByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetRouteByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetRouteByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetRouteByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetRouteByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetRouteByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetRouteByNameRequestCustom(message);
+}
+exports.ListRoutesRequest = {
+    $type: "nebius.vpc.v1.ListRoutesRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListRoutesRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListRoutesRequestCustom({
+            $type: "nebius.vpc.v1.ListRoutesRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListRoutesRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListRoutesRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListRoutesRequest);
+function ListRoutesRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListRoutesRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListRoutesRequestCustom(message) {
+    message[logging_js_1.custom] = ListRoutesRequestCustomInspect;
+    message[logging_js_1.customJson] = ListRoutesRequestCustomJson;
+    return message;
+}
+function createBaseListRoutesRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListRoutesRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListRoutesRequestCustom(message);
+}
+exports.ListRoutesResponse = {
+    $type: "nebius.vpc.v1.ListRoutesResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Route.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListRoutesResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Route.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListRoutesResponseCustom({
+            $type: "nebius.vpc.v1.ListRoutesResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Route.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Route.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListRoutesResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListRoutesResponse();
+        message.items = object.items?.map((e) => exports.Route.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListRoutesResponse);
+function ListRoutesResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListRoutesResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListRoutesResponseCustom(message) {
+    message[logging_js_1.custom] = ListRoutesResponseCustomInspect;
+    message[logging_js_1.customJson] = ListRoutesResponseCustomJson;
+    return message;
+}
+function createBaseListRoutesResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListRoutesResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListRoutesResponseCustom(message);
+}
+exports.CreateRouteRequest = {
+    $type: "nebius.vpc.v1.CreateRouteRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.RouteSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateRouteRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.RouteSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateRouteRequestCustom({
+            $type: "nebius.vpc.v1.CreateRouteRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.RouteSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.RouteSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateRouteRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateRouteRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.RouteSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateRouteRequest);
+function CreateRouteRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateRouteRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateRouteRequestCustom(message) {
+    message[logging_js_1.custom] = CreateRouteRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateRouteRequestCustomJson;
+    return message;
+}
+function createBaseCreateRouteRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateRouteRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateRouteRequestCustom(message);
+}
+exports.UpdateRouteRequest = {
+    $type: "nebius.vpc.v1.UpdateRouteRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.RouteSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateRouteRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.RouteSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateRouteRequestCustom({
+            $type: "nebius.vpc.v1.UpdateRouteRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.RouteSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.RouteSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateRouteRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateRouteRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.RouteSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateRouteRequest);
+function UpdateRouteRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateRouteRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateRouteRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateRouteRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateRouteRequestCustomJson;
+    return message;
+}
+function createBaseUpdateRouteRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateRouteRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateRouteRequestCustom(message);
+}
+exports.DeleteRouteRequest = {
+    $type: "nebius.vpc.v1.DeleteRouteRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteRouteRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteRouteRequestCustom({
+            $type: "nebius.vpc.v1.DeleteRouteRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteRouteRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteRouteRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteRouteRequest);
+function DeleteRouteRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteRouteRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteRouteRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteRouteRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteRouteRequestCustomJson;
+    return message;
+}
+function createBaseDeleteRouteRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteRouteRequest",
+        id: "",
+    };
+    return applyDeleteRouteRequestCustom(message);
+}
+exports.RouteServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.RouteService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetRouteRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetRouteRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Route.encode(value).finish()),
+        responseDeserialize: (value) => exports.Route.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.RouteService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetRouteByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetRouteByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Route.encode(value).finish()),
+        responseDeserialize: (value) => exports.Route.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.RouteService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListRoutesRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListRoutesRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListRoutesResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListRoutesResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.RouteService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateRouteRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateRouteRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.RouteService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateRouteRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateRouteRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.RouteService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteRouteRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteRouteRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.RouteServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.RouteServiceServiceDescription, "nebius.vpc.v1.RouteService");
+class RouteService {
+    sdk;
+    $type = "nebius.vpc.v1.RouteService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.RouteServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.RouteService = RouteService;
+exports.GetRouteTableRequest = {
+    $type: "nebius.vpc.v1.GetRouteTableRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetRouteTableRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetRouteTableRequestCustom({
+            $type: "nebius.vpc.v1.GetRouteTableRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetRouteTableRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetRouteTableRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetRouteTableRequest);
+function GetRouteTableRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetRouteTableRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetRouteTableRequestCustom(message) {
+    message[logging_js_1.custom] = GetRouteTableRequestCustomInspect;
+    message[logging_js_1.customJson] = GetRouteTableRequestCustomJson;
+    return message;
+}
+function createBaseGetRouteTableRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetRouteTableRequest",
+        id: "",
+    };
+    return applyGetRouteTableRequestCustom(message);
+}
+exports.GetRouteTableByNameRequest = {
+    $type: "nebius.vpc.v1.GetRouteTableByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetRouteTableByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetRouteTableByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetRouteTableByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetRouteTableByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetRouteTableByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetRouteTableByNameRequest);
+function GetRouteTableByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetRouteTableByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetRouteTableByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetRouteTableByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetRouteTableByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetRouteTableByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetRouteTableByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetRouteTableByNameRequestCustom(message);
+}
+exports.ListRouteTablesRequest = {
+    $type: "nebius.vpc.v1.ListRouteTablesRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListRouteTablesRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListRouteTablesRequestCustom({
+            $type: "nebius.vpc.v1.ListRouteTablesRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListRouteTablesRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListRouteTablesRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListRouteTablesRequest);
+function ListRouteTablesRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListRouteTablesRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListRouteTablesRequestCustom(message) {
+    message[logging_js_1.custom] = ListRouteTablesRequestCustomInspect;
+    message[logging_js_1.customJson] = ListRouteTablesRequestCustomJson;
+    return message;
+}
+function createBaseListRouteTablesRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListRouteTablesRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListRouteTablesRequestCustom(message);
+}
+exports.ListRouteTablesByNetworkRequest = {
+    $type: "nebius.vpc.v1.ListRouteTablesByNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.networkId !== "") {
+            writer.uint32(10).string(message.networkId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListRouteTablesByNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networkId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListRouteTablesByNetworkRequestCustom({
+            $type: "nebius.vpc.v1.ListRouteTablesByNetworkRequest",
+            networkId: (0, index_js_1.isSet)(object.networkId ?? object.network_id)
+                ? String(object.networkId ?? object.network_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networkId !== "") {
+            obj[pick("networkId", "network_id")] = message.networkId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListRouteTablesByNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListRouteTablesByNetworkRequest();
+        message.networkId = (object.networkId !== undefined && object.networkId !== null)
+            ? object.networkId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListRouteTablesByNetworkRequest);
+function ListRouteTablesByNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.networkId !== "")
+        parts.push("networkId" + "=" + (0, util_1.inspect)(this.networkId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListRouteTablesByNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.networkId !== "")
+        obj.networkId = (0, logging_js_1.inspectJson)(this.networkId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListRouteTablesByNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = ListRouteTablesByNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = ListRouteTablesByNetworkRequestCustomJson;
+    return message;
+}
+function createBaseListRouteTablesByNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListRouteTablesByNetworkRequest",
+        networkId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListRouteTablesByNetworkRequestCustom(message);
+}
+exports.ListRouteTablesResponse = {
+    $type: "nebius.vpc.v1.ListRouteTablesResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.RouteTable.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListRouteTablesResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.RouteTable.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListRouteTablesResponseCustom({
+            $type: "nebius.vpc.v1.ListRouteTablesResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.RouteTable.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.RouteTable.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListRouteTablesResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListRouteTablesResponse();
+        message.items = object.items?.map((e) => exports.RouteTable.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListRouteTablesResponse);
+function ListRouteTablesResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListRouteTablesResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListRouteTablesResponseCustom(message) {
+    message[logging_js_1.custom] = ListRouteTablesResponseCustomInspect;
+    message[logging_js_1.customJson] = ListRouteTablesResponseCustomJson;
+    return message;
+}
+function createBaseListRouteTablesResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListRouteTablesResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListRouteTablesResponseCustom(message);
+}
+exports.CreateRouteTableRequest = {
+    $type: "nebius.vpc.v1.CreateRouteTableRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.RouteTableSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateRouteTableRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.RouteTableSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateRouteTableRequestCustom({
+            $type: "nebius.vpc.v1.CreateRouteTableRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.RouteTableSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.RouteTableSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateRouteTableRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateRouteTableRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.RouteTableSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateRouteTableRequest);
+function CreateRouteTableRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateRouteTableRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateRouteTableRequestCustom(message) {
+    message[logging_js_1.custom] = CreateRouteTableRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateRouteTableRequestCustomJson;
+    return message;
+}
+function createBaseCreateRouteTableRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateRouteTableRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateRouteTableRequestCustom(message);
+}
+exports.UpdateRouteTableRequest = {
+    $type: "nebius.vpc.v1.UpdateRouteTableRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.RouteTableSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateRouteTableRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.RouteTableSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateRouteTableRequestCustom({
+            $type: "nebius.vpc.v1.UpdateRouteTableRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.RouteTableSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.RouteTableSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateRouteTableRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateRouteTableRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.RouteTableSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateRouteTableRequest);
+function UpdateRouteTableRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateRouteTableRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateRouteTableRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateRouteTableRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateRouteTableRequestCustomJson;
+    return message;
+}
+function createBaseUpdateRouteTableRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateRouteTableRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateRouteTableRequestCustom(message);
+}
+exports.DeleteRouteTableRequest = {
+    $type: "nebius.vpc.v1.DeleteRouteTableRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteRouteTableRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteRouteTableRequestCustom({
+            $type: "nebius.vpc.v1.DeleteRouteTableRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteRouteTableRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteRouteTableRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteRouteTableRequest);
+function DeleteRouteTableRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteRouteTableRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteRouteTableRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteRouteTableRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteRouteTableRequestCustomJson;
+    return message;
+}
+function createBaseDeleteRouteTableRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteRouteTableRequest",
+        id: "",
+    };
+    return applyDeleteRouteTableRequestCustom(message);
+}
+exports.RouteTableServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.RouteTableService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetRouteTableRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetRouteTableRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.RouteTable.encode(value).finish()),
+        responseDeserialize: (value) => exports.RouteTable.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.RouteTableService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetRouteTableByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetRouteTableByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.RouteTable.encode(value).finish()),
+        responseDeserialize: (value) => exports.RouteTable.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.RouteTableService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListRouteTablesRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListRouteTablesRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListRouteTablesResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListRouteTablesResponse.decode(value),
+    },
+    listByNetwork: {
+        path: "/nebius.vpc.v1.RouteTableService/ListByNetwork",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListRouteTablesByNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListRouteTablesByNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListRouteTablesResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListRouteTablesResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.RouteTableService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateRouteTableRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateRouteTableRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.RouteTableService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateRouteTableRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateRouteTableRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.RouteTableService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteRouteTableRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteRouteTableRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.RouteTableServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.RouteTableServiceServiceDescription, "nebius.vpc.v1.RouteTableService");
+class RouteTableService {
+    sdk;
+    $type = "nebius.vpc.v1.RouteTableService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.RouteTableServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listByNetwork(...args) {
+        const spec = this.spec.listByNetwork;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.RouteTableService = RouteTableService;
+const RouteTableStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " The state is unknown or not yet set.\n",
+    READY: " The route table is configured and operational.\n",
+};
+exports.RouteTableStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.RouteTableStatus.State", {
+    /**
+     *  The state is unknown or not yet set.
+     *
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  The route table is configured and operational.
+     *
+     */
+    READY: 10,
+}, RouteTableStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.RouteTableStatus_State);
+exports.RouteTable = {
+    $type: "nebius.vpc.v1.RouteTable",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.RouteTableSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.RouteTableStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRouteTable();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.RouteTableSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.RouteTableStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteTableCustom({
+            $type: "nebius.vpc.v1.RouteTable",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.RouteTableSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.RouteTableStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.RouteTableSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.RouteTableStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RouteTable.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRouteTable();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.RouteTableSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.RouteTableStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RouteTable);
+function RouteTableCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteTableCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyRouteTableCustom(message) {
+    message[logging_js_1.custom] = RouteTableCustomInspect;
+    message[logging_js_1.customJson] = RouteTableCustomJson;
+    return message;
+}
+function createBaseRouteTable() {
+    const message = {
+        $type: "nebius.vpc.v1.RouteTable",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyRouteTableCustom(message);
+}
+exports.RouteTableSpec = {
+    $type: "nebius.vpc.v1.RouteTableSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.networkId !== "") {
+            writer.uint32(10).string(message.networkId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRouteTableSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networkId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteTableSpecCustom({
+            $type: "nebius.vpc.v1.RouteTableSpec",
+            networkId: (0, index_js_1.isSet)(object.networkId ?? object.network_id)
+                ? String(object.networkId ?? object.network_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networkId !== "") {
+            obj[pick("networkId", "network_id")] = message.networkId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RouteTableSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRouteTableSpec();
+        message.networkId = (object.networkId !== undefined && object.networkId !== null)
+            ? object.networkId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RouteTableSpec);
+function RouteTableSpecCustomInspect() {
+    const parts = [];
+    if (this.networkId !== "")
+        parts.push("networkId" + "=" + (0, util_1.inspect)(this.networkId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteTableSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.networkId !== "")
+        obj.networkId = (0, logging_js_1.inspectJson)(this.networkId);
+    return obj;
+}
+function applyRouteTableSpecCustom(message) {
+    message[logging_js_1.custom] = RouteTableSpecCustomInspect;
+    message[logging_js_1.customJson] = RouteTableSpecCustomJson;
+    return message;
+}
+function createBaseRouteTableSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.RouteTableSpec",
+        networkId: "",
+    };
+    return applyRouteTableSpecCustom(message);
+}
+exports.RouteTableStatus = {
+    $type: "nebius.vpc.v1.RouteTableStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.RouteTableStatus_State.STATE_UNSPECIFIED) !== exports.RouteTableStatus_State.STATE_UNSPECIFIED) {
+            exports.RouteTableStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.default === true) {
+            writer.uint32(16).bool(message.default);
+        }
+        if (message.assignment !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.RouteTableAssignment.encode(message.assignment, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRouteTableStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.RouteTableStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.default = reader.bool();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.assignment = exports.RouteTableAssignment.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteTableStatusCustom({
+            $type: "nebius.vpc.v1.RouteTableStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.RouteTableStatus_State.fromJSON(object.state ?? object.state)
+                : exports.RouteTableStatus_State.STATE_UNSPECIFIED,
+            default: (0, index_js_1.isSet)(object.default ?? object.default)
+                ? Boolean(object.default ?? object.default)
+                : false,
+            assignment: (0, index_js_1.isSet)(object.assignment ?? object.assignment)
+                ? exports.RouteTableAssignment.fromJSON(object.assignment ?? object.assignment)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.RouteTableStatus_State.STATE_UNSPECIFIED) !== exports.RouteTableStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.RouteTableStatus_State.toJSON(message.state);
+        }
+        if (message.default === true) {
+            obj[pick("default", "default")] = message.default;
+        }
+        if (message.assignment !== undefined) {
+            obj[pick("assignment", "assignment")] = message.assignment
+                ? exports.RouteTableAssignment.toJSON(message.assignment, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RouteTableStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRouteTableStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.RouteTableStatus_State.fromJSON(object.state.name)
+            : exports.RouteTableStatus_State.STATE_UNSPECIFIED;
+        message.default = (object.default !== undefined && object.default !== null)
+            ? object.default
+            : false;
+        message.assignment = (object.assignment !== undefined && object.assignment !== null)
+            ? exports.RouteTableAssignment.fromPartial(object.assignment)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RouteTableStatus);
+function RouteTableStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.default === true)
+        parts.push("default" + "=" + (0, util_1.inspect)(this.default));
+    if (this.assignment !== undefined)
+        parts.push("assignment" + "=" + (0, util_1.inspect)(this.assignment));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteTableStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.default === true)
+        obj.default = (0, logging_js_1.inspectJson)(this.default);
+    if (this.assignment !== undefined)
+        obj.assignment = (0, logging_js_1.inspectJson)(this.assignment);
+    return obj;
+}
+function applyRouteTableStatusCustom(message) {
+    message[logging_js_1.custom] = RouteTableStatusCustomInspect;
+    message[logging_js_1.customJson] = RouteTableStatusCustomJson;
+    return message;
+}
+function createBaseRouteTableStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.RouteTableStatus",
+        state: exports.RouteTableStatus_State.STATE_UNSPECIFIED,
+        default: false,
+        assignment: undefined,
+    };
+    return applyRouteTableStatusCustom(message);
+}
+exports.RouteTableAssignment = {
+    $type: "nebius.vpc.v1.RouteTableAssignment",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.subnets ?? [])) {
+            writer.uint32(10).string(v);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRouteTableAssignment();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.subnets.push(reader.string());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteTableAssignmentCustom({
+            $type: "nebius.vpc.v1.RouteTableAssignment",
+            subnets: globalThis.Array.isArray(object?.subnets ?? object?.subnets)
+                ? (object.subnets ?? object.subnets).map((e) => String(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.subnets?.length) {
+            obj[pick("subnets", "subnets")] = message.subnets.map((e) => e);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RouteTableAssignment.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRouteTableAssignment();
+        message.subnets = object.subnets?.map((e) => e) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RouteTableAssignment);
+function RouteTableAssignmentCustomInspect() {
+    const parts = [];
+    if ((this.subnets?.length ?? 0) !== 0)
+        parts.push("subnets" + "=" + (0, util_1.inspect)(this.subnets));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteTableAssignmentCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.subnets?.length ?? 0) !== 0)
+        obj.subnets = (0, logging_js_1.inspectJson)(this.subnets);
+    return obj;
+}
+function applyRouteTableAssignmentCustom(message) {
+    message[logging_js_1.custom] = RouteTableAssignmentCustomInspect;
+    message[logging_js_1.customJson] = RouteTableAssignmentCustomJson;
+    return message;
+}
+function createBaseRouteTableAssignment() {
+    const message = {
+        $type: "nebius.vpc.v1.RouteTableAssignment",
+        subnets: [],
+    };
+    return applyRouteTableAssignmentCustom(message);
+}
+const RouteStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " The state is unknown or not yet set.\n",
+    READY: " The route is configured and operational.\n",
+};
+exports.RouteStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.RouteStatus.State", {
+    /**
+     *  The state is unknown or not yet set.
+     *
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  The route is configured and operational.
+     *
+     */
+    READY: 10,
+}, RouteStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.RouteStatus_State);
+exports.RouteStatus_Type = (0, index_js_1.createEnum)("nebius.vpc.v1.RouteStatus.Type", {
+    TYPE_UNSPECIFIED: 0,
+    STATIC: 1,
+    REDISTRIBUTED: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.RouteStatus_Type);
+exports.Route = {
+    $type: "nebius.vpc.v1.Route",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.RouteSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.RouteStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRoute();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.RouteSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.RouteStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteCustom({
+            $type: "nebius.vpc.v1.Route",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.RouteSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.RouteStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.RouteSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.RouteStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Route.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRoute();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.RouteSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.RouteStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Route);
+function RouteCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyRouteCustom(message) {
+    message[logging_js_1.custom] = RouteCustomInspect;
+    message[logging_js_1.customJson] = RouteCustomJson;
+    return message;
+}
+function createBaseRoute() {
+    const message = {
+        $type: "nebius.vpc.v1.Route",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyRouteCustom(message);
+}
+exports.RouteSpec = {
+    $type: "nebius.vpc.v1.RouteSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.description !== "") {
+            writer.uint32(10).string(message.description);
+        }
+        if (message.destination !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.DestinationMatch.encode(message.destination, w);
+            w.join();
+        }
+        if (message.nextHop !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.NextHop.encode(message.nextHop, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRouteSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.description = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.destination = exports.DestinationMatch.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.nextHop = exports.NextHop.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteSpecCustom({
+            $type: "nebius.vpc.v1.RouteSpec",
+            description: (0, index_js_1.isSet)(object.description ?? object.description)
+                ? String(object.description ?? object.description)
+                : "",
+            destination: (0, index_js_1.isSet)(object.destination ?? object.destination)
+                ? exports.DestinationMatch.fromJSON(object.destination ?? object.destination)
+                : undefined,
+            nextHop: (0, index_js_1.isSet)(object.nextHop ?? object.next_hop)
+                ? exports.NextHop.fromJSON(object.nextHop ?? object.next_hop)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.description !== "") {
+            obj[pick("description", "description")] = message.description;
+        }
+        if (message.destination !== undefined) {
+            obj[pick("destination", "destination")] = message.destination
+                ? exports.DestinationMatch.toJSON(message.destination, use)
+                : undefined;
+        }
+        if (message.nextHop !== undefined) {
+            obj[pick("nextHop", "next_hop")] = message.nextHop
+                ? exports.NextHop.toJSON(message.nextHop, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RouteSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRouteSpec();
+        message.description = (object.description !== undefined && object.description !== null)
+            ? object.description
+            : "";
+        message.destination = (object.destination !== undefined && object.destination !== null)
+            ? exports.DestinationMatch.fromPartial(object.destination)
+            : undefined;
+        message.nextHop = (object.nextHop !== undefined && object.nextHop !== null)
+            ? exports.NextHop.fromPartial(object.nextHop)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RouteSpec);
+function RouteSpecCustomInspect() {
+    const parts = [];
+    if (this.description !== "")
+        parts.push("description" + "=" + (0, util_1.inspect)(this.description));
+    if (this.destination !== undefined)
+        parts.push("destination" + "=" + (0, util_1.inspect)(this.destination));
+    if (this.nextHop !== undefined)
+        parts.push("nextHop" + "=" + (0, util_1.inspect)(this.nextHop));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.description !== "")
+        obj.description = (0, logging_js_1.inspectJson)(this.description);
+    if (this.destination !== undefined)
+        obj.destination = (0, logging_js_1.inspectJson)(this.destination);
+    if (this.nextHop !== undefined)
+        obj.nextHop = (0, logging_js_1.inspectJson)(this.nextHop);
+    return obj;
+}
+function applyRouteSpecCustom(message) {
+    message[logging_js_1.custom] = RouteSpecCustomInspect;
+    message[logging_js_1.customJson] = RouteSpecCustomJson;
+    return message;
+}
+function createBaseRouteSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.RouteSpec",
+        description: "",
+        destination: undefined,
+        nextHop: undefined,
+    };
+    return applyRouteSpecCustom(message);
+}
+exports.DestinationMatch = {
+    $type: "nebius.vpc.v1.DestinationMatch",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.cidr !== "") {
+            writer.uint32(10).string(message.cidr);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDestinationMatch();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.cidr = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDestinationMatchCustom({
+            $type: "nebius.vpc.v1.DestinationMatch",
+            cidr: (0, index_js_1.isSet)(object.cidr ?? object.cidr)
+                ? String(object.cidr ?? object.cidr)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidr !== "") {
+            obj[pick("cidr", "cidr")] = message.cidr;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DestinationMatch.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDestinationMatch();
+        message.cidr = (object.cidr !== undefined && object.cidr !== null)
+            ? object.cidr
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DestinationMatch);
+function DestinationMatchCustomInspect() {
+    const parts = [];
+    if (this.cidr !== "")
+        parts.push("cidr" + "=" + (0, util_1.inspect)(this.cidr));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DestinationMatchCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.cidr !== "")
+        obj.cidr = (0, logging_js_1.inspectJson)(this.cidr);
+    return obj;
+}
+function applyDestinationMatchCustom(message) {
+    message[logging_js_1.custom] = DestinationMatchCustomInspect;
+    message[logging_js_1.customJson] = DestinationMatchCustomJson;
+    return message;
+}
+function createBaseDestinationMatch() {
+    const message = {
+        $type: "nebius.vpc.v1.DestinationMatch",
+        cidr: "",
+    };
+    return applyDestinationMatchCustom(message);
+}
+exports.NextHop = {
+    $type: "nebius.vpc.v1.NextHop",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.nextHop?.$case === undefined) { /* noop */ }
+        else if (message.nextHop?.$case === "allocation") {
+            const w = writer.uint32(10).fork();
+            exports.AllocationNextHop.encode(message.nextHop.allocation, w);
+            w.join();
+        }
+        else if (message.nextHop?.$case === "defaultEgressGateway") {
+            writer.uint32(16).bool(message.nextHop.defaultEgressGateway);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNextHop();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.nextHop = {
+                        $case: "allocation",
+                        allocation: exports.AllocationNextHop.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.nextHop = {
+                        $case: "defaultEgressGateway",
+                        defaultEgressGateway: reader.bool()
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNextHopCustom({
+            $type: "nebius.vpc.v1.NextHop",
+            nextHop: (() => {
+                if ((0, index_js_1.isSet)(object.allocation) || (0, index_js_1.isSet)(object.allocation)) {
+                    return {
+                        $case: "allocation",
+                        allocation: exports.AllocationNextHop.fromJSON(object.allocation ?? object.allocation)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.defaultEgressGateway) || (0, index_js_1.isSet)(object.default_egress_gateway)) {
+                    return {
+                        $case: "defaultEgressGateway",
+                        defaultEgressGateway: Boolean(object.defaultEgressGateway ?? object.default_egress_gateway)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        switch (message.nextHop?.$case) {
+            case "allocation": {
+                obj[pick("allocation", "allocation")] = exports.AllocationNextHop.toJSON(message.nextHop.allocation, use);
+                break;
+            }
+            case "defaultEgressGateway": {
+                obj[pick("defaultEgressGateway", "default_egress_gateway")] = message.nextHop.defaultEgressGateway;
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NextHop.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNextHop();
+        switch (object.nextHop?.$case) {
+            case "allocation": {
+                if (object.nextHop.allocation !== undefined && object.nextHop.allocation !== null) {
+                    message.nextHop = {
+                        $case: "allocation",
+                        allocation: exports.AllocationNextHop.fromPartial(object.nextHop.allocation),
+                    };
+                }
+                break;
+            }
+            case "defaultEgressGateway": {
+                if (object.nextHop?.defaultEgressGateway !== undefined && object.nextHop?.defaultEgressGateway !== null) {
+                    message.nextHop = {
+                        $case: "defaultEgressGateway",
+                        defaultEgressGateway: object.nextHop.defaultEgressGateway,
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NextHop);
+function NextHopCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NextHopCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyNextHopCustom(message) {
+    message[logging_js_1.custom] = NextHopCustomInspect;
+    message[logging_js_1.customJson] = NextHopCustomJson;
+    return message;
+}
+function createBaseNextHop() {
+    const message = {
+        $type: "nebius.vpc.v1.NextHop",
+        nextHop: undefined,
+    };
+    return applyNextHopCustom(message);
+}
+exports.AllocationNextHop = {
+    $type: "nebius.vpc.v1.AllocationNextHop",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAllocationNextHop();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAllocationNextHopCustom({
+            $type: "nebius.vpc.v1.AllocationNextHop",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AllocationNextHop.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAllocationNextHop();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AllocationNextHop);
+function AllocationNextHopCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AllocationNextHopCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyAllocationNextHopCustom(message) {
+    message[logging_js_1.custom] = AllocationNextHopCustomInspect;
+    message[logging_js_1.customJson] = AllocationNextHopCustomJson;
+    return message;
+}
+function createBaseAllocationNextHop() {
+    const message = {
+        $type: "nebius.vpc.v1.AllocationNextHop",
+        id: "",
+    };
+    return applyAllocationNextHopCustom(message);
+}
+exports.RouteStatus = {
+    $type: "nebius.vpc.v1.RouteStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.RouteStatus_State.STATE_UNSPECIFIED) !== exports.RouteStatus_State.STATE_UNSPECIFIED) {
+            exports.RouteStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.nextHop !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.NextHopState.encode(message.nextHop, w);
+            w.join();
+        }
+        if ((message.type ?? exports.RouteStatus_Type.TYPE_UNSPECIFIED) !== exports.RouteStatus_Type.TYPE_UNSPECIFIED) {
+            exports.RouteStatus_Type.encodeField(writer, 3, message.type);
+        }
+        if ((message.priority ?? 0) !== 0) {
+            writer.uint32(32).int32(message.priority);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRouteStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.RouteStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextHop = exports.NextHopState.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.type = exports.RouteStatus_Type.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.priority = reader.int32();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRouteStatusCustom({
+            $type: "nebius.vpc.v1.RouteStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.RouteStatus_State.fromJSON(object.state ?? object.state)
+                : exports.RouteStatus_State.STATE_UNSPECIFIED,
+            nextHop: (0, index_js_1.isSet)(object.nextHop ?? object.next_hop)
+                ? exports.NextHopState.fromJSON(object.nextHop ?? object.next_hop)
+                : undefined,
+            type: (0, index_js_1.isSet)(object.type ?? object.type)
+                ? exports.RouteStatus_Type.fromJSON(object.type ?? object.type)
+                : exports.RouteStatus_Type.TYPE_UNSPECIFIED,
+            priority: (0, index_js_1.isSet)(object.priority ?? object.priority)
+                ? Number(object.priority ?? object.priority)
+                : 0,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.RouteStatus_State.STATE_UNSPECIFIED) !== exports.RouteStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.RouteStatus_State.toJSON(message.state);
+        }
+        if (message.nextHop !== undefined) {
+            obj[pick("nextHop", "next_hop")] = message.nextHop
+                ? exports.NextHopState.toJSON(message.nextHop, use)
+                : undefined;
+        }
+        if ((message.type ?? exports.RouteStatus_Type.TYPE_UNSPECIFIED) !== exports.RouteStatus_Type.TYPE_UNSPECIFIED) {
+            obj[pick("type", "type")] = exports.RouteStatus_Type.toJSON(message.type);
+        }
+        if ((message.priority ?? 0) !== 0) {
+            obj[pick("priority", "priority")] = message.priority;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RouteStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRouteStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.RouteStatus_State.fromJSON(object.state.name)
+            : exports.RouteStatus_State.STATE_UNSPECIFIED;
+        message.nextHop = (object.nextHop !== undefined && object.nextHop !== null)
+            ? exports.NextHopState.fromPartial(object.nextHop)
+            : undefined;
+        message.type = (object.type !== undefined && object.type !== null)
+            ? exports.RouteStatus_Type.fromJSON(object.type.name)
+            : exports.RouteStatus_Type.TYPE_UNSPECIFIED;
+        message.priority = (object.priority !== undefined && object.priority !== null)
+            ? object.priority
+            : 0;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RouteStatus);
+function RouteStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.nextHop !== undefined)
+        parts.push("nextHop" + "=" + (0, util_1.inspect)(this.nextHop));
+    if (this.type !== undefined)
+        parts.push("type" + "=" + (0, util_1.inspect)(this.type));
+    if ((this.priority ?? 0) !== 0)
+        parts.push("priority" + "=" + (0, util_1.inspect)(this.priority));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RouteStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.nextHop !== undefined)
+        obj.nextHop = (0, logging_js_1.inspectJson)(this.nextHop);
+    if (this.type !== undefined)
+        obj.type = (0, logging_js_1.inspectJson)(this.type);
+    if ((this.priority ?? 0) !== 0)
+        obj.priority = (0, logging_js_1.inspectJson)(this.priority);
+    return obj;
+}
+function applyRouteStatusCustom(message) {
+    message[logging_js_1.custom] = RouteStatusCustomInspect;
+    message[logging_js_1.customJson] = RouteStatusCustomJson;
+    return message;
+}
+function createBaseRouteStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.RouteStatus",
+        state: exports.RouteStatus_State.STATE_UNSPECIFIED,
+        nextHop: undefined,
+        type: exports.RouteStatus_Type.TYPE_UNSPECIFIED,
+        priority: 0,
+    };
+    return applyRouteStatusCustom(message);
+}
+exports.NextHopState = {
+    $type: "nebius.vpc.v1.NextHopState",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.nextHop?.$case === undefined) { /* noop */ }
+        else if (message.nextHop?.$case === "allocation") {
+            const w = writer.uint32(10).fork();
+            exports.AllocationNextHopState.encode(message.nextHop.allocation, w);
+            w.join();
+        }
+        else if (message.nextHop?.$case === "defaultEgressGateway") {
+            const w = writer.uint32(18).fork();
+            exports.DefaultEgressGatewayState.encode(message.nextHop.defaultEgressGateway, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNextHopState();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.nextHop = {
+                        $case: "allocation",
+                        allocation: exports.AllocationNextHopState.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextHop = {
+                        $case: "defaultEgressGateway",
+                        defaultEgressGateway: exports.DefaultEgressGatewayState.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNextHopStateCustom({
+            $type: "nebius.vpc.v1.NextHopState",
+            nextHop: (() => {
+                if ((0, index_js_1.isSet)(object.allocation) || (0, index_js_1.isSet)(object.allocation)) {
+                    return {
+                        $case: "allocation",
+                        allocation: exports.AllocationNextHopState.fromJSON(object.allocation ?? object.allocation)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.defaultEgressGateway) || (0, index_js_1.isSet)(object.default_egress_gateway)) {
+                    return {
+                        $case: "defaultEgressGateway",
+                        defaultEgressGateway: exports.DefaultEgressGatewayState.fromJSON(object.defaultEgressGateway ?? object.default_egress_gateway)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        switch (message.nextHop?.$case) {
+            case "allocation": {
+                obj[pick("allocation", "allocation")] = exports.AllocationNextHopState.toJSON(message.nextHop.allocation, use);
+                break;
+            }
+            case "defaultEgressGateway": {
+                obj[pick("defaultEgressGateway", "default_egress_gateway")] = exports.DefaultEgressGatewayState.toJSON(message.nextHop.defaultEgressGateway, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NextHopState.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNextHopState();
+        switch (object.nextHop?.$case) {
+            case "allocation": {
+                if (object.nextHop.allocation !== undefined && object.nextHop.allocation !== null) {
+                    message.nextHop = {
+                        $case: "allocation",
+                        allocation: exports.AllocationNextHopState.fromPartial(object.nextHop.allocation),
+                    };
+                }
+                break;
+            }
+            case "defaultEgressGateway": {
+                if (object.nextHop.defaultEgressGateway !== undefined && object.nextHop.defaultEgressGateway !== null) {
+                    message.nextHop = {
+                        $case: "defaultEgressGateway",
+                        defaultEgressGateway: exports.DefaultEgressGatewayState.fromPartial(object.nextHop.defaultEgressGateway),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NextHopState);
+function NextHopStateCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NextHopStateCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyNextHopStateCustom(message) {
+    message[logging_js_1.custom] = NextHopStateCustomInspect;
+    message[logging_js_1.customJson] = NextHopStateCustomJson;
+    return message;
+}
+function createBaseNextHopState() {
+    const message = {
+        $type: "nebius.vpc.v1.NextHopState",
+        nextHop: undefined,
+    };
+    return applyNextHopStateCustom(message);
+}
+exports.AllocationNextHopState = {
+    $type: "nebius.vpc.v1.AllocationNextHopState",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.cidr !== "") {
+            writer.uint32(10).string(message.cidr);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAllocationNextHopState();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.cidr = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAllocationNextHopStateCustom({
+            $type: "nebius.vpc.v1.AllocationNextHopState",
+            cidr: (0, index_js_1.isSet)(object.cidr ?? object.cidr)
+                ? String(object.cidr ?? object.cidr)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidr !== "") {
+            obj[pick("cidr", "cidr")] = message.cidr;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AllocationNextHopState.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAllocationNextHopState();
+        message.cidr = (object.cidr !== undefined && object.cidr !== null)
+            ? object.cidr
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AllocationNextHopState);
+function AllocationNextHopStateCustomInspect() {
+    const parts = [];
+    if (this.cidr !== "")
+        parts.push("cidr" + "=" + (0, util_1.inspect)(this.cidr));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AllocationNextHopStateCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.cidr !== "")
+        obj.cidr = (0, logging_js_1.inspectJson)(this.cidr);
+    return obj;
+}
+function applyAllocationNextHopStateCustom(message) {
+    message[logging_js_1.custom] = AllocationNextHopStateCustomInspect;
+    message[logging_js_1.customJson] = AllocationNextHopStateCustomJson;
+    return message;
+}
+function createBaseAllocationNextHopState() {
+    const message = {
+        $type: "nebius.vpc.v1.AllocationNextHopState",
+        cidr: "",
+    };
+    return applyAllocationNextHopStateCustom(message);
+}
+exports.DefaultEgressGatewayState = {
+    $type: "nebius.vpc.v1.DefaultEgressGatewayState",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDefaultEgressGatewayState();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDefaultEgressGatewayStateCustom({
+            $type: "nebius.vpc.v1.DefaultEgressGatewayState",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        return obj;
+    },
+    create(base) {
+        return exports.DefaultEgressGatewayState.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDefaultEgressGatewayState();
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DefaultEgressGatewayState);
+function DefaultEgressGatewayStateCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DefaultEgressGatewayStateCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyDefaultEgressGatewayStateCustom(message) {
+    message[logging_js_1.custom] = DefaultEgressGatewayStateCustomInspect;
+    message[logging_js_1.customJson] = DefaultEgressGatewayStateCustomJson;
+    return message;
+}
+function createBaseDefaultEgressGatewayState() {
+    const message = {
+        $type: "nebius.vpc.v1.DefaultEgressGatewayState",
+    };
+    return applyDefaultEgressGatewayStateCustom(message);
+}
+exports.GetSecurityGroupRequest = {
+    $type: "nebius.vpc.v1.GetSecurityGroupRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecurityGroupRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecurityGroupRequestCustom({
+            $type: "nebius.vpc.v1.GetSecurityGroupRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecurityGroupRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecurityGroupRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecurityGroupRequest);
+function GetSecurityGroupRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecurityGroupRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetSecurityGroupRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecurityGroupRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecurityGroupRequestCustomJson;
+    return message;
+}
+function createBaseGetSecurityGroupRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetSecurityGroupRequest",
+        id: "",
+    };
+    return applyGetSecurityGroupRequestCustom(message);
+}
+exports.GetSecurityGroupByNameRequest = {
+    $type: "nebius.vpc.v1.GetSecurityGroupByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecurityGroupByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecurityGroupByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetSecurityGroupByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecurityGroupByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecurityGroupByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecurityGroupByNameRequest);
+function GetSecurityGroupByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecurityGroupByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetSecurityGroupByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecurityGroupByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecurityGroupByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetSecurityGroupByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetSecurityGroupByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetSecurityGroupByNameRequestCustom(message);
+}
+exports.ListSecurityGroupsRequest = {
+    $type: "nebius.vpc.v1.ListSecurityGroupsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecurityGroupsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecurityGroupsRequestCustom({
+            $type: "nebius.vpc.v1.ListSecurityGroupsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecurityGroupsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecurityGroupsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecurityGroupsRequest);
+function ListSecurityGroupsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecurityGroupsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListSecurityGroupsRequestCustom(message) {
+    message[logging_js_1.custom] = ListSecurityGroupsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSecurityGroupsRequestCustomJson;
+    return message;
+}
+function createBaseListSecurityGroupsRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSecurityGroupsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListSecurityGroupsRequestCustom(message);
+}
+exports.ListSecurityGroupsByNetworkRequest = {
+    $type: "nebius.vpc.v1.ListSecurityGroupsByNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.networkId !== "") {
+            writer.uint32(10).string(message.networkId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecurityGroupsByNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networkId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecurityGroupsByNetworkRequestCustom({
+            $type: "nebius.vpc.v1.ListSecurityGroupsByNetworkRequest",
+            networkId: (0, index_js_1.isSet)(object.networkId ?? object.network_id)
+                ? String(object.networkId ?? object.network_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networkId !== "") {
+            obj[pick("networkId", "network_id")] = message.networkId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecurityGroupsByNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecurityGroupsByNetworkRequest();
+        message.networkId = (object.networkId !== undefined && object.networkId !== null)
+            ? object.networkId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecurityGroupsByNetworkRequest);
+function ListSecurityGroupsByNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.networkId !== "")
+        parts.push("networkId" + "=" + (0, util_1.inspect)(this.networkId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecurityGroupsByNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.networkId !== "")
+        obj.networkId = (0, logging_js_1.inspectJson)(this.networkId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListSecurityGroupsByNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = ListSecurityGroupsByNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSecurityGroupsByNetworkRequestCustomJson;
+    return message;
+}
+function createBaseListSecurityGroupsByNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSecurityGroupsByNetworkRequest",
+        networkId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListSecurityGroupsByNetworkRequestCustom(message);
+}
+exports.ListSecurityGroupsResponse = {
+    $type: "nebius.vpc.v1.ListSecurityGroupsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.SecurityGroup.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecurityGroupsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.SecurityGroup.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecurityGroupsResponseCustom({
+            $type: "nebius.vpc.v1.ListSecurityGroupsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.SecurityGroup.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.SecurityGroup.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecurityGroupsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecurityGroupsResponse();
+        message.items = object.items?.map((e) => exports.SecurityGroup.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecurityGroupsResponse);
+function ListSecurityGroupsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecurityGroupsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListSecurityGroupsResponseCustom(message) {
+    message[logging_js_1.custom] = ListSecurityGroupsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListSecurityGroupsResponseCustomJson;
+    return message;
+}
+function createBaseListSecurityGroupsResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSecurityGroupsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListSecurityGroupsResponseCustom(message);
+}
+exports.CreateSecurityGroupRequest = {
+    $type: "nebius.vpc.v1.CreateSecurityGroupRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecurityGroupSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateSecurityGroupRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecurityGroupSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateSecurityGroupRequestCustom({
+            $type: "nebius.vpc.v1.CreateSecurityGroupRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecurityGroupSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecurityGroupSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateSecurityGroupRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateSecurityGroupRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecurityGroupSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateSecurityGroupRequest);
+function CreateSecurityGroupRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateSecurityGroupRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateSecurityGroupRequestCustom(message) {
+    message[logging_js_1.custom] = CreateSecurityGroupRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateSecurityGroupRequestCustomJson;
+    return message;
+}
+function createBaseCreateSecurityGroupRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateSecurityGroupRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateSecurityGroupRequestCustom(message);
+}
+exports.UpdateSecurityGroupRequest = {
+    $type: "nebius.vpc.v1.UpdateSecurityGroupRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecurityGroupSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateSecurityGroupRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecurityGroupSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateSecurityGroupRequestCustom({
+            $type: "nebius.vpc.v1.UpdateSecurityGroupRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecurityGroupSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecurityGroupSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateSecurityGroupRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateSecurityGroupRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecurityGroupSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateSecurityGroupRequest);
+function UpdateSecurityGroupRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateSecurityGroupRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateSecurityGroupRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateSecurityGroupRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateSecurityGroupRequestCustomJson;
+    return message;
+}
+function createBaseUpdateSecurityGroupRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateSecurityGroupRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateSecurityGroupRequestCustom(message);
+}
+exports.DeleteSecurityGroupRequest = {
+    $type: "nebius.vpc.v1.DeleteSecurityGroupRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteSecurityGroupRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteSecurityGroupRequestCustom({
+            $type: "nebius.vpc.v1.DeleteSecurityGroupRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteSecurityGroupRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteSecurityGroupRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteSecurityGroupRequest);
+function DeleteSecurityGroupRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteSecurityGroupRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteSecurityGroupRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteSecurityGroupRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteSecurityGroupRequestCustomJson;
+    return message;
+}
+function createBaseDeleteSecurityGroupRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteSecurityGroupRequest",
+        id: "",
+    };
+    return applyDeleteSecurityGroupRequestCustom(message);
+}
+exports.SecurityGroupServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.SecurityGroupService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecurityGroupRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecurityGroupRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecurityGroup.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecurityGroup.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.SecurityGroupService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecurityGroupByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecurityGroupByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecurityGroup.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecurityGroup.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.SecurityGroupService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSecurityGroupsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSecurityGroupsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSecurityGroupsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSecurityGroupsResponse.decode(value),
+    },
+    listByNetwork: {
+        path: "/nebius.vpc.v1.SecurityGroupService/ListByNetwork",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSecurityGroupsByNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSecurityGroupsByNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSecurityGroupsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSecurityGroupsResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.SecurityGroupService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateSecurityGroupRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateSecurityGroupRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.SecurityGroupService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateSecurityGroupRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateSecurityGroupRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.SecurityGroupService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteSecurityGroupRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteSecurityGroupRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.SecurityGroupServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.SecurityGroupServiceServiceDescription, "nebius.vpc.v1.SecurityGroupService");
+class SecurityGroupService {
+    sdk;
+    $type = "nebius.vpc.v1.SecurityGroupService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.SecurityGroupServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listByNetwork(...args) {
+        const spec = this.spec.listByNetwork;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.SecurityGroupService = SecurityGroupService;
+const SecurityGroupStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " Default state, unspecified.",
+    READY: " Security group is ready for use.",
+};
+exports.SecurityGroupStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.SecurityGroupStatus.State", {
+    /**
+     *  Default state, unspecified.
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Security group is ready for use.
+     */
+    READY: 2,
+}, SecurityGroupStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.SecurityGroupStatus_State);
+exports.SecurityGroup = {
+    $type: "nebius.vpc.v1.SecurityGroup",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecurityGroupSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.SecurityGroupStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecurityGroup();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecurityGroupSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.SecurityGroupStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecurityGroupCustom({
+            $type: "nebius.vpc.v1.SecurityGroup",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecurityGroupSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.SecurityGroupStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecurityGroupSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.SecurityGroupStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecurityGroup.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecurityGroup();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecurityGroupSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.SecurityGroupStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecurityGroup);
+function SecurityGroupCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecurityGroupCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applySecurityGroupCustom(message) {
+    message[logging_js_1.custom] = SecurityGroupCustomInspect;
+    message[logging_js_1.customJson] = SecurityGroupCustomJson;
+    return message;
+}
+function createBaseSecurityGroup() {
+    const message = {
+        $type: "nebius.vpc.v1.SecurityGroup",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applySecurityGroupCustom(message);
+}
+exports.SecurityGroupSpec = {
+    $type: "nebius.vpc.v1.SecurityGroupSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.networkId !== "") {
+            writer.uint32(10).string(message.networkId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecurityGroupSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networkId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecurityGroupSpecCustom({
+            $type: "nebius.vpc.v1.SecurityGroupSpec",
+            networkId: (0, index_js_1.isSet)(object.networkId ?? object.network_id)
+                ? String(object.networkId ?? object.network_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networkId !== "") {
+            obj[pick("networkId", "network_id")] = message.networkId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecurityGroupSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecurityGroupSpec();
+        message.networkId = (object.networkId !== undefined && object.networkId !== null)
+            ? object.networkId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecurityGroupSpec);
+function SecurityGroupSpecCustomInspect() {
+    const parts = [];
+    if (this.networkId !== "")
+        parts.push("networkId" + "=" + (0, util_1.inspect)(this.networkId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecurityGroupSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.networkId !== "")
+        obj.networkId = (0, logging_js_1.inspectJson)(this.networkId);
+    return obj;
+}
+function applySecurityGroupSpecCustom(message) {
+    message[logging_js_1.custom] = SecurityGroupSpecCustomInspect;
+    message[logging_js_1.customJson] = SecurityGroupSpecCustomJson;
+    return message;
+}
+function createBaseSecurityGroupSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.SecurityGroupSpec",
+        networkId: "",
+    };
+    return applySecurityGroupSpecCustom(message);
+}
+exports.SecurityGroupStatus = {
+    $type: "nebius.vpc.v1.SecurityGroupStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.SecurityGroupStatus_State.STATE_UNSPECIFIED) !== exports.SecurityGroupStatus_State.STATE_UNSPECIFIED) {
+            exports.SecurityGroupStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.default === true) {
+            writer.uint32(16).bool(message.default);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecurityGroupStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.SecurityGroupStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.default = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecurityGroupStatusCustom({
+            $type: "nebius.vpc.v1.SecurityGroupStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.SecurityGroupStatus_State.fromJSON(object.state ?? object.state)
+                : exports.SecurityGroupStatus_State.STATE_UNSPECIFIED,
+            default: (0, index_js_1.isSet)(object.default ?? object.default)
+                ? Boolean(object.default ?? object.default)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.SecurityGroupStatus_State.STATE_UNSPECIFIED) !== exports.SecurityGroupStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.SecurityGroupStatus_State.toJSON(message.state);
+        }
+        if (message.default === true) {
+            obj[pick("default", "default")] = message.default;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecurityGroupStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecurityGroupStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.SecurityGroupStatus_State.fromJSON(object.state.name)
+            : exports.SecurityGroupStatus_State.STATE_UNSPECIFIED;
+        message.default = (object.default !== undefined && object.default !== null)
+            ? object.default
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecurityGroupStatus);
+function SecurityGroupStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.default === true)
+        parts.push("default" + "=" + (0, util_1.inspect)(this.default));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecurityGroupStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.default === true)
+        obj.default = (0, logging_js_1.inspectJson)(this.default);
+    return obj;
+}
+function applySecurityGroupStatusCustom(message) {
+    message[logging_js_1.custom] = SecurityGroupStatusCustomInspect;
+    message[logging_js_1.customJson] = SecurityGroupStatusCustomJson;
+    return message;
+}
+function createBaseSecurityGroupStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.SecurityGroupStatus",
+        state: exports.SecurityGroupStatus_State.STATE_UNSPECIFIED,
+        default: false,
+    };
+    return applySecurityGroupStatusCustom(message);
+}
+exports.GetSecurityRuleRequest = {
+    $type: "nebius.vpc.v1.GetSecurityRuleRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecurityRuleRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecurityRuleRequestCustom({
+            $type: "nebius.vpc.v1.GetSecurityRuleRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecurityRuleRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecurityRuleRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecurityRuleRequest);
+function GetSecurityRuleRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecurityRuleRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetSecurityRuleRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecurityRuleRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecurityRuleRequestCustomJson;
+    return message;
+}
+function createBaseGetSecurityRuleRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetSecurityRuleRequest",
+        id: "",
+    };
+    return applyGetSecurityRuleRequestCustom(message);
+}
+exports.GetSecurityRuleByNameRequest = {
+    $type: "nebius.vpc.v1.GetSecurityRuleByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecurityRuleByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecurityRuleByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetSecurityRuleByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecurityRuleByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecurityRuleByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecurityRuleByNameRequest);
+function GetSecurityRuleByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecurityRuleByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetSecurityRuleByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecurityRuleByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecurityRuleByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetSecurityRuleByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetSecurityRuleByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetSecurityRuleByNameRequestCustom(message);
+}
+exports.ListSecurityRulesRequest = {
+    $type: "nebius.vpc.v1.ListSecurityRulesRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecurityRulesRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecurityRulesRequestCustom({
+            $type: "nebius.vpc.v1.ListSecurityRulesRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecurityRulesRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecurityRulesRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecurityRulesRequest);
+function ListSecurityRulesRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecurityRulesRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListSecurityRulesRequestCustom(message) {
+    message[logging_js_1.custom] = ListSecurityRulesRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSecurityRulesRequestCustomJson;
+    return message;
+}
+function createBaseListSecurityRulesRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSecurityRulesRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListSecurityRulesRequestCustom(message);
+}
+exports.ListSecurityRulesResponse = {
+    $type: "nebius.vpc.v1.ListSecurityRulesResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.SecurityRule.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecurityRulesResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.SecurityRule.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecurityRulesResponseCustom({
+            $type: "nebius.vpc.v1.ListSecurityRulesResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.SecurityRule.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.SecurityRule.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecurityRulesResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecurityRulesResponse();
+        message.items = object.items?.map((e) => exports.SecurityRule.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecurityRulesResponse);
+function ListSecurityRulesResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecurityRulesResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListSecurityRulesResponseCustom(message) {
+    message[logging_js_1.custom] = ListSecurityRulesResponseCustomInspect;
+    message[logging_js_1.customJson] = ListSecurityRulesResponseCustomJson;
+    return message;
+}
+function createBaseListSecurityRulesResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSecurityRulesResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListSecurityRulesResponseCustom(message);
+}
+exports.CreateSecurityRuleRequest = {
+    $type: "nebius.vpc.v1.CreateSecurityRuleRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecurityRuleSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateSecurityRuleRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecurityRuleSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateSecurityRuleRequestCustom({
+            $type: "nebius.vpc.v1.CreateSecurityRuleRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecurityRuleSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecurityRuleSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateSecurityRuleRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateSecurityRuleRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecurityRuleSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateSecurityRuleRequest);
+function CreateSecurityRuleRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateSecurityRuleRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateSecurityRuleRequestCustom(message) {
+    message[logging_js_1.custom] = CreateSecurityRuleRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateSecurityRuleRequestCustomJson;
+    return message;
+}
+function createBaseCreateSecurityRuleRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateSecurityRuleRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateSecurityRuleRequestCustom(message);
+}
+exports.UpdateSecurityRuleRequest = {
+    $type: "nebius.vpc.v1.UpdateSecurityRuleRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecurityRuleSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateSecurityRuleRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecurityRuleSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateSecurityRuleRequestCustom({
+            $type: "nebius.vpc.v1.UpdateSecurityRuleRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecurityRuleSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecurityRuleSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateSecurityRuleRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateSecurityRuleRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecurityRuleSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateSecurityRuleRequest);
+function UpdateSecurityRuleRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateSecurityRuleRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateSecurityRuleRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateSecurityRuleRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateSecurityRuleRequestCustomJson;
+    return message;
+}
+function createBaseUpdateSecurityRuleRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateSecurityRuleRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateSecurityRuleRequestCustom(message);
+}
+exports.DeleteSecurityRuleRequest = {
+    $type: "nebius.vpc.v1.DeleteSecurityRuleRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteSecurityRuleRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteSecurityRuleRequestCustom({
+            $type: "nebius.vpc.v1.DeleteSecurityRuleRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteSecurityRuleRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteSecurityRuleRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteSecurityRuleRequest);
+function DeleteSecurityRuleRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteSecurityRuleRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteSecurityRuleRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteSecurityRuleRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteSecurityRuleRequestCustomJson;
+    return message;
+}
+function createBaseDeleteSecurityRuleRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteSecurityRuleRequest",
+        id: "",
+    };
+    return applyDeleteSecurityRuleRequestCustom(message);
+}
+exports.SecurityRuleServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.SecurityRuleService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecurityRuleRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecurityRuleRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecurityRule.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecurityRule.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.SecurityRuleService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecurityRuleByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecurityRuleByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecurityRule.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecurityRule.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.SecurityRuleService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSecurityRulesRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSecurityRulesRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSecurityRulesResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSecurityRulesResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.SecurityRuleService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateSecurityRuleRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateSecurityRuleRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.SecurityRuleService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateSecurityRuleRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateSecurityRuleRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.SecurityRuleService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteSecurityRuleRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteSecurityRuleRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.SecurityRuleServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.SecurityRuleServiceServiceDescription, "nebius.vpc.v1.SecurityRuleService");
+class SecurityRuleService {
+    sdk;
+    $type = "nebius.vpc.v1.SecurityRuleService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.SecurityRuleServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.SecurityRuleService = SecurityRuleService;
+exports.RuleDirection = (0, index_js_1.createEnum)("nebius.vpc.v1.RuleDirection", {
+    DIRECTION_UNSPECIFIED: 0,
+    INGRESS: 1,
+    EGRESS: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.RuleDirection);
+exports.RuleProtocol = (0, index_js_1.createEnum)("nebius.vpc.v1.RuleProtocol", {
+    PROTOCOL_UNSPECIFIED: 0,
+    ANY: 1,
+    TCP: 2,
+    UDP: 3,
+    ICMP: 4,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.RuleProtocol);
+exports.RuleAccessAction = (0, index_js_1.createEnum)("nebius.vpc.v1.RuleAccessAction", {
+    ACCESS_UNSPECIFIED: 0,
+    ALLOW: 1,
+    DENY: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.RuleAccessAction);
+exports.RuleType = (0, index_js_1.createEnum)("nebius.vpc.v1.RuleType", {
+    RULE_TYPE_UNSPECIFIED: 0,
+    STATEFUL: 1,
+    STATELESS: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.RuleType);
+exports.SecurityRuleStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.SecurityRuleStatus.State", {
+    STATE_UNSPECIFIED: 0,
+    CREATING: 1,
+    READY: 2,
+    DELETING: 3,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.SecurityRuleStatus_State);
+exports.SecurityRule = {
+    $type: "nebius.vpc.v1.SecurityRule",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecurityRuleSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.SecurityRuleStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecurityRule();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecurityRuleSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.SecurityRuleStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecurityRuleCustom({
+            $type: "nebius.vpc.v1.SecurityRule",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecurityRuleSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.SecurityRuleStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecurityRuleSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.SecurityRuleStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecurityRule.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecurityRule();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecurityRuleSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.SecurityRuleStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecurityRule);
+function SecurityRuleCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecurityRuleCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applySecurityRuleCustom(message) {
+    message[logging_js_1.custom] = SecurityRuleCustomInspect;
+    message[logging_js_1.customJson] = SecurityRuleCustomJson;
+    return message;
+}
+function createBaseSecurityRule() {
+    const message = {
+        $type: "nebius.vpc.v1.SecurityRule",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applySecurityRuleCustom(message);
+}
+exports.SecurityRuleSpec = {
+    $type: "nebius.vpc.v1.SecurityRuleSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.access ?? exports.RuleAccessAction.ACCESS_UNSPECIFIED) !== exports.RuleAccessAction.ACCESS_UNSPECIFIED) {
+            exports.RuleAccessAction.encodeField(writer, 1, message.access);
+        }
+        if ((message.priority ?? 0) !== 0) {
+            writer.uint32(16).int32(message.priority);
+        }
+        if ((message.protocol ?? exports.RuleProtocol.PROTOCOL_UNSPECIFIED) !== exports.RuleProtocol.PROTOCOL_UNSPECIFIED) {
+            exports.RuleProtocol.encodeField(writer, 3, message.protocol);
+        }
+        if ((message.type ?? exports.RuleType.RULE_TYPE_UNSPECIFIED) !== exports.RuleType.RULE_TYPE_UNSPECIFIED) {
+            exports.RuleType.encodeField(writer, 6, message.type);
+        }
+        if (message.match?.$case === undefined) { /* noop */ }
+        else if (message.match?.$case === "ingress") {
+            const w = writer.uint32(34).fork();
+            exports.RuleIngress.encode(message.match.ingress, w);
+            w.join();
+        }
+        else if (message.match?.$case === "egress") {
+            const w = writer.uint32(42).fork();
+            exports.RuleEgress.encode(message.match.egress, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecurityRuleSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.access = exports.RuleAccessAction.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.priority = reader.int32();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.protocol = exports.RuleProtocol.fromNumber(reader.int32());
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 48)
+                        break;
+                    message.type = exports.RuleType.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.match = {
+                        $case: "ingress",
+                        ingress: exports.RuleIngress.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.match = {
+                        $case: "egress",
+                        egress: exports.RuleEgress.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecurityRuleSpecCustom({
+            $type: "nebius.vpc.v1.SecurityRuleSpec",
+            access: (0, index_js_1.isSet)(object.access ?? object.access)
+                ? exports.RuleAccessAction.fromJSON(object.access ?? object.access)
+                : exports.RuleAccessAction.ACCESS_UNSPECIFIED,
+            priority: (0, index_js_1.isSet)(object.priority ?? object.priority)
+                ? Number(object.priority ?? object.priority)
+                : 0,
+            protocol: (0, index_js_1.isSet)(object.protocol ?? object.protocol)
+                ? exports.RuleProtocol.fromJSON(object.protocol ?? object.protocol)
+                : exports.RuleProtocol.PROTOCOL_UNSPECIFIED,
+            type: (0, index_js_1.isSet)(object.type ?? object.type)
+                ? exports.RuleType.fromJSON(object.type ?? object.type)
+                : exports.RuleType.RULE_TYPE_UNSPECIFIED,
+            match: (() => {
+                if ((0, index_js_1.isSet)(object.ingress) || (0, index_js_1.isSet)(object.ingress)) {
+                    return {
+                        $case: "ingress",
+                        ingress: exports.RuleIngress.fromJSON(object.ingress ?? object.ingress)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.egress) || (0, index_js_1.isSet)(object.egress)) {
+                    return {
+                        $case: "egress",
+                        egress: exports.RuleEgress.fromJSON(object.egress ?? object.egress)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.access ?? exports.RuleAccessAction.ACCESS_UNSPECIFIED) !== exports.RuleAccessAction.ACCESS_UNSPECIFIED) {
+            obj[pick("access", "access")] = exports.RuleAccessAction.toJSON(message.access);
+        }
+        if ((message.priority ?? 0) !== 0) {
+            obj[pick("priority", "priority")] = message.priority;
+        }
+        if ((message.protocol ?? exports.RuleProtocol.PROTOCOL_UNSPECIFIED) !== exports.RuleProtocol.PROTOCOL_UNSPECIFIED) {
+            obj[pick("protocol", "protocol")] = exports.RuleProtocol.toJSON(message.protocol);
+        }
+        if ((message.type ?? exports.RuleType.RULE_TYPE_UNSPECIFIED) !== exports.RuleType.RULE_TYPE_UNSPECIFIED) {
+            obj[pick("type", "type")] = exports.RuleType.toJSON(message.type);
+        }
+        switch (message.match?.$case) {
+            case "ingress": {
+                obj[pick("ingress", "ingress")] = exports.RuleIngress.toJSON(message.match.ingress, use);
+                break;
+            }
+            case "egress": {
+                obj[pick("egress", "egress")] = exports.RuleEgress.toJSON(message.match.egress, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecurityRuleSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecurityRuleSpec();
+        message.access = (object.access !== undefined && object.access !== null)
+            ? exports.RuleAccessAction.fromJSON(object.access.name)
+            : exports.RuleAccessAction.ACCESS_UNSPECIFIED;
+        message.priority = (object.priority !== undefined && object.priority !== null)
+            ? object.priority
+            : 0;
+        message.protocol = (object.protocol !== undefined && object.protocol !== null)
+            ? exports.RuleProtocol.fromJSON(object.protocol.name)
+            : exports.RuleProtocol.PROTOCOL_UNSPECIFIED;
+        message.type = (object.type !== undefined && object.type !== null)
+            ? exports.RuleType.fromJSON(object.type.name)
+            : exports.RuleType.RULE_TYPE_UNSPECIFIED;
+        switch (object.match?.$case) {
+            case "ingress": {
+                if (object.match.ingress !== undefined && object.match.ingress !== null) {
+                    message.match = {
+                        $case: "ingress",
+                        ingress: exports.RuleIngress.fromPartial(object.match.ingress),
+                    };
+                }
+                break;
+            }
+            case "egress": {
+                if (object.match.egress !== undefined && object.match.egress !== null) {
+                    message.match = {
+                        $case: "egress",
+                        egress: exports.RuleEgress.fromPartial(object.match.egress),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecurityRuleSpec);
+function SecurityRuleSpecCustomInspect() {
+    const parts = [];
+    if (this.access !== undefined)
+        parts.push("access" + "=" + (0, util_1.inspect)(this.access));
+    if ((this.priority ?? 0) !== 0)
+        parts.push("priority" + "=" + (0, util_1.inspect)(this.priority));
+    if (this.protocol !== undefined)
+        parts.push("protocol" + "=" + (0, util_1.inspect)(this.protocol));
+    if (this.type !== undefined)
+        parts.push("type" + "=" + (0, util_1.inspect)(this.type));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecurityRuleSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.access !== undefined)
+        obj.access = (0, logging_js_1.inspectJson)(this.access);
+    if ((this.priority ?? 0) !== 0)
+        obj.priority = (0, logging_js_1.inspectJson)(this.priority);
+    if (this.protocol !== undefined)
+        obj.protocol = (0, logging_js_1.inspectJson)(this.protocol);
+    if (this.type !== undefined)
+        obj.type = (0, logging_js_1.inspectJson)(this.type);
+    return obj;
+}
+function applySecurityRuleSpecCustom(message) {
+    message[logging_js_1.custom] = SecurityRuleSpecCustomInspect;
+    message[logging_js_1.customJson] = SecurityRuleSpecCustomJson;
+    return message;
+}
+function createBaseSecurityRuleSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.SecurityRuleSpec",
+        access: exports.RuleAccessAction.ACCESS_UNSPECIFIED,
+        priority: 0,
+        protocol: exports.RuleProtocol.PROTOCOL_UNSPECIFIED,
+        type: exports.RuleType.RULE_TYPE_UNSPECIFIED,
+        match: undefined,
+    };
+    return applySecurityRuleSpecCustom(message);
+}
+exports.RuleIngress = {
+    $type: "nebius.vpc.v1.RuleIngress",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.sourceSecurityGroupId !== "") {
+            writer.uint32(10).string(message.sourceSecurityGroupId);
+        }
+        for (const v of (message.sourceCidrs ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        if (message.destinationPorts?.length) {
+            const w = writer.uint32(26).fork();
+            for (const v of message.destinationPorts)
+                w.int32(v);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRuleIngress();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.sourceSecurityGroupId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.sourceCidrs.push(reader.string());
+                    continue;
+                }
+                case 3: {
+                    // packed or unpacked repeated scalar
+                    if ((tag & 7) === 2) {
+                        const end2 = reader.uint32() + reader.pos;
+                        while (reader.pos < end2) {
+                            message.destinationPorts.push(reader.int32());
+                        }
+                        continue;
+                    }
+                    else if ((tag & 7) === 0 || (tag & 7) === 5 || (tag & 7) === 1) { // allow valid scalar wire types
+                        message.destinationPorts.push(reader.int32());
+                        continue;
+                    }
+                    break; // wrong wire type
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRuleIngressCustom({
+            $type: "nebius.vpc.v1.RuleIngress",
+            sourceSecurityGroupId: (0, index_js_1.isSet)(object.sourceSecurityGroupId ?? object.source_security_group_id)
+                ? String(object.sourceSecurityGroupId ?? object.source_security_group_id)
+                : "",
+            sourceCidrs: globalThis.Array.isArray(object?.sourceCidrs ?? object?.source_cidrs)
+                ? (object.sourceCidrs ?? object.source_cidrs).map((e) => String(e))
+                : [],
+            destinationPorts: globalThis.Array.isArray(object?.destinationPorts ?? object?.destination_ports)
+                ? (object.destinationPorts ?? object.destination_ports).map((e) => Number(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.sourceSecurityGroupId !== "") {
+            obj[pick("sourceSecurityGroupId", "source_security_group_id")] = message.sourceSecurityGroupId;
+        }
+        if (message.sourceCidrs?.length) {
+            obj[pick("sourceCidrs", "source_cidrs")] = message.sourceCidrs.map((e) => e);
+        }
+        if (message.destinationPorts?.length) {
+            obj[pick("destinationPorts", "destination_ports")] = message.destinationPorts.map((e) => e);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RuleIngress.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRuleIngress();
+        message.sourceSecurityGroupId = (object.sourceSecurityGroupId !== undefined && object.sourceSecurityGroupId !== null)
+            ? object.sourceSecurityGroupId
+            : "";
+        message.sourceCidrs = object.sourceCidrs?.map((e) => e) || [];
+        message.destinationPorts = object.destinationPorts?.map((e) => e) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RuleIngress);
+function RuleIngressCustomInspect() {
+    const parts = [];
+    if (this.sourceSecurityGroupId !== "")
+        parts.push("sourceSecurityGroupId" + "=" + (0, util_1.inspect)(this.sourceSecurityGroupId));
+    if ((this.sourceCidrs?.length ?? 0) !== 0)
+        parts.push("sourceCidrs" + "=" + (0, util_1.inspect)(this.sourceCidrs));
+    if ((this.destinationPorts?.length ?? 0) !== 0)
+        parts.push("destinationPorts" + "=" + (0, util_1.inspect)(this.destinationPorts));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RuleIngressCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.sourceSecurityGroupId !== "")
+        obj.sourceSecurityGroupId = (0, logging_js_1.inspectJson)(this.sourceSecurityGroupId);
+    if ((this.sourceCidrs?.length ?? 0) !== 0)
+        obj.sourceCidrs = (0, logging_js_1.inspectJson)(this.sourceCidrs);
+    if ((this.destinationPorts?.length ?? 0) !== 0)
+        obj.destinationPorts = (0, logging_js_1.inspectJson)(this.destinationPorts);
+    return obj;
+}
+function applyRuleIngressCustom(message) {
+    message[logging_js_1.custom] = RuleIngressCustomInspect;
+    message[logging_js_1.customJson] = RuleIngressCustomJson;
+    return message;
+}
+function createBaseRuleIngress() {
+    const message = {
+        $type: "nebius.vpc.v1.RuleIngress",
+        sourceSecurityGroupId: "",
+        sourceCidrs: [],
+        destinationPorts: [],
+    };
+    return applyRuleIngressCustom(message);
+}
+exports.RuleEgress = {
+    $type: "nebius.vpc.v1.RuleEgress",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.destinationSecurityGroupId !== "") {
+            writer.uint32(10).string(message.destinationSecurityGroupId);
+        }
+        for (const v of (message.destinationCidrs ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        if (message.destinationPorts?.length) {
+            const w = writer.uint32(26).fork();
+            for (const v of message.destinationPorts)
+                w.int32(v);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRuleEgress();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.destinationSecurityGroupId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.destinationCidrs.push(reader.string());
+                    continue;
+                }
+                case 3: {
+                    // packed or unpacked repeated scalar
+                    if ((tag & 7) === 2) {
+                        const end2 = reader.uint32() + reader.pos;
+                        while (reader.pos < end2) {
+                            message.destinationPorts.push(reader.int32());
+                        }
+                        continue;
+                    }
+                    else if ((tag & 7) === 0 || (tag & 7) === 5 || (tag & 7) === 1) { // allow valid scalar wire types
+                        message.destinationPorts.push(reader.int32());
+                        continue;
+                    }
+                    break; // wrong wire type
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRuleEgressCustom({
+            $type: "nebius.vpc.v1.RuleEgress",
+            destinationSecurityGroupId: (0, index_js_1.isSet)(object.destinationSecurityGroupId ?? object.destination_security_group_id)
+                ? String(object.destinationSecurityGroupId ?? object.destination_security_group_id)
+                : "",
+            destinationCidrs: globalThis.Array.isArray(object?.destinationCidrs ?? object?.destination_cidrs)
+                ? (object.destinationCidrs ?? object.destination_cidrs).map((e) => String(e))
+                : [],
+            destinationPorts: globalThis.Array.isArray(object?.destinationPorts ?? object?.destination_ports)
+                ? (object.destinationPorts ?? object.destination_ports).map((e) => Number(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.destinationSecurityGroupId !== "") {
+            obj[pick("destinationSecurityGroupId", "destination_security_group_id")] = message.destinationSecurityGroupId;
+        }
+        if (message.destinationCidrs?.length) {
+            obj[pick("destinationCidrs", "destination_cidrs")] = message.destinationCidrs.map((e) => e);
+        }
+        if (message.destinationPorts?.length) {
+            obj[pick("destinationPorts", "destination_ports")] = message.destinationPorts.map((e) => e);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RuleEgress.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRuleEgress();
+        message.destinationSecurityGroupId = (object.destinationSecurityGroupId !== undefined && object.destinationSecurityGroupId !== null)
+            ? object.destinationSecurityGroupId
+            : "";
+        message.destinationCidrs = object.destinationCidrs?.map((e) => e) || [];
+        message.destinationPorts = object.destinationPorts?.map((e) => e) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RuleEgress);
+function RuleEgressCustomInspect() {
+    const parts = [];
+    if (this.destinationSecurityGroupId !== "")
+        parts.push("destinationSecurityGroupId" + "=" + (0, util_1.inspect)(this.destinationSecurityGroupId));
+    if ((this.destinationCidrs?.length ?? 0) !== 0)
+        parts.push("destinationCidrs" + "=" + (0, util_1.inspect)(this.destinationCidrs));
+    if ((this.destinationPorts?.length ?? 0) !== 0)
+        parts.push("destinationPorts" + "=" + (0, util_1.inspect)(this.destinationPorts));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RuleEgressCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.destinationSecurityGroupId !== "")
+        obj.destinationSecurityGroupId = (0, logging_js_1.inspectJson)(this.destinationSecurityGroupId);
+    if ((this.destinationCidrs?.length ?? 0) !== 0)
+        obj.destinationCidrs = (0, logging_js_1.inspectJson)(this.destinationCidrs);
+    if ((this.destinationPorts?.length ?? 0) !== 0)
+        obj.destinationPorts = (0, logging_js_1.inspectJson)(this.destinationPorts);
+    return obj;
+}
+function applyRuleEgressCustom(message) {
+    message[logging_js_1.custom] = RuleEgressCustomInspect;
+    message[logging_js_1.customJson] = RuleEgressCustomJson;
+    return message;
+}
+function createBaseRuleEgress() {
+    const message = {
+        $type: "nebius.vpc.v1.RuleEgress",
+        destinationSecurityGroupId: "",
+        destinationCidrs: [],
+        destinationPorts: [],
+    };
+    return applyRuleEgressCustom(message);
+}
+exports.SecurityRuleStatus = {
+    $type: "nebius.vpc.v1.SecurityRuleStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.SecurityRuleStatus_State.STATE_UNSPECIFIED) !== exports.SecurityRuleStatus_State.STATE_UNSPECIFIED) {
+            exports.SecurityRuleStatus_State.encodeField(writer, 1, message.state);
+        }
+        if ((message.effectivePriority ?? 0) !== 0) {
+            writer.uint32(32).int32(message.effectivePriority);
+        }
+        if ((message.direction ?? exports.RuleDirection.DIRECTION_UNSPECIFIED) !== exports.RuleDirection.DIRECTION_UNSPECIFIED) {
+            exports.RuleDirection.encodeField(writer, 6, message.direction);
+        }
+        if (message.source !== undefined) {
+            const w = writer.uint32(58).fork();
+            exports.RuleMatchStatus.encode(message.source, w);
+            w.join();
+        }
+        if (message.destination !== undefined) {
+            const w = writer.uint32(66).fork();
+            exports.RuleMatchStatus.encode(message.destination, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecurityRuleStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.SecurityRuleStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.effectivePriority = reader.int32();
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 48)
+                        break;
+                    message.direction = exports.RuleDirection.fromNumber(reader.int32());
+                    continue;
+                }
+                case 7: {
+                    if (tag !== 58)
+                        break;
+                    message.source = exports.RuleMatchStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 8: {
+                    if (tag !== 66)
+                        break;
+                    message.destination = exports.RuleMatchStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecurityRuleStatusCustom({
+            $type: "nebius.vpc.v1.SecurityRuleStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.SecurityRuleStatus_State.fromJSON(object.state ?? object.state)
+                : exports.SecurityRuleStatus_State.STATE_UNSPECIFIED,
+            effectivePriority: (0, index_js_1.isSet)(object.effectivePriority ?? object.effective_priority)
+                ? Number(object.effectivePriority ?? object.effective_priority)
+                : 0,
+            direction: (0, index_js_1.isSet)(object.direction ?? object.direction)
+                ? exports.RuleDirection.fromJSON(object.direction ?? object.direction)
+                : exports.RuleDirection.DIRECTION_UNSPECIFIED,
+            source: (0, index_js_1.isSet)(object.source ?? object.source)
+                ? exports.RuleMatchStatus.fromJSON(object.source ?? object.source)
+                : undefined,
+            destination: (0, index_js_1.isSet)(object.destination ?? object.destination)
+                ? exports.RuleMatchStatus.fromJSON(object.destination ?? object.destination)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.SecurityRuleStatus_State.STATE_UNSPECIFIED) !== exports.SecurityRuleStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.SecurityRuleStatus_State.toJSON(message.state);
+        }
+        if ((message.effectivePriority ?? 0) !== 0) {
+            obj[pick("effectivePriority", "effective_priority")] = message.effectivePriority;
+        }
+        if ((message.direction ?? exports.RuleDirection.DIRECTION_UNSPECIFIED) !== exports.RuleDirection.DIRECTION_UNSPECIFIED) {
+            obj[pick("direction", "direction")] = exports.RuleDirection.toJSON(message.direction);
+        }
+        if (message.source !== undefined) {
+            obj[pick("source", "source")] = message.source
+                ? exports.RuleMatchStatus.toJSON(message.source, use)
+                : undefined;
+        }
+        if (message.destination !== undefined) {
+            obj[pick("destination", "destination")] = message.destination
+                ? exports.RuleMatchStatus.toJSON(message.destination, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecurityRuleStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecurityRuleStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.SecurityRuleStatus_State.fromJSON(object.state.name)
+            : exports.SecurityRuleStatus_State.STATE_UNSPECIFIED;
+        message.effectivePriority = (object.effectivePriority !== undefined && object.effectivePriority !== null)
+            ? object.effectivePriority
+            : 0;
+        message.direction = (object.direction !== undefined && object.direction !== null)
+            ? exports.RuleDirection.fromJSON(object.direction.name)
+            : exports.RuleDirection.DIRECTION_UNSPECIFIED;
+        message.source = (object.source !== undefined && object.source !== null)
+            ? exports.RuleMatchStatus.fromPartial(object.source)
+            : undefined;
+        message.destination = (object.destination !== undefined && object.destination !== null)
+            ? exports.RuleMatchStatus.fromPartial(object.destination)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecurityRuleStatus);
+function SecurityRuleStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if ((this.effectivePriority ?? 0) !== 0)
+        parts.push("effectivePriority" + "=" + (0, util_1.inspect)(this.effectivePriority));
+    if (this.direction !== undefined)
+        parts.push("direction" + "=" + (0, util_1.inspect)(this.direction));
+    if (this.source !== undefined)
+        parts.push("source" + "=" + (0, util_1.inspect)(this.source));
+    if (this.destination !== undefined)
+        parts.push("destination" + "=" + (0, util_1.inspect)(this.destination));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecurityRuleStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if ((this.effectivePriority ?? 0) !== 0)
+        obj.effectivePriority = (0, logging_js_1.inspectJson)(this.effectivePriority);
+    if (this.direction !== undefined)
+        obj.direction = (0, logging_js_1.inspectJson)(this.direction);
+    if (this.source !== undefined)
+        obj.source = (0, logging_js_1.inspectJson)(this.source);
+    if (this.destination !== undefined)
+        obj.destination = (0, logging_js_1.inspectJson)(this.destination);
+    return obj;
+}
+function applySecurityRuleStatusCustom(message) {
+    message[logging_js_1.custom] = SecurityRuleStatusCustomInspect;
+    message[logging_js_1.customJson] = SecurityRuleStatusCustomJson;
+    return message;
+}
+function createBaseSecurityRuleStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.SecurityRuleStatus",
+        state: exports.SecurityRuleStatus_State.STATE_UNSPECIFIED,
+        effectivePriority: 0,
+        direction: exports.RuleDirection.DIRECTION_UNSPECIFIED,
+        source: undefined,
+        destination: undefined,
+    };
+    return applySecurityRuleStatusCustom(message);
+}
+exports.RuleMatchStatus = {
+    $type: "nebius.vpc.v1.RuleMatchStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.securityGroupId !== "") {
+            writer.uint32(10).string(message.securityGroupId);
+        }
+        for (const v of (message.cidrs ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        if (message.ports?.length) {
+            const w = writer.uint32(26).fork();
+            for (const v of message.ports)
+                w.int32(v);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseRuleMatchStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.securityGroupId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.cidrs.push(reader.string());
+                    continue;
+                }
+                case 3: {
+                    // packed or unpacked repeated scalar
+                    if ((tag & 7) === 2) {
+                        const end2 = reader.uint32() + reader.pos;
+                        while (reader.pos < end2) {
+                            message.ports.push(reader.int32());
+                        }
+                        continue;
+                    }
+                    else if ((tag & 7) === 0 || (tag & 7) === 5 || (tag & 7) === 1) { // allow valid scalar wire types
+                        message.ports.push(reader.int32());
+                        continue;
+                    }
+                    break; // wrong wire type
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyRuleMatchStatusCustom({
+            $type: "nebius.vpc.v1.RuleMatchStatus",
+            securityGroupId: (0, index_js_1.isSet)(object.securityGroupId ?? object.security_group_id)
+                ? String(object.securityGroupId ?? object.security_group_id)
+                : "",
+            cidrs: globalThis.Array.isArray(object?.cidrs ?? object?.cidrs)
+                ? (object.cidrs ?? object.cidrs).map((e) => String(e))
+                : [],
+            ports: globalThis.Array.isArray(object?.ports ?? object?.ports)
+                ? (object.ports ?? object.ports).map((e) => Number(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.securityGroupId !== "") {
+            obj[pick("securityGroupId", "security_group_id")] = message.securityGroupId;
+        }
+        if (message.cidrs?.length) {
+            obj[pick("cidrs", "cidrs")] = message.cidrs.map((e) => e);
+        }
+        if (message.ports?.length) {
+            obj[pick("ports", "ports")] = message.ports.map((e) => e);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.RuleMatchStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseRuleMatchStatus();
+        message.securityGroupId = (object.securityGroupId !== undefined && object.securityGroupId !== null)
+            ? object.securityGroupId
+            : "";
+        message.cidrs = object.cidrs?.map((e) => e) || [];
+        message.ports = object.ports?.map((e) => e) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.RuleMatchStatus);
+function RuleMatchStatusCustomInspect() {
+    const parts = [];
+    if (this.securityGroupId !== "")
+        parts.push("securityGroupId" + "=" + (0, util_1.inspect)(this.securityGroupId));
+    if ((this.cidrs?.length ?? 0) !== 0)
+        parts.push("cidrs" + "=" + (0, util_1.inspect)(this.cidrs));
+    if ((this.ports?.length ?? 0) !== 0)
+        parts.push("ports" + "=" + (0, util_1.inspect)(this.ports));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function RuleMatchStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.securityGroupId !== "")
+        obj.securityGroupId = (0, logging_js_1.inspectJson)(this.securityGroupId);
+    if ((this.cidrs?.length ?? 0) !== 0)
+        obj.cidrs = (0, logging_js_1.inspectJson)(this.cidrs);
+    if ((this.ports?.length ?? 0) !== 0)
+        obj.ports = (0, logging_js_1.inspectJson)(this.ports);
+    return obj;
+}
+function applyRuleMatchStatusCustom(message) {
+    message[logging_js_1.custom] = RuleMatchStatusCustomInspect;
+    message[logging_js_1.customJson] = RuleMatchStatusCustomJson;
+    return message;
+}
+function createBaseRuleMatchStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.RuleMatchStatus",
+        securityGroupId: "",
+        cidrs: [],
+        ports: [],
+    };
+    return applyRuleMatchStatusCustom(message);
+}
+exports.GetSubnetRequest = {
+    $type: "nebius.vpc.v1.GetSubnetRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSubnetRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSubnetRequestCustom({
+            $type: "nebius.vpc.v1.GetSubnetRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSubnetRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSubnetRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSubnetRequest);
+function GetSubnetRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSubnetRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetSubnetRequestCustom(message) {
+    message[logging_js_1.custom] = GetSubnetRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSubnetRequestCustomJson;
+    return message;
+}
+function createBaseGetSubnetRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetSubnetRequest",
+        id: "",
+    };
+    return applyGetSubnetRequestCustom(message);
+}
+exports.GetSubnetByNameRequest = {
+    $type: "nebius.vpc.v1.GetSubnetByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSubnetByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSubnetByNameRequestCustom({
+            $type: "nebius.vpc.v1.GetSubnetByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSubnetByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSubnetByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSubnetByNameRequest);
+function GetSubnetByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSubnetByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetSubnetByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetSubnetByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSubnetByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetSubnetByNameRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetSubnetByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetSubnetByNameRequestCustom(message);
+}
+exports.ListSubnetsRequest = {
+    $type: "nebius.vpc.v1.ListSubnetsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSubnetsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSubnetsRequestCustom({
+            $type: "nebius.vpc.v1.ListSubnetsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSubnetsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSubnetsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSubnetsRequest);
+function ListSubnetsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSubnetsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListSubnetsRequestCustom(message) {
+    message[logging_js_1.custom] = ListSubnetsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSubnetsRequestCustomJson;
+    return message;
+}
+function createBaseListSubnetsRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSubnetsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListSubnetsRequestCustom(message);
+}
+exports.ListSubnetsByNetworkRequest = {
+    $type: "nebius.vpc.v1.ListSubnetsByNetworkRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.networkId !== "") {
+            writer.uint32(10).string(message.networkId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSubnetsByNetworkRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networkId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSubnetsByNetworkRequestCustom({
+            $type: "nebius.vpc.v1.ListSubnetsByNetworkRequest",
+            networkId: (0, index_js_1.isSet)(object.networkId ?? object.network_id)
+                ? String(object.networkId ?? object.network_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networkId !== "") {
+            obj[pick("networkId", "network_id")] = message.networkId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSubnetsByNetworkRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSubnetsByNetworkRequest();
+        message.networkId = (object.networkId !== undefined && object.networkId !== null)
+            ? object.networkId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSubnetsByNetworkRequest);
+function ListSubnetsByNetworkRequestCustomInspect() {
+    const parts = [];
+    if (this.networkId !== "")
+        parts.push("networkId" + "=" + (0, util_1.inspect)(this.networkId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSubnetsByNetworkRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.networkId !== "")
+        obj.networkId = (0, logging_js_1.inspectJson)(this.networkId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListSubnetsByNetworkRequestCustom(message) {
+    message[logging_js_1.custom] = ListSubnetsByNetworkRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSubnetsByNetworkRequestCustomJson;
+    return message;
+}
+function createBaseListSubnetsByNetworkRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSubnetsByNetworkRequest",
+        networkId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListSubnetsByNetworkRequestCustom(message);
+}
+exports.ListSubnetsResponse = {
+    $type: "nebius.vpc.v1.ListSubnetsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Subnet.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSubnetsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Subnet.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSubnetsResponseCustom({
+            $type: "nebius.vpc.v1.ListSubnetsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Subnet.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Subnet.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSubnetsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSubnetsResponse();
+        message.items = object.items?.map((e) => exports.Subnet.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSubnetsResponse);
+function ListSubnetsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSubnetsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListSubnetsResponseCustom(message) {
+    message[logging_js_1.custom] = ListSubnetsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListSubnetsResponseCustomJson;
+    return message;
+}
+function createBaseListSubnetsResponse() {
+    const message = {
+        $type: "nebius.vpc.v1.ListSubnetsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListSubnetsResponseCustom(message);
+}
+exports.CreateSubnetRequest = {
+    $type: "nebius.vpc.v1.CreateSubnetRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SubnetSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateSubnetRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SubnetSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateSubnetRequestCustom({
+            $type: "nebius.vpc.v1.CreateSubnetRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SubnetSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SubnetSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateSubnetRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateSubnetRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SubnetSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateSubnetRequest);
+function CreateSubnetRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateSubnetRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateSubnetRequestCustom(message) {
+    message[logging_js_1.custom] = CreateSubnetRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateSubnetRequestCustomJson;
+    return message;
+}
+function createBaseCreateSubnetRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.CreateSubnetRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateSubnetRequestCustom(message);
+}
+exports.UpdateSubnetRequest = {
+    $type: "nebius.vpc.v1.UpdateSubnetRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SubnetSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateSubnetRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SubnetSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateSubnetRequestCustom({
+            $type: "nebius.vpc.v1.UpdateSubnetRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SubnetSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SubnetSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateSubnetRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateSubnetRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SubnetSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateSubnetRequest);
+function UpdateSubnetRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateSubnetRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateSubnetRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateSubnetRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateSubnetRequestCustomJson;
+    return message;
+}
+function createBaseUpdateSubnetRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateSubnetRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateSubnetRequestCustom(message);
+}
+exports.DeleteSubnetRequest = {
+    $type: "nebius.vpc.v1.DeleteSubnetRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteSubnetRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteSubnetRequestCustom({
+            $type: "nebius.vpc.v1.DeleteSubnetRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteSubnetRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteSubnetRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteSubnetRequest);
+function DeleteSubnetRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteSubnetRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteSubnetRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteSubnetRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteSubnetRequestCustomJson;
+    return message;
+}
+function createBaseDeleteSubnetRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.DeleteSubnetRequest",
+        id: "",
+    };
+    return applyDeleteSubnetRequestCustom(message);
+}
+exports.SubnetServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.SubnetService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSubnetRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSubnetRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Subnet.encode(value).finish()),
+        responseDeserialize: (value) => exports.Subnet.decode(value),
+    },
+    getByName: {
+        path: "/nebius.vpc.v1.SubnetService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSubnetByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSubnetByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Subnet.encode(value).finish()),
+        responseDeserialize: (value) => exports.Subnet.decode(value),
+    },
+    list: {
+        path: "/nebius.vpc.v1.SubnetService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSubnetsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSubnetsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSubnetsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSubnetsResponse.decode(value),
+    },
+    listByNetwork: {
+        path: "/nebius.vpc.v1.SubnetService/ListByNetwork",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSubnetsByNetworkRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSubnetsByNetworkRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSubnetsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSubnetsResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.vpc.v1.SubnetService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateSubnetRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateSubnetRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.SubnetService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateSubnetRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateSubnetRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.vpc.v1.SubnetService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteSubnetRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteSubnetRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.SubnetServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.SubnetServiceServiceDescription, "nebius.vpc.v1.SubnetService");
+class SubnetService {
+    sdk;
+    $type = "nebius.vpc.v1.SubnetService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.SubnetServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listByNetwork(...args) {
+        const spec = this.spec.listByNetwork;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.SubnetService = SubnetService;
+const SubnetStatus_State_VALUE_COMMENTS = {
+    STATE_UNSPECIFIED: " Default state, unspecified.",
+    CREATING: " Subnet is being created.",
+    READY: " Subnet is ready for use.",
+    DELETING: " Subnet is being deleted.",
+};
+exports.SubnetStatus_State = (0, index_js_1.createEnum)("nebius.vpc.v1.SubnetStatus.State", {
+    /**
+     *  Default state, unspecified.
+     */
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Subnet is being created.
+     */
+    CREATING: 1,
+    /**
+     *  Subnet is ready for use.
+     */
+    READY: 2,
+    /**
+     *  Subnet is being deleted.
+     */
+    DELETING: 3,
+}, SubnetStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.SubnetStatus_State);
+exports.Subnet = {
+    $type: "nebius.vpc.v1.Subnet",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SubnetSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.SubnetStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSubnet();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SubnetSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.SubnetStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySubnetCustom({
+            $type: "nebius.vpc.v1.Subnet",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SubnetSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.SubnetStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SubnetSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.SubnetStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Subnet.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSubnet();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SubnetSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.SubnetStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Subnet);
+function SubnetCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SubnetCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applySubnetCustom(message) {
+    message[logging_js_1.custom] = SubnetCustomInspect;
+    message[logging_js_1.customJson] = SubnetCustomJson;
+    return message;
+}
+function createBaseSubnet() {
+    const message = {
+        $type: "nebius.vpc.v1.Subnet",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applySubnetCustom(message);
+}
+exports.SubnetSpec = {
+    $type: "nebius.vpc.v1.SubnetSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.networkId !== "") {
+            writer.uint32(10).string(message.networkId);
+        }
+        if (message.ipv4PrivatePools !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.IPv4PrivateSubnetPools.encode(message.ipv4PrivatePools, w);
+            w.join();
+        }
+        if (message.ipv4PublicPools !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.IPv4PublicSubnetPools.encode(message.ipv4PublicPools, w);
+            w.join();
+        }
+        if (message.routeTableId !== "") {
+            writer.uint32(42).string(message.routeTableId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSubnetSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.networkId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.ipv4PrivatePools = exports.IPv4PrivateSubnetPools.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.ipv4PublicPools = exports.IPv4PublicSubnetPools.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.routeTableId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySubnetSpecCustom({
+            $type: "nebius.vpc.v1.SubnetSpec",
+            networkId: (0, index_js_1.isSet)(object.networkId ?? object.network_id)
+                ? String(object.networkId ?? object.network_id)
+                : "",
+            ipv4PrivatePools: (0, index_js_1.isSet)(object.ipv4PrivatePools ?? object.ipv4_private_pools)
+                ? exports.IPv4PrivateSubnetPools.fromJSON(object.ipv4PrivatePools ?? object.ipv4_private_pools)
+                : undefined,
+            ipv4PublicPools: (0, index_js_1.isSet)(object.ipv4PublicPools ?? object.ipv4_public_pools)
+                ? exports.IPv4PublicSubnetPools.fromJSON(object.ipv4PublicPools ?? object.ipv4_public_pools)
+                : undefined,
+            routeTableId: (0, index_js_1.isSet)(object.routeTableId ?? object.route_table_id)
+                ? String(object.routeTableId ?? object.route_table_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.networkId !== "") {
+            obj[pick("networkId", "network_id")] = message.networkId;
+        }
+        if (message.ipv4PrivatePools !== undefined) {
+            obj[pick("ipv4PrivatePools", "ipv4_private_pools")] = message.ipv4PrivatePools
+                ? exports.IPv4PrivateSubnetPools.toJSON(message.ipv4PrivatePools, use)
+                : undefined;
+        }
+        if (message.ipv4PublicPools !== undefined) {
+            obj[pick("ipv4PublicPools", "ipv4_public_pools")] = message.ipv4PublicPools
+                ? exports.IPv4PublicSubnetPools.toJSON(message.ipv4PublicPools, use)
+                : undefined;
+        }
+        if (message.routeTableId !== "") {
+            obj[pick("routeTableId", "route_table_id")] = message.routeTableId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SubnetSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSubnetSpec();
+        message.networkId = (object.networkId !== undefined && object.networkId !== null)
+            ? object.networkId
+            : "";
+        message.ipv4PrivatePools = (object.ipv4PrivatePools !== undefined && object.ipv4PrivatePools !== null)
+            ? exports.IPv4PrivateSubnetPools.fromPartial(object.ipv4PrivatePools)
+            : undefined;
+        message.ipv4PublicPools = (object.ipv4PublicPools !== undefined && object.ipv4PublicPools !== null)
+            ? exports.IPv4PublicSubnetPools.fromPartial(object.ipv4PublicPools)
+            : undefined;
+        message.routeTableId = (object.routeTableId !== undefined && object.routeTableId !== null)
+            ? object.routeTableId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SubnetSpec);
+function SubnetSpecCustomInspect() {
+    const parts = [];
+    if (this.networkId !== "")
+        parts.push("networkId" + "=" + (0, util_1.inspect)(this.networkId));
+    if (this.ipv4PrivatePools !== undefined)
+        parts.push("ipv4PrivatePools" + "=" + (0, util_1.inspect)(this.ipv4PrivatePools));
+    if (this.ipv4PublicPools !== undefined)
+        parts.push("ipv4PublicPools" + "=" + (0, util_1.inspect)(this.ipv4PublicPools));
+    if (this.routeTableId !== "")
+        parts.push("routeTableId" + "=" + (0, util_1.inspect)(this.routeTableId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SubnetSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.networkId !== "")
+        obj.networkId = (0, logging_js_1.inspectJson)(this.networkId);
+    if (this.ipv4PrivatePools !== undefined)
+        obj.ipv4PrivatePools = (0, logging_js_1.inspectJson)(this.ipv4PrivatePools);
+    if (this.ipv4PublicPools !== undefined)
+        obj.ipv4PublicPools = (0, logging_js_1.inspectJson)(this.ipv4PublicPools);
+    if (this.routeTableId !== "")
+        obj.routeTableId = (0, logging_js_1.inspectJson)(this.routeTableId);
+    return obj;
+}
+function applySubnetSpecCustom(message) {
+    message[logging_js_1.custom] = SubnetSpecCustomInspect;
+    message[logging_js_1.customJson] = SubnetSpecCustomJson;
+    return message;
+}
+function createBaseSubnetSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.SubnetSpec",
+        networkId: "",
+        ipv4PrivatePools: undefined,
+        ipv4PublicPools: undefined,
+        routeTableId: "",
+    };
+    return applySubnetSpecCustom(message);
+}
+exports.IPv4PrivateSubnetPools = {
+    $type: "nebius.vpc.v1.IPv4PrivateSubnetPools",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.pools ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.SubnetPool.encode(v, w);
+            w.join();
+        }
+        if (message.useNetworkPools === true) {
+            writer.uint32(16).bool(message.useNetworkPools);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseIPv4PrivateSubnetPools();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.pools.push(exports.SubnetPool.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.useNetworkPools = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyIPv4PrivateSubnetPoolsCustom({
+            $type: "nebius.vpc.v1.IPv4PrivateSubnetPools",
+            pools: globalThis.Array.isArray(object?.pools ?? object?.pools)
+                ? (object.pools ?? object.pools).map((e) => exports.SubnetPool.fromJSON(e))
+                : [],
+            useNetworkPools: (0, index_js_1.isSet)(object.useNetworkPools ?? object.use_network_pools)
+                ? Boolean(object.useNetworkPools ?? object.use_network_pools)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.pools?.length) {
+            obj[pick("pools", "pools")] = message.pools.map((e) => e ? exports.SubnetPool.toJSON(e, use) : undefined);
+        }
+        if (message.useNetworkPools === true) {
+            obj[pick("useNetworkPools", "use_network_pools")] = message.useNetworkPools;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.IPv4PrivateSubnetPools.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseIPv4PrivateSubnetPools();
+        message.pools = object.pools?.map((e) => exports.SubnetPool.fromPartial(e)) || [];
+        message.useNetworkPools = (object.useNetworkPools !== undefined && object.useNetworkPools !== null)
+            ? object.useNetworkPools
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.IPv4PrivateSubnetPools);
+function IPv4PrivateSubnetPoolsCustomInspect() {
+    const parts = [];
+    if ((this.pools?.length ?? 0) !== 0)
+        parts.push("pools" + "=" + (0, util_1.inspect)(this.pools));
+    if (this.useNetworkPools === true)
+        parts.push("useNetworkPools" + "=" + (0, util_1.inspect)(this.useNetworkPools));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function IPv4PrivateSubnetPoolsCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.pools?.length ?? 0) !== 0)
+        obj.pools = (0, logging_js_1.inspectJson)(this.pools);
+    if (this.useNetworkPools === true)
+        obj.useNetworkPools = (0, logging_js_1.inspectJson)(this.useNetworkPools);
+    return obj;
+}
+function applyIPv4PrivateSubnetPoolsCustom(message) {
+    message[logging_js_1.custom] = IPv4PrivateSubnetPoolsCustomInspect;
+    message[logging_js_1.customJson] = IPv4PrivateSubnetPoolsCustomJson;
+    return message;
+}
+function createBaseIPv4PrivateSubnetPools() {
+    const message = {
+        $type: "nebius.vpc.v1.IPv4PrivateSubnetPools",
+        pools: [],
+        useNetworkPools: false,
+    };
+    return applyIPv4PrivateSubnetPoolsCustom(message);
+}
+exports.IPv4PublicSubnetPools = {
+    $type: "nebius.vpc.v1.IPv4PublicSubnetPools",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.pools ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.SubnetPool.encode(v, w);
+            w.join();
+        }
+        if (message.useNetworkPools === true) {
+            writer.uint32(16).bool(message.useNetworkPools);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseIPv4PublicSubnetPools();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.pools.push(exports.SubnetPool.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.useNetworkPools = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyIPv4PublicSubnetPoolsCustom({
+            $type: "nebius.vpc.v1.IPv4PublicSubnetPools",
+            pools: globalThis.Array.isArray(object?.pools ?? object?.pools)
+                ? (object.pools ?? object.pools).map((e) => exports.SubnetPool.fromJSON(e))
+                : [],
+            useNetworkPools: (0, index_js_1.isSet)(object.useNetworkPools ?? object.use_network_pools)
+                ? Boolean(object.useNetworkPools ?? object.use_network_pools)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.pools?.length) {
+            obj[pick("pools", "pools")] = message.pools.map((e) => e ? exports.SubnetPool.toJSON(e, use) : undefined);
+        }
+        if (message.useNetworkPools === true) {
+            obj[pick("useNetworkPools", "use_network_pools")] = message.useNetworkPools;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.IPv4PublicSubnetPools.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseIPv4PublicSubnetPools();
+        message.pools = object.pools?.map((e) => exports.SubnetPool.fromPartial(e)) || [];
+        message.useNetworkPools = (object.useNetworkPools !== undefined && object.useNetworkPools !== null)
+            ? object.useNetworkPools
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.IPv4PublicSubnetPools);
+function IPv4PublicSubnetPoolsCustomInspect() {
+    const parts = [];
+    if ((this.pools?.length ?? 0) !== 0)
+        parts.push("pools" + "=" + (0, util_1.inspect)(this.pools));
+    if (this.useNetworkPools === true)
+        parts.push("useNetworkPools" + "=" + (0, util_1.inspect)(this.useNetworkPools));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function IPv4PublicSubnetPoolsCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.pools?.length ?? 0) !== 0)
+        obj.pools = (0, logging_js_1.inspectJson)(this.pools);
+    if (this.useNetworkPools === true)
+        obj.useNetworkPools = (0, logging_js_1.inspectJson)(this.useNetworkPools);
+    return obj;
+}
+function applyIPv4PublicSubnetPoolsCustom(message) {
+    message[logging_js_1.custom] = IPv4PublicSubnetPoolsCustomInspect;
+    message[logging_js_1.customJson] = IPv4PublicSubnetPoolsCustomJson;
+    return message;
+}
+function createBaseIPv4PublicSubnetPools() {
+    const message = {
+        $type: "nebius.vpc.v1.IPv4PublicSubnetPools",
+        pools: [],
+        useNetworkPools: false,
+    };
+    return applyIPv4PublicSubnetPoolsCustom(message);
+}
+exports.SubnetPool = {
+    $type: "nebius.vpc.v1.SubnetPool",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.cidrs ?? [])) {
+            const w = writer.uint32(18).fork();
+            exports.SubnetCidr.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSubnetPool();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.cidrs.push(exports.SubnetCidr.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySubnetPoolCustom({
+            $type: "nebius.vpc.v1.SubnetPool",
+            cidrs: globalThis.Array.isArray(object?.cidrs ?? object?.cidrs)
+                ? (object.cidrs ?? object.cidrs).map((e) => exports.SubnetCidr.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidrs?.length) {
+            obj[pick("cidrs", "cidrs")] = message.cidrs.map((e) => e ? exports.SubnetCidr.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SubnetPool.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSubnetPool();
+        message.cidrs = object.cidrs?.map((e) => exports.SubnetCidr.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SubnetPool);
+function SubnetPoolCustomInspect() {
+    const parts = [];
+    if ((this.cidrs?.length ?? 0) !== 0)
+        parts.push("cidrs" + "=" + (0, util_1.inspect)(this.cidrs));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SubnetPoolCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.cidrs?.length ?? 0) !== 0)
+        obj.cidrs = (0, logging_js_1.inspectJson)(this.cidrs);
+    return obj;
+}
+function applySubnetPoolCustom(message) {
+    message[logging_js_1.custom] = SubnetPoolCustomInspect;
+    message[logging_js_1.customJson] = SubnetPoolCustomJson;
+    return message;
+}
+function createBaseSubnetPool() {
+    const message = {
+        $type: "nebius.vpc.v1.SubnetPool",
+        cidrs: [],
+    };
+    return applySubnetPoolCustom(message);
+}
+exports.SubnetCidr = {
+    $type: "nebius.vpc.v1.SubnetCidr",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.cidr !== "") {
+            writer.uint32(10).string(message.cidr);
+        }
+        if ((message.state ?? exports.AddressBlockState.STATE_UNSPECIFIED) !== exports.AddressBlockState.STATE_UNSPECIFIED) {
+            exports.AddressBlockState.encodeField(writer, 2, message.state);
+        }
+        if (message.maxMaskLength !== undefined && !message.maxMaskLength.isZero?.()) {
+            writer.uint32(24).int64(message.maxMaskLength.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSubnetCidr();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.cidr = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.state = exports.AddressBlockState.fromNumber(reader.int32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.maxMaskLength = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySubnetCidrCustom({
+            $type: "nebius.vpc.v1.SubnetCidr",
+            cidr: (0, index_js_1.isSet)(object.cidr ?? object.cidr)
+                ? String(object.cidr ?? object.cidr)
+                : "",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.AddressBlockState.fromJSON(object.state ?? object.state)
+                : exports.AddressBlockState.STATE_UNSPECIFIED,
+            maxMaskLength: (0, index_js_1.isSet)(object.maxMaskLength ?? object.max_mask_length)
+                ? index_js_1.Long.fromValue(object.maxMaskLength ?? object.max_mask_length)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.cidr !== "") {
+            obj[pick("cidr", "cidr")] = message.cidr;
+        }
+        if ((message.state ?? exports.AddressBlockState.STATE_UNSPECIFIED) !== exports.AddressBlockState.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.AddressBlockState.toJSON(message.state);
+        }
+        if (!message.maxMaskLength?.isZero?.()) {
+            obj[pick("maxMaskLength", "max_mask_length")] = (message.maxMaskLength || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SubnetCidr.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSubnetCidr();
+        message.cidr = (object.cidr !== undefined && object.cidr !== null)
+            ? object.cidr
+            : "";
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.AddressBlockState.fromJSON(object.state.name)
+            : exports.AddressBlockState.STATE_UNSPECIFIED;
+        message.maxMaskLength = (object.maxMaskLength !== undefined && object.maxMaskLength !== null)
+            ? index_js_1.Long.fromValue(object.maxMaskLength)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SubnetCidr);
+function SubnetCidrCustomInspect() {
+    const parts = [];
+    if (this.cidr !== "")
+        parts.push("cidr" + "=" + (0, util_1.inspect)(this.cidr));
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (!this.maxMaskLength?.isZero?.())
+        parts.push("maxMaskLength" + "=" + (0, util_1.inspect)(this.maxMaskLength));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SubnetCidrCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.cidr !== "")
+        obj.cidr = (0, logging_js_1.inspectJson)(this.cidr);
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (!this.maxMaskLength?.isZero?.())
+        obj.maxMaskLength = (0, logging_js_1.inspectJson)(this.maxMaskLength);
+    return obj;
+}
+function applySubnetCidrCustom(message) {
+    message[logging_js_1.custom] = SubnetCidrCustomInspect;
+    message[logging_js_1.customJson] = SubnetCidrCustomJson;
+    return message;
+}
+function createBaseSubnetCidr() {
+    const message = {
+        $type: "nebius.vpc.v1.SubnetCidr",
+        cidr: "",
+        state: exports.AddressBlockState.STATE_UNSPECIFIED,
+        maxMaskLength: index_js_1.Long.ZERO,
+    };
+    return applySubnetCidrCustom(message);
+}
+exports.SubnetStatus = {
+    $type: "nebius.vpc.v1.SubnetStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.SubnetStatus_State.STATE_UNSPECIFIED) !== exports.SubnetStatus_State.STATE_UNSPECIFIED) {
+            exports.SubnetStatus_State.encodeField(writer, 1, message.state);
+        }
+        for (const v of (message.ipv4PrivateCidrs ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        for (const v of (message.ipv4PublicCidrs ?? [])) {
+            writer.uint32(26).string(v);
+        }
+        if (message.routeTable !== undefined) {
+            const w = writer.uint32(42).fork();
+            exports.SubnetAssociatedRouteTable.encode(message.routeTable, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSubnetStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.SubnetStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.ipv4PrivateCidrs.push(reader.string());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.ipv4PublicCidrs.push(reader.string());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.routeTable = exports.SubnetAssociatedRouteTable.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySubnetStatusCustom({
+            $type: "nebius.vpc.v1.SubnetStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.SubnetStatus_State.fromJSON(object.state ?? object.state)
+                : exports.SubnetStatus_State.STATE_UNSPECIFIED,
+            ipv4PrivateCidrs: globalThis.Array.isArray(object?.ipv4PrivateCidrs ?? object?.ipv4_private_cidrs)
+                ? (object.ipv4PrivateCidrs ?? object.ipv4_private_cidrs).map((e) => String(e))
+                : [],
+            ipv4PublicCidrs: globalThis.Array.isArray(object?.ipv4PublicCidrs ?? object?.ipv4_public_cidrs)
+                ? (object.ipv4PublicCidrs ?? object.ipv4_public_cidrs).map((e) => String(e))
+                : [],
+            routeTable: (0, index_js_1.isSet)(object.routeTable ?? object.route_table)
+                ? exports.SubnetAssociatedRouteTable.fromJSON(object.routeTable ?? object.route_table)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.SubnetStatus_State.STATE_UNSPECIFIED) !== exports.SubnetStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.SubnetStatus_State.toJSON(message.state);
+        }
+        if (message.ipv4PrivateCidrs?.length) {
+            obj[pick("ipv4PrivateCidrs", "ipv4_private_cidrs")] = message.ipv4PrivateCidrs.map((e) => e);
+        }
+        if (message.ipv4PublicCidrs?.length) {
+            obj[pick("ipv4PublicCidrs", "ipv4_public_cidrs")] = message.ipv4PublicCidrs.map((e) => e);
+        }
+        if (message.routeTable !== undefined) {
+            obj[pick("routeTable", "route_table")] = message.routeTable
+                ? exports.SubnetAssociatedRouteTable.toJSON(message.routeTable, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SubnetStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSubnetStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.SubnetStatus_State.fromJSON(object.state.name)
+            : exports.SubnetStatus_State.STATE_UNSPECIFIED;
+        message.ipv4PrivateCidrs = object.ipv4PrivateCidrs?.map((e) => e) || [];
+        message.ipv4PublicCidrs = object.ipv4PublicCidrs?.map((e) => e) || [];
+        message.routeTable = (object.routeTable !== undefined && object.routeTable !== null)
+            ? exports.SubnetAssociatedRouteTable.fromPartial(object.routeTable)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SubnetStatus);
+function SubnetStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if ((this.ipv4PrivateCidrs?.length ?? 0) !== 0)
+        parts.push("ipv4PrivateCidrs" + "=" + (0, util_1.inspect)(this.ipv4PrivateCidrs));
+    if ((this.ipv4PublicCidrs?.length ?? 0) !== 0)
+        parts.push("ipv4PublicCidrs" + "=" + (0, util_1.inspect)(this.ipv4PublicCidrs));
+    if (this.routeTable !== undefined)
+        parts.push("routeTable" + "=" + (0, util_1.inspect)(this.routeTable));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SubnetStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if ((this.ipv4PrivateCidrs?.length ?? 0) !== 0)
+        obj.ipv4PrivateCidrs = (0, logging_js_1.inspectJson)(this.ipv4PrivateCidrs);
+    if ((this.ipv4PublicCidrs?.length ?? 0) !== 0)
+        obj.ipv4PublicCidrs = (0, logging_js_1.inspectJson)(this.ipv4PublicCidrs);
+    if (this.routeTable !== undefined)
+        obj.routeTable = (0, logging_js_1.inspectJson)(this.routeTable);
+    return obj;
+}
+function applySubnetStatusCustom(message) {
+    message[logging_js_1.custom] = SubnetStatusCustomInspect;
+    message[logging_js_1.customJson] = SubnetStatusCustomJson;
+    return message;
+}
+function createBaseSubnetStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.SubnetStatus",
+        state: exports.SubnetStatus_State.STATE_UNSPECIFIED,
+        ipv4PrivateCidrs: [],
+        ipv4PublicCidrs: [],
+        routeTable: undefined,
+    };
+    return applySubnetStatusCustom(message);
+}
+exports.SubnetAssociatedRouteTable = {
+    $type: "nebius.vpc.v1.SubnetAssociatedRouteTable",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.default === true) {
+            writer.uint32(16).bool(message.default);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSubnetAssociatedRouteTable();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.default = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySubnetAssociatedRouteTableCustom({
+            $type: "nebius.vpc.v1.SubnetAssociatedRouteTable",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            default: (0, index_js_1.isSet)(object.default ?? object.default)
+                ? Boolean(object.default ?? object.default)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.default === true) {
+            obj[pick("default", "default")] = message.default;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SubnetAssociatedRouteTable.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSubnetAssociatedRouteTable();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.default = (object.default !== undefined && object.default !== null)
+            ? object.default
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SubnetAssociatedRouteTable);
+function SubnetAssociatedRouteTableCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.default === true)
+        parts.push("default" + "=" + (0, util_1.inspect)(this.default));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SubnetAssociatedRouteTableCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.default === true)
+        obj.default = (0, logging_js_1.inspectJson)(this.default);
+    return obj;
+}
+function applySubnetAssociatedRouteTableCustom(message) {
+    message[logging_js_1.custom] = SubnetAssociatedRouteTableCustomInspect;
+    message[logging_js_1.customJson] = SubnetAssociatedRouteTableCustomJson;
+    return message;
+}
+function createBaseSubnetAssociatedRouteTable() {
+    const message = {
+        $type: "nebius.vpc.v1.SubnetAssociatedRouteTable",
+        id: "",
+        default: false,
+    };
+    return applySubnetAssociatedRouteTableCustom(message);
+}
+exports.GetTargetGroupRequest = {
+    $type: "nebius.vpc.v1.GetTargetGroupRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetTargetGroupRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetTargetGroupRequestCustom({
+            $type: "nebius.vpc.v1.GetTargetGroupRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetTargetGroupRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetTargetGroupRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetTargetGroupRequest);
+function GetTargetGroupRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetTargetGroupRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetTargetGroupRequestCustom(message) {
+    message[logging_js_1.custom] = GetTargetGroupRequestCustomInspect;
+    message[logging_js_1.customJson] = GetTargetGroupRequestCustomJson;
+    return message;
+}
+function createBaseGetTargetGroupRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.GetTargetGroupRequest",
+        id: "",
+    };
+    return applyGetTargetGroupRequestCustom(message);
+}
+exports.UpdateTargetGroupRequest = {
+    $type: "nebius.vpc.v1.UpdateTargetGroupRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TargetGroupSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateTargetGroupRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TargetGroupSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateTargetGroupRequestCustom({
+            $type: "nebius.vpc.v1.UpdateTargetGroupRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TargetGroupSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TargetGroupSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateTargetGroupRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateTargetGroupRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TargetGroupSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateTargetGroupRequest);
+function UpdateTargetGroupRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateTargetGroupRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateTargetGroupRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateTargetGroupRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateTargetGroupRequestCustomJson;
+    return message;
+}
+function createBaseUpdateTargetGroupRequest() {
+    const message = {
+        $type: "nebius.vpc.v1.UpdateTargetGroupRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateTargetGroupRequestCustom(message);
+}
+exports.TargetGroupServiceServiceDescription = {
+    get: {
+        path: "/nebius.vpc.v1.TargetGroupService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetTargetGroupRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetTargetGroupRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.TargetGroup.encode(value).finish()),
+        responseDeserialize: (value) => exports.TargetGroup.decode(value),
+    },
+    update: {
+        path: "/nebius.vpc.v1.TargetGroupService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateTargetGroupRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateTargetGroupRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.TargetGroupServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.TargetGroupServiceServiceDescription, "nebius.vpc.v1.TargetGroupService");
+class TargetGroupService {
+    sdk;
+    $type = "nebius.vpc.v1.TargetGroupService";
+    addr;
+    spec;
+    apiServiceName = "vpc";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.TargetGroupServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.TargetGroupService = TargetGroupService;
+const TargetStatus_TargetState_VALUE_COMMENTS = {
+    READY: " The target exists and ready to receive traffic\n",
+    DISABLED: " The target exists, but not ready to receive traffic (i.e. network interface is not allocated)\n",
+    DELETED: " The target does not exist anymore (i.e. network interface was deleted)\n",
+};
+exports.TargetStatus_TargetState = (0, index_js_1.createEnum)("nebius.vpc.v1.TargetStatus.TargetState", {
+    TARGET_STATE_UNSPECIFIED: 0,
+    /**
+     *  The target exists and ready to receive traffic
+     *
+     */
+    READY: 1,
+    /**
+     *  The target exists, but not ready to receive traffic (i.e. network interface is not allocated)
+     *
+     */
+    DISABLED: 2,
+    /**
+     *  The target does not exist anymore (i.e. network interface was deleted)
+     *
+     */
+    DELETED: 3,
+}, TargetStatus_TargetState_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.TargetStatus_TargetState);
+exports.TargetGroup = {
+    $type: "nebius.vpc.v1.TargetGroup",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TargetGroupSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.TargetGroupStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTargetGroup();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TargetGroupSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.TargetGroupStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTargetGroupCustom({
+            $type: "nebius.vpc.v1.TargetGroup",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TargetGroupSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.TargetGroupStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TargetGroupSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.TargetGroupStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TargetGroup.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTargetGroup();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TargetGroupSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.TargetGroupStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TargetGroup);
+function TargetGroupCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TargetGroupCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyTargetGroupCustom(message) {
+    message[logging_js_1.custom] = TargetGroupCustomInspect;
+    message[logging_js_1.customJson] = TargetGroupCustomJson;
+    return message;
+}
+function createBaseTargetGroup() {
+    const message = {
+        $type: "nebius.vpc.v1.TargetGroup",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyTargetGroupCustom(message);
+}
+exports.TargetGroupSpec = {
+    $type: "nebius.vpc.v1.TargetGroupSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.targets ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Target.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTargetGroupSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.targets.push(exports.Target.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTargetGroupSpecCustom({
+            $type: "nebius.vpc.v1.TargetGroupSpec",
+            targets: globalThis.Array.isArray(object?.targets ?? object?.targets)
+                ? (object.targets ?? object.targets).map((e) => exports.Target.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.targets?.length) {
+            obj[pick("targets", "targets")] = message.targets.map((e) => e ? exports.Target.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TargetGroupSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTargetGroupSpec();
+        message.targets = object.targets?.map((e) => exports.Target.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TargetGroupSpec);
+function TargetGroupSpecCustomInspect() {
+    const parts = [];
+    if ((this.targets?.length ?? 0) !== 0)
+        parts.push("targets" + "=" + (0, util_1.inspect)(this.targets));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TargetGroupSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.targets?.length ?? 0) !== 0)
+        obj.targets = (0, logging_js_1.inspectJson)(this.targets);
+    return obj;
+}
+function applyTargetGroupSpecCustom(message) {
+    message[logging_js_1.custom] = TargetGroupSpecCustomInspect;
+    message[logging_js_1.customJson] = TargetGroupSpecCustomJson;
+    return message;
+}
+function createBaseTargetGroupSpec() {
+    const message = {
+        $type: "nebius.vpc.v1.TargetGroupSpec",
+        targets: [],
+    };
+    return applyTargetGroupSpecCustom(message);
+}
+exports.Target = {
+    $type: "nebius.vpc.v1.Target",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.target?.$case === undefined) { /* noop */ }
+        else if (message.target?.$case === "computeInstance") {
+            const w = writer.uint32(10).fork();
+            exports.ComputeInstance.encode(message.target.computeInstance, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTarget();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.target = {
+                        $case: "computeInstance",
+                        computeInstance: exports.ComputeInstance.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTargetCustom({
+            $type: "nebius.vpc.v1.Target",
+            target: (() => {
+                if ((0, index_js_1.isSet)(object.computeInstance) || (0, index_js_1.isSet)(object.compute_instance)) {
+                    return {
+                        $case: "computeInstance",
+                        computeInstance: exports.ComputeInstance.fromJSON(object.computeInstance ?? object.compute_instance)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        switch (message.target?.$case) {
+            case "computeInstance": {
+                obj[pick("computeInstance", "compute_instance")] = exports.ComputeInstance.toJSON(message.target.computeInstance, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Target.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTarget();
+        switch (object.target?.$case) {
+            case "computeInstance": {
+                if (object.target.computeInstance !== undefined && object.target.computeInstance !== null) {
+                    message.target = {
+                        $case: "computeInstance",
+                        computeInstance: exports.ComputeInstance.fromPartial(object.target.computeInstance),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Target);
+function TargetCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TargetCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyTargetCustom(message) {
+    message[logging_js_1.custom] = TargetCustomInspect;
+    message[logging_js_1.customJson] = TargetCustomJson;
+    return message;
+}
+function createBaseTarget() {
+    const message = {
+        $type: "nebius.vpc.v1.Target",
+        target: undefined,
+    };
+    return applyTargetCustom(message);
+}
+exports.ComputeInstance = {
+    $type: "nebius.vpc.v1.ComputeInstance",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.networkInterfaceName !== "") {
+            writer.uint32(18).string(message.networkInterfaceName);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseComputeInstance();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.networkInterfaceName = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyComputeInstanceCustom({
+            $type: "nebius.vpc.v1.ComputeInstance",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            networkInterfaceName: (0, index_js_1.isSet)(object.networkInterfaceName ?? object.network_interface_name)
+                ? String(object.networkInterfaceName ?? object.network_interface_name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.networkInterfaceName !== "") {
+            obj[pick("networkInterfaceName", "network_interface_name")] = message.networkInterfaceName;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ComputeInstance.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseComputeInstance();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.networkInterfaceName = (object.networkInterfaceName !== undefined && object.networkInterfaceName !== null)
+            ? object.networkInterfaceName
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ComputeInstance);
+function ComputeInstanceCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.networkInterfaceName !== "")
+        parts.push("networkInterfaceName" + "=" + (0, util_1.inspect)(this.networkInterfaceName));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ComputeInstanceCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.networkInterfaceName !== "")
+        obj.networkInterfaceName = (0, logging_js_1.inspectJson)(this.networkInterfaceName);
+    return obj;
+}
+function applyComputeInstanceCustom(message) {
+    message[logging_js_1.custom] = ComputeInstanceCustomInspect;
+    message[logging_js_1.customJson] = ComputeInstanceCustomJson;
+    return message;
+}
+function createBaseComputeInstance() {
+    const message = {
+        $type: "nebius.vpc.v1.ComputeInstance",
+        id: "",
+        networkInterfaceName: "",
+    };
+    return applyComputeInstanceCustom(message);
+}
+exports.TargetGroupStatus = {
+    $type: "nebius.vpc.v1.TargetGroupStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.loadBalancerIds ?? [])) {
+            writer.uint32(10).string(v);
+        }
+        for (const v of (message.targetStatuses ?? [])) {
+            const w = writer.uint32(18).fork();
+            exports.TargetStatus.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTargetGroupStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.loadBalancerIds.push(reader.string());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.targetStatuses.push(exports.TargetStatus.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTargetGroupStatusCustom({
+            $type: "nebius.vpc.v1.TargetGroupStatus",
+            loadBalancerIds: globalThis.Array.isArray(object?.loadBalancerIds ?? object?.load_balancer_ids)
+                ? (object.loadBalancerIds ?? object.load_balancer_ids).map((e) => String(e))
+                : [],
+            targetStatuses: globalThis.Array.isArray(object?.targetStatuses ?? object?.target_statuses)
+                ? (object.targetStatuses ?? object.target_statuses).map((e) => exports.TargetStatus.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.loadBalancerIds?.length) {
+            obj[pick("loadBalancerIds", "load_balancer_ids")] = message.loadBalancerIds.map((e) => e);
+        }
+        if (message.targetStatuses?.length) {
+            obj[pick("targetStatuses", "target_statuses")] = message.targetStatuses.map((e) => e ? exports.TargetStatus.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TargetGroupStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTargetGroupStatus();
+        message.loadBalancerIds = object.loadBalancerIds?.map((e) => e) || [];
+        message.targetStatuses = object.targetStatuses?.map((e) => exports.TargetStatus.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TargetGroupStatus);
+function TargetGroupStatusCustomInspect() {
+    const parts = [];
+    if ((this.loadBalancerIds?.length ?? 0) !== 0)
+        parts.push("loadBalancerIds" + "=" + (0, util_1.inspect)(this.loadBalancerIds));
+    if ((this.targetStatuses?.length ?? 0) !== 0)
+        parts.push("targetStatuses" + "=" + (0, util_1.inspect)(this.targetStatuses));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TargetGroupStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.loadBalancerIds?.length ?? 0) !== 0)
+        obj.loadBalancerIds = (0, logging_js_1.inspectJson)(this.loadBalancerIds);
+    if ((this.targetStatuses?.length ?? 0) !== 0)
+        obj.targetStatuses = (0, logging_js_1.inspectJson)(this.targetStatuses);
+    return obj;
+}
+function applyTargetGroupStatusCustom(message) {
+    message[logging_js_1.custom] = TargetGroupStatusCustomInspect;
+    message[logging_js_1.customJson] = TargetGroupStatusCustomJson;
+    return message;
+}
+function createBaseTargetGroupStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.TargetGroupStatus",
+        loadBalancerIds: [],
+        targetStatuses: [],
+    };
+    return applyTargetGroupStatusCustom(message);
+}
+exports.TargetStatus = {
+    $type: "nebius.vpc.v1.TargetStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.computeInstanceId !== "") {
+            writer.uint32(10).string(message.computeInstanceId);
+        }
+        if ((message.targetState ?? exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED) !== exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED) {
+            exports.TargetStatus_TargetState.encodeField(writer, 2, message.targetState);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTargetStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.computeInstanceId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.targetState = exports.TargetStatus_TargetState.fromNumber(reader.int32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTargetStatusCustom({
+            $type: "nebius.vpc.v1.TargetStatus",
+            computeInstanceId: (0, index_js_1.isSet)(object.computeInstanceId ?? object.compute_instance_id)
+                ? String(object.computeInstanceId ?? object.compute_instance_id)
+                : "",
+            targetState: (0, index_js_1.isSet)(object.targetState ?? object.target_state)
+                ? exports.TargetStatus_TargetState.fromJSON(object.targetState ?? object.target_state)
+                : exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.computeInstanceId !== "") {
+            obj[pick("computeInstanceId", "compute_instance_id")] = message.computeInstanceId;
+        }
+        if ((message.targetState ?? exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED) !== exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED) {
+            obj[pick("targetState", "target_state")] = exports.TargetStatus_TargetState.toJSON(message.targetState);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TargetStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTargetStatus();
+        message.computeInstanceId = (object.computeInstanceId !== undefined && object.computeInstanceId !== null)
+            ? object.computeInstanceId
+            : "";
+        message.targetState = (object.targetState !== undefined && object.targetState !== null)
+            ? exports.TargetStatus_TargetState.fromJSON(object.targetState.name)
+            : exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TargetStatus);
+function TargetStatusCustomInspect() {
+    const parts = [];
+    if (this.computeInstanceId !== "")
+        parts.push("computeInstanceId" + "=" + (0, util_1.inspect)(this.computeInstanceId));
+    if (this.targetState !== undefined)
+        parts.push("targetState" + "=" + (0, util_1.inspect)(this.targetState));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TargetStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.computeInstanceId !== "")
+        obj.computeInstanceId = (0, logging_js_1.inspectJson)(this.computeInstanceId);
+    if (this.targetState !== undefined)
+        obj.targetState = (0, logging_js_1.inspectJson)(this.targetState);
+    return obj;
+}
+function applyTargetStatusCustom(message) {
+    message[logging_js_1.custom] = TargetStatusCustomInspect;
+    message[logging_js_1.customJson] = TargetStatusCustomJson;
+    return message;
+}
+function createBaseTargetStatus() {
+    const message = {
+        $type: "nebius.vpc.v1.TargetStatus",
+        computeInstanceId: "",
+        targetState: exports.TargetStatus_TargetState.TARGET_STATE_UNSPECIFIED,
+    };
+    return applyTargetStatusCustom(message);
 }
 //# sourceMappingURL=index.js.map
 

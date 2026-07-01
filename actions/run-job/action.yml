@@ -50,6 +50,11 @@ inputs:
     description: 'Run on preemptible compute.'
     required: false
     default: 'false'
+  subnet-id:
+    description: >-
+      Subnet the job runs in. Optional — when unset, the first subnet in the
+      job's project is used.
+    required: false
   wait:
     description: 'Wait for the job to reach a terminal state.'
     required: false
