@@ -1,6 +1,6 @@
 {
   "name": "nebius-actions",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Composable GitHub Actions for Nebius AI Cloud (Jobs and Endpoints).",
   "license": "MIT",
