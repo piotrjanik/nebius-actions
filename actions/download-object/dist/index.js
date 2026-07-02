@@ -97209,85 +97209,37 @@ function parseSizeBytes(input) {
 
 /***/ }),
 
-/***/ 39419:
+/***/ 60837:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 /**
- * Bucket control-plane wrappers over the `nebius storage bucket` CLI group.
- *
- * Control plane only (create/delete the bucket resource) — NO object data and
- * NO aws-sdk. Importing this file must not pull in `s3.ts`, so the create-bucket
- * action stays free of @aws-sdk/client-s3. Pure arg-builders mirror jobs.ts.
+ * Download every object under a bucket prefix to a local directory:
+ *   mint ephemeral key (secret -> MysteryBox) -> read plaintext secret ->
+ *   list prefix -> GetObject each -> write under dest, preserving each key's
+ *   path relative to the prefix.
+ * Throws when the prefix matches nothing, so the action doubles as the
+ * "model trained" artifact gate (same semantics as check-object).
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.buildCreateBucketArgs = buildCreateBucketArgs;
-exports.createBucket = createBucket;
-exports.buildDeleteBucketArgs = buildDeleteBucketArgs;
-exports.deleteBucket = deleteBucket;
-const exec_1 = __nccwpck_require__(893);
-const json_1 = __nccwpck_require__(86153);
-const constants_1 = __nccwpck_require__(26214);
-const GROUP = [...constants_1.CLI_STORAGE_BUCKET_GROUP];
-/** Build `nebius storage bucket create ...` args (pure). */
-function buildCreateBucketArgs(s) {
-    if (!s.name)
-        throw new Error('CreateBucketSpec.name is required.');
-    if (!s.projectId)
-        throw new Error('CreateBucketSpec.projectId is required.');
-    const args = [...GROUP, 'create', '--name', s.name, '--parent-id', s.projectId];
-    if (s.maxSizeBytes)
-        args.push('--max-size-bytes', s.maxSizeBytes);
-    return args;
-}
-/** Create a bucket; return its id and name (tolerant JSON probing). */
-async function createBucket(s) {
-    const res = await (0, exec_1.runCli)(buildCreateBucketArgs(s), { json: true });
-    const obj = (res.data ?? {});
-    // VERIFY: exact field names from `storage bucket create` JSON.
-    const id = (0, json_1.firstString)(obj, ['id', 'metadata.id', 'bucket_id', 'bucketId']);
-    const name = (0, json_1.firstString)(obj, ['name', 'metadata.name', 'spec.name']) ?? s.name;
-    if (!id)
-        throw new Error('bucket id not found in create response.');
-    return { id, name };
-}
-/** Build `nebius storage bucket delete ...` args (pure). Zero ttl = instant. */
-function buildDeleteBucketArgs(id, ttl = '0s') {
-    if (!id)
-        throw new Error('buildDeleteBucketArgs: id is required.');
-    return [...GROUP, 'delete', '--id', id, '--ttl', ttl];
-}
-/** Delete a bucket (instant by default). */
-async function deleteBucket(id, ttl = '0s') {
-    await (0, exec_1.runCli)(buildDeleteBucketArgs(id, ttl), { json: true });
-}
-
-
-/***/ }),
-
-/***/ 33556:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-/**
- * Empty a bucket by deleting every object (S3 data plane). Used by delete-bucket
- * before the CLI delete, so the delete works regardless of whether the CLI
- * refuses non-empty buckets.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.buildEmptySpecFromInputs = buildEmptySpecFromInputs;
-exports.emptyBucket = emptyBucket;
+exports.buildDownloadSpecFromInputs = buildDownloadSpecFromInputs;
+exports.destPathForKey = destPathForKey;
+exports.downloadObjects = downloadObjects;
+const node_fs_1 = __nccwpck_require__(73024);
+const node_path_1 = __nccwpck_require__(76760);
 const inputs_1 = __nccwpck_require__(84303);
 const time_1 = __nccwpck_require__(22334);
 const constants_1 = __nccwpck_require__(26214);
 const keys_1 = __nccwpck_require__(77977);
 const s3_1 = __nccwpck_require__(77283);
 const DEFAULT_TTL_MS = 2 * 60 * 60 * 1000; // 2h
-function buildEmptySpecFromInputs() {
+/** Read action inputs into a DownloadSpec. */
+function buildDownloadSpecFromInputs() {
     return {
         bucket: (0, inputs_1.getString)('bucket', { required: true }),
+        prefix: (0, inputs_1.getString)('prefix', { required: true }),
+        dest: (0, inputs_1.getString)('dest', { required: true }),
         serviceAccountId: (0, inputs_1.getStringOrEnv)('service-account-id', constants_1.SERVICE_ACCOUNT_ID_ENV, { required: true }),
         projectId: (0, inputs_1.getStringOrEnv)('project-id', constants_1.PROJECT_ID_ENV, { required: true }),
         expiresIn: (0, inputs_1.getString)('expires-in', { default: '2h' }),
@@ -97295,22 +97247,50 @@ function buildEmptySpecFromInputs() {
         region: (0, inputs_1.getString)('region', { default: constants_1.S3_REGION_DEFAULT }),
     };
 }
-/** Mint a key, list all objects, delete them; return how many were deleted. */
-async function emptyBucket(spec, now = Date.now) {
+/**
+ * Local path for `key` under `dest`, relative to `prefix`. When the key IS the
+ * prefix (single-object download) the object's basename is used. Rejects keys
+ * that would resolve outside `dest` (S3 keys may contain `..` segments).
+ */
+function destPathForKey(dest, prefix, key) {
+    const rel = (key.startsWith(prefix) ? key.slice(prefix.length) : key).replace(/^\/+/, '');
+    const root = (0, node_path_1.normalize)(dest);
+    if (rel.length === 0) {
+        const base = key.split('/').filter(Boolean).pop() ?? '';
+        return (0, node_path_1.join)(root, base);
+    }
+    const out = (0, node_path_1.normalize)((0, node_path_1.join)(root, rel));
+    if (!out.startsWith(root + node_path_1.sep)) {
+        throw new Error(`Refusing to write key '${key}' outside dest '${dest}'.`);
+    }
+    return out;
+}
+/** Run the mint -> list -> download flow. */
+async function downloadObjects(spec, now = Date.now) {
     const ttlMs = (0, time_1.parseDurationMs)(spec.expiresIn) ?? DEFAULT_TTL_MS;
     const expiresAt = new Date(now() + ttlMs).toISOString();
     const minted = await (0, keys_1.mintEphemeralKey)({
         projectId: spec.projectId,
         serviceAccountId: spec.serviceAccountId,
-        name: `empty-${spec.bucket}`,
+        name: `download-${spec.bucket}`,
         expiresAt,
     });
     const secretAccessKey = await (0, keys_1.readAccessKeySecret)(minted.secretId);
-    const loc = { endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket };
     const creds = { accessKeyId: minted.awsAccessKeyId, secretAccessKey };
-    const keys = await (0, s3_1.listObjects)(loc, creds, '');
-    await (0, s3_1.deleteObjects)(loc, creds, keys);
-    return keys.length;
+    const loc = { endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket };
+    const keys = await (0, s3_1.listObjects)(loc, creds, spec.prefix);
+    if (keys.length === 0) {
+        throw new Error(`No objects under prefix '${spec.prefix}' in bucket '${spec.bucket}' — nothing to download.`);
+    }
+    const files = [];
+    for (const key of keys) {
+        const path = destPathForKey(spec.dest, spec.prefix, key);
+        const body = await (0, s3_1.getObject)({ ...loc, key }, creds);
+        (0, node_fs_1.mkdirSync)((0, node_path_1.dirname)(path), { recursive: true });
+        (0, node_fs_1.writeFileSync)(path, body);
+        files.push(path);
+    }
+    return { files, dest: spec.dest };
 }
 
 
@@ -192100,27 +192080,26 @@ var __webpack_exports__ = {};
 var exports = __webpack_exports__;
 
 /**
- * `delete-bucket` action entrypoint.
+ * `download-object` action entrypoint.
  *
- * Empties the bucket over S3 (so the CLI delete works even if it refuses
- * non-empty buckets), then deletes the bucket via the control-plane CLI.
+ * Downloads every object under a bucket prefix to a local directory using a
+ * short-lived access key minted from the configured service account. Fails
+ * when the prefix matches nothing, so it doubles as the artifact gate.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(43483);
-const empty_1 = __nccwpck_require__(33556);
-const bucket_1 = __nccwpck_require__(39419);
+// Imported by direct path (not the ../core barrel) so @aws-sdk/client-s3 is bundled only into THIS action, not every action.
+const download_1 = __nccwpck_require__(60837);
 async function run() {
     await (0, core_1.ensureCli)({ version: 'latest' });
-    const bucketId = (0, core_1.getString)('bucket-id', { required: true });
-    const spec = (0, empty_1.buildEmptySpecFromInputs)();
-    const deleted = await core_1.log.group('Delete bucket', async () => {
-        const n = await (0, empty_1.emptyBucket)(spec);
-        core_1.log.info(`Emptied ${n} object(s) from ${spec.bucket}.`);
-        await (0, bucket_1.deleteBucket)(bucketId);
-        core_1.log.info(`Deleted bucket ${bucketId}.`);
-        return n;
+    const spec = (0, download_1.buildDownloadSpecFromInputs)();
+    const result = await core_1.log.group('Download objects', async () => {
+        const r = await (0, download_1.downloadObjects)(spec);
+        core_1.log.info(`Downloaded ${r.files.length} object(s) to ${r.dest}.`);
+        return r;
     });
-    (0, core_1.setOutput)('deleted-count', deleted);
+    (0, core_1.setOutput)('files-count', result.files.length);
+    (0, core_1.setOutput)('dest', result.dest);
 }
 run().catch((err) => (0, core_1.fail)(err));
 
