@@ -97367,6 +97367,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.objectUri = objectUri;
 exports.buildS3ClientConfig = buildS3ClientConfig;
 exports.putObject = putObject;
+exports.getObject = getObject;
 exports.listObjects = listObjects;
 exports.deleteObjects = deleteObjects;
 const client_s3_1 = __nccwpck_require__(53711);
@@ -97388,6 +97389,21 @@ async function putObject(t, c, body) {
     const client = new client_s3_1.S3Client(buildS3ClientConfig(t, c));
     try {
         await client.send(new client_s3_1.PutObjectCommand({ Bucket: t.bucket, Key: t.key.replace(/^\/+/, ''), Body: body }));
+    }
+    finally {
+        client.destroy();
+    }
+}
+/** Download a single object's bytes. Throws on S3 error (no silent failure). */
+async function getObject(t, c) {
+    const client = new client_s3_1.S3Client(buildS3ClientConfig(t, c));
+    try {
+        const res = await client.send(new client_s3_1.GetObjectCommand({ Bucket: t.bucket, Key: t.key.replace(/^\/+/, '') }));
+        const bytes = await res.Body?.transformToByteArray();
+        if (!bytes) {
+            throw new Error(`Empty response body for ${objectUri(t.bucket, t.key)}`);
+        }
+        return Buffer.from(bytes);
     }
     finally {
         client.destroy();
