@@ -1,5 +1,7 @@
-# Demo: the split Job path — setup -> submit-job -> wait-for-job — running a
-# real LoRA fine-tune with Axolotl on a Nebius GPU.
+# Demo: train-to-serve — the split Job path (setup -> submit-job ->
+# wait-for-job) running a real LoRA fine-tune with Axolotl on a Nebius GPU,
+# then download-object -> docker build/push -> deploy-endpoint ->
+# wait-for-endpoint to serve the freshly trained model.
 #
 # Adapted from the Nebius serverless-ai-cookbook:
 #   https://github.com/nebius/serverless-ai-cookbook/tree/main/training/axolotl-finetuning
@@ -11,10 +13,18 @@
 #
 # This workflow owns the bucket lifecycle: it CREATES a fresh per-run bucket,
 # uploads the inlined Axolotl config to it, mounts it read-WRITE into the job at
-# /workspace/data (so adapters persist into the bucket under output/), trains,
-# VERIFIES the output artifacts exist (check-object), and DELETES the bucket on
-# cleanup (always, even on failure). The upload mints a short-lived S3 access key
-# from the service account (secret -> MysteryBox); no new GitHub secret is needed.
+# /workspace/data (so adapters persist into the bucket under output/), and
+# trains. The upload mints a short-lived S3 access key from the service account
+# (secret -> MysteryBox); no new GitHub secret is needed.
+#
+# After training it takes the model to production: DOWNLOADS the adapters from
+# the bucket (download-object fails when output/ is empty, so it doubles as the
+# artifact check), BUILDS them into a CPU serving image
+# (examples/qwen-lora-server), PUSHES it to the Nebius Container Registry
+# (docker login with the NEBIUS_IAM_TOKEN that `auth` exported), DEPLOYS it to
+# an Endpoint (deploy-endpoint -> wait-for-endpoint), smoke-tests /health and
+# /generate, and DELETES the endpoint and bucket on cleanup (always, even on
+# failure).
 #
 # Auth: service-account key (NOT OIDC). `setup` configures a key-based CLI
 # profile for bucket ops and log streaming (the CLI needs its own
@@ -28,6 +38,8 @@
 #   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
 #   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
 #   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
+#   vars.NEBIUS_REGISTRY_ID         - Container Registry id (image path namespace)
+#   vars.NEBIUS_REGISTRY            - registry host (optional; default cr.nebius.io)
 name: demo-run-job
 
 on:
@@ -42,6 +54,9 @@ on:
       disk-size:
         description: 'Job disk size'
         default: '250Gi'
+      endpoint-preset:
+        description: 'Endpoint compute preset'
+        default: '1gpu-16vcpu-200gb'
 
 permissions:
   contents: read
@@ -177,13 +192,78 @@ jobs:
           poll-interval: 10
           timeout: 3600
 
-      # Verify the fine-tune actually wrote adapters into the bucket.
-      - name: Verify model artifacts
-        id: check
-        uses: ./actions/check-object
+      # Pull the trained adapters out of the bucket onto the runner.
+      # download-object fails when output/ is empty, so it also VERIFIES the
+      # fine-tune actually produced artifacts (subsumes check-object here).
+      - name: Download model artifacts
+        id: download
+        uses: ./actions/download-object
         with:
           bucket: ${{ steps.bucket.outputs.bucket-name }}
           prefix: output/
+          dest: ${{ runner.temp }}/adapters
+
+      # Bake the adapters into the CPU serving image. The Dockerfile expects
+      # them under ./adapters inside the build context and snapshots the base
+      # model at build time, so the pushed image is hermetic.
+      - name: Build serving image
+        id: image
+        env:
+          REGISTRY: ${{ vars.NEBIUS_REGISTRY || 'cr.nebius.io' }}
+          REGISTRY_ID: ${{ vars.NEBIUS_REGISTRY_ID }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          if [ -z "$REGISTRY_ID" ]; then
+            echo "::error::vars.NEBIUS_REGISTRY_ID is required to push the serving image"
+            exit 1
+          fi
+          IMAGE="$REGISTRY/$REGISTRY_ID/demo-qwen-lora:$RUN_ID"
+          cp -R "$RUNNER_TEMP/adapters" examples/qwen-lora-server/adapters
+          docker build -t "$IMAGE" examples/qwen-lora-server
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      # The registry accepts `iam` + an IAM token as docker credentials; the
+      # `auth` step above already exported NEBIUS_IAM_TOKEN for this job.
+      - name: Push serving image
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          REGISTRY: ${{ vars.NEBIUS_REGISTRY || 'cr.nebius.io' }}
+        run: |
+          echo "$NEBIUS_IAM_TOKEN" | docker login "$REGISTRY" -u iam --password-stdin
+          docker push "$IMAGE"
+
+      # Deploy the pushed image to an Endpoint and return immediately
+      # (wait: false); the explicit wait step below polls it to serving.
+      - name: Deploy endpoint
+        id: deploy
+        uses: ./actions/deploy-endpoint
+        with:
+          name: demo-axolotl-${{ github.run_id }}
+          image: ${{ steps.image.outputs.image }}
+          port: 8080
+          public: true
+          preset: ${{ inputs.endpoint-preset }}
+          wait: false
+
+      - name: Wait for endpoint
+        id: endpoint
+        uses: ./actions/wait-for-endpoint
+        with:
+          endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
+          poll-interval: 10
+          timeout: 30m
+
+      # Prove the fine-tuned model actually serves: health probe (with retries
+      # while the container finishes loading the model) plus one greedy
+      # generation through the LoRA-patched model.
+      - name: Smoke test endpoint
+        env:
+          URL: ${{ steps.endpoint.outputs.url }}
+        run: |
+          curl -fsS --retry 18 --retry-delay 10 --retry-all-errors "$URL/health"
+          curl -fsS -X POST "$URL/generate" \
+            -H 'Content-Type: application/json' \
+            -d '{"prompt": "The quick brown fox", "max_new_tokens": 16}'
 
       # 3) If the run is cancelled, cancel the Nebius Job too.
       - name: Cancel job on workflow cancellation
@@ -191,6 +271,15 @@ jobs:
         uses: ./actions/cancel-job
         with:
           job-id: ${{ steps.submit.outputs.job-id }}
+
+      # Demo hygiene: tear the endpoint down even on failure so a paid
+      # endpoint never outlives the run. (The pushed image stays in the
+      # registry, tagged with the run id.)
+      - name: Delete endpoint
+        if: always() && steps.deploy.outputs.endpoint-id != ''
+        uses: ./actions/delete-endpoint
+        with:
+          endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
 
       # Clean up: empty + delete the bucket. Runs even on failure/cancellation,
       # but only if the bucket was actually created.
@@ -208,7 +297,13 @@ jobs:
           JOB_ID: ${{ steps.submit.outputs.job-id }}
           STATUS: ${{ steps.wait.outputs.status }}
           EXIT_CODE: ${{ steps.wait.outputs.exit-code }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          ENDPOINT_ID: ${{ steps.deploy.outputs.endpoint-id }}
+          ENDPOINT_URL: ${{ steps.endpoint.outputs.url }}
         run: |
-          echo "Job ID:    $JOB_ID"
-          echo "Status:    $STATUS"
-          echo "Exit code: $EXIT_CODE"
+          echo "Job ID:       $JOB_ID"
+          echo "Status:       $STATUS"
+          echo "Exit code:    $EXIT_CODE"
+          echo "Image:        $IMAGE"
+          echo "Endpoint ID:  $ENDPOINT_ID"
+          echo "Endpoint URL: $ENDPOINT_URL"
