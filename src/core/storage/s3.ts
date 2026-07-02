@@ -10,6 +10,7 @@
 import {
   S3Client,
   PutObjectCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
   type S3ClientConfig,
@@ -55,6 +56,23 @@ export async function putObject(t: S3Target, c: S3Creds, body: Buffer | string):
     await client.send(
       new PutObjectCommand({ Bucket: t.bucket, Key: t.key.replace(/^\/+/, ''), Body: body }),
     );
+  } finally {
+    client.destroy();
+  }
+}
+
+/** Download a single object's bytes. Throws on S3 error (no silent failure). */
+export async function getObject(t: S3Target, c: S3Creds): Promise<Buffer> {
+  const client = new S3Client(buildS3ClientConfig(t, c));
+  try {
+    const res = await client.send(
+      new GetObjectCommand({ Bucket: t.bucket, Key: t.key.replace(/^\/+/, '') }),
+    );
+    const bytes = await res.Body?.transformToByteArray();
+    if (!bytes) {
+      throw new Error(`Empty response body for ${objectUri(t.bucket, t.key)}`);
+    }
+    return Buffer.from(bytes);
   } finally {
     client.destroy();
   }
