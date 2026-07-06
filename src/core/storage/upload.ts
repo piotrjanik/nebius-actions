@@ -13,7 +13,7 @@ import {
   S3_REGION_DEFAULT,
   SERVICE_ACCOUNT_ID_ENV,
 } from '../constants';
-import { mintEphemeralKey, readAccessKeySecret } from './keys';
+import { ephemeralKeyName, mintEphemeralKey, readAccessKeySecret } from './keys';
 import { putObject, objectUri } from './s3';
 
 export interface UploadSpec {
@@ -60,7 +60,7 @@ export async function uploadObject(
   const minted = await mintEphemeralKey({
     projectId: spec.projectId,
     serviceAccountId: spec.serviceAccountId,
-    name: `upload-${spec.bucket}`,
+    name: ephemeralKeyName('upload', spec.bucket),
     expiresAt,
   });
   const secretAccessKey = await readAccessKeySecret(minted.secretId);

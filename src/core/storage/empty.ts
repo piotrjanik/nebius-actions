@@ -12,7 +12,7 @@ import {
   S3_REGION_DEFAULT,
   SERVICE_ACCOUNT_ID_ENV,
 } from '../constants';
-import { mintEphemeralKey, readAccessKeySecret } from './keys';
+import { ephemeralKeyName, mintEphemeralKey, readAccessKeySecret } from './keys';
 import { listObjects, deleteObjects } from './s3';
 
 export interface EmptySpec {
@@ -44,7 +44,7 @@ export async function emptyBucket(spec: EmptySpec, now: () => number = Date.now)
   const minted = await mintEphemeralKey({
     projectId: spec.projectId,
     serviceAccountId: spec.serviceAccountId,
-    name: `empty-${spec.bucket}`,
+    name: ephemeralKeyName('empty', spec.bucket),
     expiresAt,
   });
   const secretAccessKey = await readAccessKeySecret(minted.secretId);

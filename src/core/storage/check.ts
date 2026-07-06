@@ -12,7 +12,7 @@ import {
   S3_REGION_DEFAULT,
   SERVICE_ACCOUNT_ID_ENV,
 } from '../constants';
-import { mintEphemeralKey, readAccessKeySecret } from './keys';
+import { ephemeralKeyName, mintEphemeralKey, readAccessKeySecret } from './keys';
 import { listObjects } from './s3';
 
 export interface CheckSpec {
@@ -46,7 +46,7 @@ export async function checkObject(spec: CheckSpec, now: () => number = Date.now)
   const minted = await mintEphemeralKey({
     projectId: spec.projectId,
     serviceAccountId: spec.serviceAccountId,
-    name: `check-${spec.bucket}`,
+    name: ephemeralKeyName('check', spec.bucket),
     expiresAt,
   });
   const secretAccessKey = await readAccessKeySecret(minted.secretId);
