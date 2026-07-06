@@ -7,6 +7,7 @@ vi.mock('../../src/core/io/log', () => ({ mask: vi.fn(), log: { info: vi.fn() } 
 import { mask } from '../../src/core/io/log';
 import {
   buildMintKeyArgs,
+  ephemeralKeyName,
   mintEphemeralKey,
   readAccessKeySecret,
 } from '../../src/core/storage/keys';
@@ -45,6 +46,26 @@ describe('buildMintKeyArgs', () => {
 
   it('throws when serviceAccountId is missing', () => {
     expect(() => buildMintKeyArgs({ projectId: 'p', serviceAccountId: '' })).toThrow(/serviceAccountId/);
+  });
+});
+
+describe('ephemeralKeyName', () => {
+  it('starts with the verb and bucket', () => {
+    expect(ephemeralKeyName('upload', 'demo-axolotl-1')).toMatch(/^upload-demo-axolotl-1-/);
+  });
+
+  it('is unique per invocation for the same verb and bucket', () => {
+    // IAM rejects duplicate names (AlreadyExists), so two steps hitting the
+    // same bucket within the key TTL must not produce the same name.
+    const a = ephemeralKeyName('upload', 'demo-axolotl-1');
+    const b = ephemeralKeyName('upload', 'demo-axolotl-1');
+    expect(a).not.toBe(b);
+  });
+
+  it('caps the name at 63 chars even for long bucket names', () => {
+    const name = ephemeralKeyName('download', 'b'.repeat(63));
+    expect(name.length).toBeLessThanOrEqual(63);
+    expect(name).toMatch(/^download-b/);
   });
 });
 

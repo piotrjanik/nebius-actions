@@ -3,10 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mintEphemeralKey = vi.fn();
 const readAccessKeySecret = vi.fn();
 const listObjects = vi.fn();
-vi.mock('../../src/core/storage/keys', () => ({
-  mintEphemeralKey: (...a: unknown[]) => mintEphemeralKey(...a),
-  readAccessKeySecret: (...a: unknown[]) => readAccessKeySecret(...a),
-}));
+vi.mock('../../src/core/storage/keys', async () => {
+  const actual = await vi.importActual<typeof import('../../src/core/storage/keys')>(
+    '../../src/core/storage/keys',
+  );
+  return {
+    ...actual,
+    mintEphemeralKey: (...a: unknown[]) => mintEphemeralKey(...a),
+    readAccessKeySecret: (...a: unknown[]) => readAccessKeySecret(...a),
+  };
+});
 vi.mock('../../src/core/storage/s3', async () => {
   const actual = await vi.importActual<typeof import('../../src/core/storage/s3')>('../../src/core/storage/s3');
   return { ...actual, listObjects: (...a: unknown[]) => listObjects(...a) };

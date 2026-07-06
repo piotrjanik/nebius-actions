@@ -97259,6 +97259,7 @@ __exportStar(__nccwpck_require__(37860), exports);
  * CLI JSON field names were confirmed against the live CLI (0.12.x).
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ephemeralKeyName = ephemeralKeyName;
 exports.buildMintKeyArgs = buildMintKeyArgs;
 exports.mintEphemeralKey = mintEphemeralKey;
 exports.readAccessKeySecret = readAccessKeySecret;
@@ -97268,6 +97269,21 @@ const json_1 = __nccwpck_require__(86153);
 const constants_1 = __nccwpck_require__(26214);
 const GROUP = [...constants_1.CLI_ACCESS_KEY_GROUP];
 const MYSTERYBOX_PAYLOAD = [...constants_1.CLI_MYSTERYBOX_PAYLOAD_GROUP];
+/** Max resource-name length accepted by the IAM API. */
+const KEY_NAME_MAX = 63;
+/**
+ * Access-key name for a storage flow, unique per invocation.
+ *
+ * The name only aids observability, but IAM rejects duplicates
+ * (AlreadyExists) — a deterministic `<verb>-<bucket>` breaks the second
+ * same-verb step against a bucket while the first key is still alive
+ * (keys self-expire at TTL rather than being deleted after use).
+ */
+function ephemeralKeyName(verb, bucket) {
+    const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const base = `${verb}-${bucket}`.slice(0, KEY_NAME_MAX - suffix.length - 1);
+    return `${base}-${suffix}`;
+}
 /** Build `nebius iam v2 access-key create ...` args (pure). */
 function buildMintKeyArgs(s) {
     if (!s.projectId)
@@ -97493,7 +97509,7 @@ async function uploadObject(spec, now = Date.now) {
     const minted = await (0, keys_1.mintEphemeralKey)({
         projectId: spec.projectId,
         serviceAccountId: spec.serviceAccountId,
-        name: `upload-${spec.bucket}`,
+        name: (0, keys_1.ephemeralKeyName)('upload', spec.bucket),
         expiresAt,
     });
     const secretAccessKey = await (0, keys_1.readAccessKeySecret)(minted.secretId);

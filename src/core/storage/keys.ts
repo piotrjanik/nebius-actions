@@ -40,6 +40,23 @@ export interface MintedKey {
   secretId: string;
 }
 
+/** Max resource-name length accepted by the IAM API. */
+const KEY_NAME_MAX = 63;
+
+/**
+ * Access-key name for a storage flow, unique per invocation.
+ *
+ * The name only aids observability, but IAM rejects duplicates
+ * (AlreadyExists) — a deterministic `<verb>-<bucket>` breaks the second
+ * same-verb step against a bucket while the first key is still alive
+ * (keys self-expire at TTL rather than being deleted after use).
+ */
+export function ephemeralKeyName(verb: string, bucket: string): string {
+  const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const base = `${verb}-${bucket}`.slice(0, KEY_NAME_MAX - suffix.length - 1);
+  return `${base}-${suffix}`;
+}
+
 /** Build `nebius iam v2 access-key create ...` args (pure). */
 export function buildMintKeyArgs(s: EphemeralKeySpec): string[] {
   if (!s.projectId) throw new Error('EphemeralKeySpec.projectId is required.');

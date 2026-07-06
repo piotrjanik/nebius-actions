@@ -17,7 +17,7 @@ import {
   S3_REGION_DEFAULT,
   SERVICE_ACCOUNT_ID_ENV,
 } from '../constants';
-import { mintEphemeralKey, readAccessKeySecret } from './keys';
+import { ephemeralKeyName, mintEphemeralKey, readAccessKeySecret } from './keys';
 import { getObject, listObjects } from './s3';
 
 export interface DownloadSpec {
@@ -82,7 +82,7 @@ export async function downloadObjects(
   const minted = await mintEphemeralKey({
     projectId: spec.projectId,
     serviceAccountId: spec.serviceAccountId,
-    name: `download-${spec.bucket}`,
+    name: ephemeralKeyName('download', spec.bucket),
     expiresAt,
   });
   const secretAccessKey = await readAccessKeySecret(minted.secretId);
