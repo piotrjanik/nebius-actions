@@ -43,8 +43,10 @@
 #   secrets.NEBIUS_PRIVATE_KEY      - the authorized key's PEM private key
 #   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
 #   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID          - parent project (optional; CLI default used if unset)
-#   vars.NEBIUS_REGISTRY_ID         - Container Registry id (image path namespace)
+#   vars.NEBIUS_PROJECT_ID          - parent project (used to resolve/create the registry)
+#   vars.NEBIUS_REGISTRY_ID         - Container Registry id (optional; the workflow
+#                                     resolve-or-creates a registry named
+#                                     "demo-qwen-lora-vllm" when unset)
 #   vars.NEBIUS_REGISTRY            - registry host (optional; default cr.nebius.io)
 #   vars.NEBIUS_VLLM_IMAGE          - vLLM base image (optional; has a default)
 name: demo-run-job
@@ -211,21 +213,46 @@ jobs:
           bucket: ${{ steps.bucket.outputs.bucket-name }}
           key: train-and-push.sh
 
-      # Compute the target image ref once; the job pushes it and the endpoint
-      # serves it.
+      # Resolve the target Container Registry, then compute the image ref once;
+      # the job pushes that ref and the endpoint serves it. If
+      # vars.NEBIUS_REGISTRY_ID is set it is used verbatim; otherwise the
+      # workflow resolve-or-creates a durable registry named
+      # "demo-qwen-lora-vllm" in the project (like it self-provisions the
+      # bucket), so no manual registry setup is needed. `setup` configured the
+      # CLI profile the `nebius` calls below authenticate with.
       - name: Compute image ref
         id: image
         env:
           REGISTRY: ${{ vars.NEBIUS_REGISTRY || 'cr.nebius.io' }}
           REGISTRY_ID: ${{ vars.NEBIUS_REGISTRY_ID }}
+          REGISTRY_NAME: demo-qwen-lora-vllm
+          PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
           RUN_ID: ${{ github.run_id }}
         run: |
           if [ -z "$REGISTRY_ID" ]; then
-            echo "::error::vars.NEBIUS_REGISTRY_ID is required to push the serving image"
+            if [ -z "$PROJECT_ID" ]; then
+              echo "::error::vars.NEBIUS_PROJECT_ID is required to resolve or create the container registry"
+              exit 1
+            fi
+            echo "Resolving container registry '$REGISTRY_NAME' in $PROJECT_ID"
+            REGISTRY_ID="$(nebius registry list --parent-id "$PROJECT_ID" --format json \
+              | jq -r --arg name "$REGISTRY_NAME" '[.items[]? | select(.metadata.name == $name) | .metadata.id] | first // empty')"
+            if [ -z "$REGISTRY_ID" ]; then
+              echo "No registry named '$REGISTRY_NAME' found; creating one"
+              REGISTRY_ID="$(nebius registry create --parent-id "$PROJECT_ID" --name "$REGISTRY_NAME" --format json \
+                | jq -r '.metadata.id // empty')"
+            fi
+          fi
+          if [ -z "$REGISTRY_ID" ]; then
+            echo "::error::failed to resolve or create a container registry"
             exit 1
           fi
-          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
-          echo "image=$REGISTRY/$REGISTRY_ID/demo-qwen-lora-vllm:$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Using registry id $REGISTRY_ID"
+          {
+            echo "registry=$REGISTRY"
+            echo "registry-id=$REGISTRY_ID"
+            echo "image=$REGISTRY/$REGISTRY_ID/demo-qwen-lora-vllm:$RUN_ID"
+          } >> "$GITHUB_OUTPUT"
 
       # 1) Create the Job via the SDK. submit-job returns as soon as the Job is
       #    accepted (status CREATING), emitting its id — it does NOT wait for the
