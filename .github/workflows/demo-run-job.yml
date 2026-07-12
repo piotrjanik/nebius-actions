@@ -146,16 +146,37 @@ jobs:
               -czf /tmp/adapters-layer.tar.gz -C /workspace/data output
 
           # 3) Install crane (daemonless registry client).
-          curl -fsSL https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
+          curl -fsSL --retry 5 --retry-all-errors https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
             | tar -xz -C /usr/local/bin crane
+
+          # Retry wrapper for the registry push. The job container's embedded
+          # DNS (127.0.0.11) intermittently fails to resolve cr.nebius.io
+          # ("server misbehaving"), and crane's own retry budget (~3 tries in a
+          # few seconds) is too small to ride out the blip — which would throw
+          # away a completed fine-tune on the last step. Retry with backoff.
+          retry() {
+            local n=1 max=6 delay=10
+            while true; do
+              "$@" && return 0
+              if [ "$n" -ge "$max" ]; then
+                echo "command still failing after $max attempts: $*" >&2
+                return 1
+              fi
+              echo "attempt $n/$max failed; retrying in ${delay}s: $*" >&2
+              n=$((n + 1))
+              sleep "$delay"
+            done
+          }
 
           # 4) Append the adapter layer to the vLLM base (crane streams the base
           #    layers from docker.io into the target registry), then rewrite the
           #    entrypoint so the endpoint serves the base model with the LoRA
-          #    adapter mounted under the model name "demo".
+          #    adapter mounted under the model name "demo". `crane auth login`
+          #    only writes credentials locally, so it needs no retry; the
+          #    network-bound append/mutate calls do.
           crane auth login "$REGISTRY" -u iam -p "$REGISTRY_TOKEN"
-          crane append -b "$BASE_IMAGE" -f /tmp/adapters-layer.tar.gz -t "$IMAGE"
-          crane mutate "$IMAGE" -t "$IMAGE" \
+          retry crane append -b "$BASE_IMAGE" -f /tmp/adapters-layer.tar.gz -t "$IMAGE"
+          retry crane mutate "$IMAGE" -t "$IMAGE" \
             --entrypoint "vllm,serve,Qwen/Qwen2.5-0.5B" \
             --cmd "--enable-lora,--lora-modules,demo=/adapters"
 
