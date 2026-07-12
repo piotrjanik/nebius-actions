@@ -47,7 +47,9 @@
 #   vars.NEBIUS_REGISTRY_ID         - Container Registry id (optional; the workflow
 #                                     resolve-or-creates a registry named
 #                                     "demo-qwen-lora-vllm" when unset)
-#   vars.NEBIUS_REGISTRY            - registry host (optional; default cr.nebius.io)
+#   vars.NEBIUS_REGISTRY            - registry host (optional; defaults to the
+#                                     registry's own regional FQDN, e.g.
+#                                     cr.eu-north1.nebius.cloud)
 #   vars.NEBIUS_VLLM_IMAGE          - vLLM base image (optional; has a default)
 name: demo-run-job
 
@@ -241,10 +243,17 @@ jobs:
       # "demo-qwen-lora-vllm" in the project (like it self-provisions the
       # bucket), so no manual registry setup is needed. `setup` configured the
       # CLI profile the `nebius` calls below authenticate with.
+      #
+      # The registry HOST is read from the resource's status.registry_fqdn
+      # (e.g. cr.eu-north1.nebius.cloud) rather than a fixed default: the
+      # regional FQDN is what resolves from INSIDE Nebius compute, where the
+      # job pushes and the endpoint pulls. The public "cr.nebius.io" alias does
+      # NOT resolve from a Job's network. vars.NEBIUS_REGISTRY still overrides
+      # for the rare case you need a specific host.
       - name: Compute image ref
         id: image
         env:
-          REGISTRY: ${{ vars.NEBIUS_REGISTRY || 'cr.nebius.io' }}
+          REGISTRY_OVERRIDE: ${{ vars.NEBIUS_REGISTRY }}
           REGISTRY_ID: ${{ vars.NEBIUS_REGISTRY_ID }}
           REGISTRY_NAME: demo-qwen-lora-vllm
           PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
@@ -268,7 +277,18 @@ jobs:
             echo "::error::failed to resolve or create a container registry"
             exit 1
           fi
-          echo "Using registry id $REGISTRY_ID"
+          # Host: explicit override wins; otherwise the registry's own regional
+          # FQDN (the only host reachable from inside Nebius compute).
+          REGISTRY="$REGISTRY_OVERRIDE"
+          if [ -z "$REGISTRY" ]; then
+            REGISTRY="$(nebius registry get --id "$REGISTRY_ID" --format json \
+              | jq -r '.status.registry_fqdn // empty')"
+          fi
+          if [ -z "$REGISTRY" ]; then
+            echo "::error::could not determine the registry FQDN for $REGISTRY_ID (set vars.NEBIUS_REGISTRY to override)"
+            exit 1
+          fi
+          echo "Using registry $REGISTRY (id $REGISTRY_ID)"
           {
             echo "registry=$REGISTRY"
             echo "registry-id=$REGISTRY_ID"
