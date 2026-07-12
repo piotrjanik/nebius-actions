@@ -288,11 +288,17 @@ jobs:
             echo "::error::could not determine the registry FQDN for $REGISTRY_ID (set vars.NEBIUS_REGISTRY to override)"
             exit 1
           fi
-          echo "Using registry $REGISTRY (id $REGISTRY_ID)"
+          # Nebius data-plane image paths identify the registry by its id with
+          # the "registry-" prefix STRIPPED:
+          #   cr.<region>.nebius.cloud/<bare-id>/<repo>:<tag>
+          # Pushing to the full "registry-..." id fails with
+          # "Entity Registry not found by id registry-...".
+          REGISTRY_PATH_ID="${REGISTRY_ID#registry-}"
+          echo "Using registry $REGISTRY (id $REGISTRY_ID, path $REGISTRY_PATH_ID)"
           {
             echo "registry=$REGISTRY"
             echo "registry-id=$REGISTRY_ID"
-            echo "image=$REGISTRY/$REGISTRY_ID/demo-qwen-lora-vllm:$RUN_ID"
+            echo "image=$REGISTRY/$REGISTRY_PATH_ID/demo-qwen-lora-vllm:$RUN_ID"
           } >> "$GITHUB_OUTPUT"
 
       # 1) Create the Job via the SDK. submit-job returns as soon as the Job is
