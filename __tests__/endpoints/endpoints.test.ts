@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EndpointSpec_Port_Protocol } from '@nebius/js-sdk/api/nebius/ai/v1/index';
+import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
 
 import {
   buildEndpointSpec,
@@ -83,7 +85,7 @@ describe('buildEndpointSpec', () => {
       platform: 'cpu-plat',
       publicIp: true,
       authToken: 't',
-      ports: [{ containerPort: 8080 }],
+      ports: [{ containerPort: 8080, protocol: EndpointSpec_Port_Protocol.HTTP }],
       environmentVariables: [
         { name: 'K', value: 'v' },
         { name: 'L', value: 'w' },
@@ -93,8 +95,41 @@ describe('buildEndpointSpec', () => {
 
   it('includes port 0 (uses !== undefined, not truthiness)', () => {
     expect(buildEndpointSpec({ name: 'svc', image: 'img', port: 0 }).ports).toEqual([
-      { containerPort: 0 },
+      { containerPort: 0, protocol: EndpointSpec_Port_Protocol.HTTP },
     ]);
+  });
+
+  it('sets ports[].protocol to HTTP by default', () => {
+    const spec = buildEndpointSpec({ name: 'svc', image: 'img', port: 8000 });
+    expect(spec.ports).toEqual([
+      { containerPort: 8000, protocol: EndpointSpec_Port_Protocol.HTTP },
+    ]);
+  });
+
+  it('maps an explicit protocol (case-insensitive)', () => {
+    const spec = buildEndpointSpec({ name: 'svc', image: 'img', port: 8000, protocol: 'TCP' });
+    expect(spec.ports?.[0]?.protocol).toBe(EndpointSpec_Port_Protocol.TCP);
+  });
+
+  it('throws on an unknown protocol', () => {
+    expect(() =>
+      buildEndpointSpec({ name: 'svc', image: 'img', port: 8000, protocol: 'ftp' }),
+    ).toThrow(/protocol/i);
+  });
+
+  it('builds disk from size + type', () => {
+    const spec = buildEndpointSpec({
+      name: 'svc',
+      image: 'img',
+      diskSizeBytes: 100 * 1024 ** 3,
+      diskType: 'network-ssd',
+    });
+    expect(spec.disk).toEqual({ sizeBytes: 100 * 1024 ** 3, type: DiskSpec_DiskType.NETWORK_SSD });
+  });
+
+  it('sets subnetId when provided', () => {
+    const spec = buildEndpointSpec({ name: 'svc', image: 'img', subnetId: 'subnet-1' });
+    expect(spec.subnetId).toBe('subnet-1');
   });
 });
 

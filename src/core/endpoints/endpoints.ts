@@ -23,9 +23,12 @@ import {
   CreateEndpointRequest,
   DeleteEndpointRequest,
   EndpointSpec as SdkEndpointSpec,
+  EndpointSpec_Port_Protocol,
   GetEndpointByNameRequest,
   GetEndpointRequest,
 } from '@nebius/js-sdk/api/nebius/ai/v1/index';
+import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
+import { resolveDiskType } from '../sdk/disk';
 import {
   ENDPOINT_READY_STATUSES,
   ENDPOINT_STATUS,
@@ -47,6 +50,14 @@ export interface EndpointSpec {
   public?: boolean;
   /** Bearer token to require on the served URL (-> authToken). */
   token?: string;
+  /** Subnet id to deploy into (-> subnetId); auto-resolved by the entrypoint when unset. */
+  subnetId?: string;
+  /** Main-disk size in bytes (-> disk.sizeBytes). */
+  diskSizeBytes?: number;
+  /** Disk type key (e.g. `network-ssd`); mapped to the SDK disk-type enum. */
+  diskType?: string;
+  /** Served port protocol key (`http` | `tcp` | `udp`); default `http`. */
+  protocol?: string;
 }
 
 /** Normalized endpoint shape returned to entrypoints. */
@@ -80,13 +91,32 @@ export function buildEndpointMetadata(s: EndpointSpec): { name: string; parentId
   return { name: s.name, ...(s.projectId ? { parentId: s.projectId } : {}) };
 }
 
+/** Map the `protocol` input key onto the SDK port-protocol enum. */
+const PORT_PROTOCOLS: Record<string, EndpointSpec_Port_Protocol> = {
+  http: EndpointSpec_Port_Protocol.HTTP,
+  tcp: EndpointSpec_Port_Protocol.TCP,
+  udp: EndpointSpec_Port_Protocol.UDP,
+};
+
+/** Resolve a `protocol` key to the SDK enum, defaulting to HTTP. @throws on unknown. */
+function resolveProtocol(protocol?: string): EndpointSpec_Port_Protocol {
+  const key = (protocol ?? 'http').toLowerCase();
+  const proto = PORT_PROTOCOLS[key];
+  if (proto === undefined) {
+    throw new Error(`buildEndpointSpec: unknown port protocol '${protocol}'.`);
+  }
+  return proto;
+}
+
 interface EndpointSpecPartial {
   image: string;
   preset?: string;
   platform?: string;
   publicIp?: boolean;
   authToken?: string;
-  ports?: { containerPort: number }[];
+  subnetId?: string;
+  ports?: { containerPort: number; protocol: EndpointSpec_Port_Protocol }[];
+  disk?: { sizeBytes: number; type: DiskSpec_DiskType };
   environmentVariables?: { name: string; value: string }[];
 }
 
@@ -100,7 +130,13 @@ export function buildEndpointSpec(s: EndpointSpec): EndpointSpecPartial {
   if (s.platform) spec.platform = s.platform;
   if (s.public) spec.publicIp = true;
   if (s.token) spec.authToken = s.token;
-  if (s.port !== undefined) spec.ports = [{ containerPort: s.port }];
+  if (s.subnetId) spec.subnetId = s.subnetId;
+  if (s.port !== undefined) {
+    spec.ports = [{ containerPort: s.port, protocol: resolveProtocol(s.protocol) }];
+  }
+  if (s.diskSizeBytes !== undefined) {
+    spec.disk = { sizeBytes: s.diskSizeBytes, type: resolveDiskType(s.diskType) };
+  }
   const env = Object.entries(s.env ?? {});
   if (env.length > 0) {
     spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
