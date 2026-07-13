@@ -1,19 +1,41 @@
-# Demo: train-to-serve — the split Job path (setup -> submit-job ->
-# wait-for-job) running a real LoRA fine-tune with Axolotl on a Nebius GPU;
-# the job ITSELF then bakes the adapters into a vLLM image and pushes it to
-# the Nebius Container Registry, and the workflow deploys that image with
-# deploy-endpoint -> wait-for-endpoint.
+# Demo: train-to-serve — the split Job path running a real LoRA fine-tune with
+# Axolotl on a Nebius GPU; the job ITSELF then bakes the adapters into a vLLM
+# image and pushes it to the Nebius Container Registry, and the workflow
+# deploys that image and smoke-tests it.
 #
 # Adapted from the Nebius serverless-ai-cookbook:
 #   https://github.com/nebius/serverless-ai-cookbook/tree/main/training/axolotl-finetuning
 #
-# It QLoRA-fine-tunes Qwen/Qwen2.5-0.5B on a wikitext slice for 30 steps, then
-# bakes + pushes the serving image before exiting. `submit-job` creates the Job
-# and returns; `wait-for-job` streams its logs, polls to a terminal state, and
-# fails the step if the Job did not succeed. (The all-in-one `run-job` action
-# fuses these two into one step.)
+# The pipeline is split across five jobs:
 #
-# This workflow owns the bucket lifecycle: it CREATES a fresh per-run bucket,
+#   submit  (Submit Training Job) - provisions the bucket, uploads the config
+#                                   and the training script, resolves the
+#                                   registry, and CREATES the Job (returns as
+#                                   soon as it is accepted; does not wait).
+#   wait    (Wait)                - streams the Job's logs and polls it to a
+#                                   terminal state; fails if the Job did not
+#                                   succeed.
+#   deploy  (Deploy)              - deploys the image the Job pushed to an
+#                                   Endpoint and polls it to serving.
+#   try     (Try)                 - smoke-tests /health and /v1/completions
+#                                   through the LoRA adapter, and reports.
+#   cleanup (Cleanup)             - tears down the endpoint and the bucket.
+#
+# Each job runs on a fresh runner, so checkout + `setup` + `auth` are repeated
+# in every job that talks to Nebius: the workspace, the installed CLI and the
+# minted NEBIUS_IAM_TOKEN do not survive a job boundary. State that must cross
+# a boundary (bucket, image ref, job id, endpoint) is published through job
+# `outputs`.
+#
+# Cleanup is its own job with `needs` on all four and `if: always()`, so the
+# paid endpoint and the bucket are torn down even when an upstream job fails or
+# the run is cancelled. Folding teardown into `try` would leak the endpoint
+# whenever `deploy` failed, because `try` would then never run.
+#
+# It QLoRA-fine-tunes Qwen/Qwen2.5-0.5B on a wikitext slice for 30 steps, then
+# bakes + pushes the serving image before exiting.
+#
+# The workflow owns the bucket lifecycle: it CREATES a fresh per-run bucket,
 # uploads the inlined Axolotl config AND the inlined train-and-push.sh to it,
 # and mounts it read-WRITE into the job at /workspace/data (so both files are
 # visible to the job and the adapters persist into the bucket under output/).
@@ -26,11 +48,6 @@
 # Container Registry with crane (daemonless — no docker daemon in the job).
 # The registry credential is the short-lived NEBIUS_IAM_TOKEN that `auth`
 # exported, passed to the job as an env var.
-#
-# The workflow then DEPLOYS the pushed vLLM image to an Endpoint
-# (deploy-endpoint -> wait-for-endpoint), smoke-tests /health and
-# /v1/completions through the LoRA adapter, and DELETES the endpoint and
-# bucket on cleanup (always, even on failure).
 #
 # Auth: service-account key (NOT OIDC). `setup` configures a key-based CLI
 # profile for bucket ops and log streaming (the CLI needs its own
@@ -79,8 +96,19 @@ permissions:
   contents: read
 
 jobs:
-  run-job:
+  # ---------------------------------------------------------------------------
+  # 1) Provision the bucket, stage the inputs, resolve the registry, create the
+  #    Job. submit-job returns as soon as the Job is accepted (status CREATING)
+  #    — it does NOT wait for the Job to start RUNNING or to complete.
+  # ---------------------------------------------------------------------------
+  submit:
+    name: Submit Training Job
     runs-on: ubuntu-latest
+    outputs:
+      job-id: ${{ steps.submit.outputs.job-id }}
+      bucket-name: ${{ steps.bucket.outputs.bucket-name }}
+      bucket-id: ${{ steps.bucket.outputs.bucket-id }}
+      image: ${{ steps.image.outputs.image }}
     steps:
       # Local action refs (./actions/...) only resolve after the repo is checked
       # out into the workspace.
@@ -307,12 +335,10 @@ jobs:
             echo "image=$REGISTRY/$REGISTRY_PATH_ID/demo-qwen-lora-vllm:$RUN_ID"
           } >> "$GITHUB_OUTPUT"
 
-      # 1) Create the Job via the SDK. submit-job returns as soon as the Job is
-      #    accepted (status CREATING), emitting its id — it does NOT wait for the
-      #    Job to start RUNNING or to complete. The job runs the uploaded
-      #    train-and-push.sh: fine-tune, then bake + push the vLLM image.
-      #    REGISTRY_TOKEN is the short-lived IAM token `auth` exported — the
-      #    job uses it as the crane push credential.
+      # Create the Job via the SDK. It runs the uploaded train-and-push.sh:
+      # fine-tune, then bake + push the vLLM image. REGISTRY_TOKEN is the
+      # short-lived IAM token `auth` exported — the job uses it as the crane
+      # push credential.
       - name: Submit fine-tune + image push
         id: submit
         uses: ./actions/submit-job
@@ -340,30 +366,101 @@ jobs:
           preemptible: true
           args: -c "bash /workspace/data/train-and-push.sh"
 
-      # 2) With the Job created, poll its status to a terminal state,
-      #    streaming logs. Fails the step on FAILED/CANCELLED or poll timeout.
-      #    `timeout` here is a poll ceiling in SECONDS (vs the submit `timeout`
-      #    above, which is the Job's own run timeout).
+  # ---------------------------------------------------------------------------
+  # 2) Poll the Job to a terminal state, streaming logs. Fails on
+  #    FAILED/CANCELLED or poll timeout — which skips deploy/try and leaves
+  #    teardown to the cleanup job.
+  # ---------------------------------------------------------------------------
+  wait:
+    name: Wait
+    runs-on: ubuntu-latest
+    needs: submit
+    outputs:
+      status: ${{ steps.wait.outputs.status }}
+      exit-code: ${{ steps.wait.outputs.exit-code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: ./actions/setup
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
+
+      - name: Authenticate (SDK token)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+
+      # `timeout` here is a poll ceiling in SECONDS (vs the submit `timeout`,
+      # which is the Job's own run timeout).
       - name: Wait for fine-tune + image push
         id: wait
         uses: ./actions/wait-for-job
         with:
-          job-id: ${{ steps.submit.outputs.job-id }}
+          job-id: ${{ needs.submit.outputs.job-id }}
           stream-logs: true
           poll-interval: 10
           timeout: 3600
 
-      # The job pushed the vLLM image as its last step, so a successful job
-      # means the image exists in the registry. Deploy it to an Endpoint and
-      # return immediately (wait: false); the explicit wait step below polls
-      # it to serving. vLLM listens on 8000 and pulls the 0.5B base model from
-      # Hugging Face at startup (the LoRA adapter is baked in at /adapters).
+      # The Job outlives this workflow unless we say otherwise: cancelling the
+      # run cancels the GitHub job, not the Nebius one. This is the only job
+      # that is running while the Nebius Job is, so it is where cancellation
+      # has to be forwarded.
+      - name: Cancel job on workflow cancellation
+        if: cancelled() && needs.submit.outputs.job-id != ''
+        uses: ./actions/cancel-job
+        with:
+          job-id: ${{ needs.submit.outputs.job-id }}
+
+  # ---------------------------------------------------------------------------
+  # 3) The job pushed the vLLM image as its last step, so a successful `wait`
+  #    means the image exists in the registry. Deploy it and poll to serving.
+  #    vLLM listens on 8000 and pulls the 0.5B base model from Hugging Face at
+  #    startup (the LoRA adapter is baked in at /adapters).
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [submit, wait]
+    outputs:
+      endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
+      url: ${{ steps.endpoint.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: ./actions/setup
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
+
+      - name: Authenticate (SDK token)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+
+      # wait: false — the explicit wait step below polls it to serving, so the
+      # endpoint id is published even if the endpoint never becomes ready
+      # (which is what lets cleanup tear it down).
       - name: Deploy endpoint
         id: deploy
         uses: ./actions/deploy-endpoint
         with:
           name: demo-axolotl-${{ github.run_id }}
-          image: ${{ steps.image.outputs.image }}
+          image: ${{ needs.submit.outputs.image }}
           port: 8000
           public: true
           preset: ${{ inputs.endpoint-preset }}
@@ -380,54 +477,36 @@ jobs:
           poll-interval: 10
           timeout: 1800
 
-      # Prove the fine-tuned model actually serves: vLLM /health (with retries
-      # while it downloads and loads the base model) plus one completion
-      # through the LoRA adapter ("demo" is the --lora-modules name the
-      # train-and-push script baked into the image entrypoint).
+  # ---------------------------------------------------------------------------
+  # 4) Prove the fine-tuned model actually serves: vLLM /health (with retries
+  #    while it downloads and loads the base model) plus one completion through
+  #    the LoRA adapter ("demo" is the --lora-modules name the train-and-push
+  #    script baked into the image entrypoint).
+  # ---------------------------------------------------------------------------
+  try:
+    name: Try
+    runs-on: ubuntu-latest
+    needs: [submit, wait, deploy]
+    steps:
+      # Values come in through env (not ${{ }} inlined into the script body) so
+      # they expand in the shell — the injection-safe pattern.
       - name: Smoke test endpoint
         env:
-          URL: ${{ steps.endpoint.outputs.url }}
+          URL: ${{ needs.deploy.outputs.url }}
         run: |
           curl -fsS --retry 30 --retry-delay 10 --retry-all-errors "$URL/health"
           curl -fsS -X POST "$URL/v1/completions" \
             -H 'Content-Type: application/json' \
             -d '{"model": "demo", "prompt": "The quick brown fox", "max_tokens": 16}'
 
-      # 3) If the run is cancelled, cancel the Nebius Job too.
-      - name: Cancel job on workflow cancellation
-        if: cancelled() && steps.submit.outputs.job-id != ''
-        uses: ./actions/cancel-job
-        with:
-          job-id: ${{ steps.submit.outputs.job-id }}
-
-      # Demo hygiene: tear the endpoint down even on failure so a paid
-      # endpoint never outlives the run. (The pushed image stays in the
-      # registry, tagged with the run id.)
-      - name: Delete endpoint
-        if: always() && steps.deploy.outputs.endpoint-id != ''
-        uses: ./actions/delete-endpoint
-        with:
-          endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
-
-      # Clean up: empty + delete the bucket. Runs even on failure/cancellation,
-      # but only if the bucket was actually created.
-      - name: Delete bucket
-        if: always() && steps.bucket.outputs.bucket-id != ''
-        uses: ./actions/delete-bucket
-        with:
-          bucket: ${{ steps.bucket.outputs.bucket-name }}
-          bucket-id: ${{ steps.bucket.outputs.bucket-id }}
-
-      # Read step outputs via env (not ${{ }} inlined into the script body) so
-      # values expand in the shell — the injection-safe pattern.
       - name: Report result
         env:
-          JOB_ID: ${{ steps.submit.outputs.job-id }}
-          STATUS: ${{ steps.wait.outputs.status }}
-          EXIT_CODE: ${{ steps.wait.outputs.exit-code }}
-          IMAGE: ${{ steps.image.outputs.image }}
-          ENDPOINT_ID: ${{ steps.deploy.outputs.endpoint-id }}
-          ENDPOINT_URL: ${{ steps.endpoint.outputs.url }}
+          JOB_ID: ${{ needs.submit.outputs.job-id }}
+          STATUS: ${{ needs.wait.outputs.status }}
+          EXIT_CODE: ${{ needs.wait.outputs.exit-code }}
+          IMAGE: ${{ needs.submit.outputs.image }}
+          ENDPOINT_ID: ${{ needs.deploy.outputs.endpoint-id }}
+          ENDPOINT_URL: ${{ needs.deploy.outputs.url }}
         run: |
           echo "Job ID:       $JOB_ID"
           echo "Status:       $STATUS"
@@ -435,3 +514,48 @@ jobs:
           echo "Image:        $IMAGE"
           echo "Endpoint ID:  $ENDPOINT_ID"
           echo "Endpoint URL: $ENDPOINT_URL"
+
+  # ---------------------------------------------------------------------------
+  # 5) Demo hygiene: tear the endpoint and bucket down even on failure or
+  #    cancellation, so a paid endpoint never outlives the run. `needs` every
+  #    upstream job and `if: always()` so it runs when they fail or are skipped;
+  #    each step is guarded on the resource actually having been created. (The
+  #    pushed image stays in the registry, tagged with the run id.)
+  # ---------------------------------------------------------------------------
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [submit, wait, deploy, try]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: ./actions/setup
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
+
+      - name: Authenticate (SDK token)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+
+      - name: Delete endpoint
+        if: needs.deploy.outputs.endpoint-id != ''
+        uses: ./actions/delete-endpoint
+        with:
+          endpoint-id: ${{ needs.deploy.outputs.endpoint-id }}
+
+      - name: Delete bucket
+        if: needs.submit.outputs.bucket-id != ''
+        uses: ./actions/delete-bucket
+        with:
+          bucket: ${{ needs.submit.outputs.bucket-name }}
+          bucket-id: ${{ needs.submit.outputs.bucket-id }}
