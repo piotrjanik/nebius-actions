@@ -172,24 +172,11 @@ jobs:
           : "${REGISTRY:?REGISTRY (target registry host) must be set}"
           : "${REGISTRY_TOKEN:?REGISTRY_TOKEN (IAM token for the registry) must be set}"
 
-          # 1) Fine-tune. Adapters land in /workspace/data/output (bucket-backed).
-          axolotl train /workspace/data/config.yaml
-
-          # 2) Package the adapters as a layer rooted at /adapters (drop the
-          #    intermediate checkpoints — the endpoint only needs the final
-          #    adapter_config.json + adapter_model.safetensors).
-          tar --transform 's|^output|adapters|' --exclude='output/checkpoint-*' \
-              -czf /tmp/adapters-layer.tar.gz -C /workspace/data output
-
-          # 3) Install crane (daemonless registry client).
-          curl -fsSL --retry 5 --retry-all-errors https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
-            | tar -xz -C /usr/local/bin crane
-
-          # Retry wrapper for the registry push. The job container's embedded
-          # DNS (127.0.0.11) intermittently fails to resolve cr.nebius.io
-          # ("server misbehaving"), and crane's own retry budget (~3 tries in a
-          # few seconds) is too small to ride out the blip — which would throw
-          # away a completed fine-tune on the last step. Retry with backoff.
+          # Retry wrapper for every network-bound step below. The job container's
+          # embedded DNS (127.0.0.11) intermittently fails to resolve external
+          # hosts ("server misbehaving"), and neither huggingface_hub nor crane
+          # budgets enough retries to ride out the blip on its own — for crane
+          # that would throw away a completed fine-tune on the last step.
           retry() {
             local n=1 max=6 delay=10
             while true; do
@@ -204,7 +191,60 @@ jobs:
             done
           }
 
-          # 4) Append the adapter layer to the vLLM base (crane streams the base
+          # Bound every Hugging Face HTTP call. Left to itself, huggingface_hub
+          # waits on a stalled fetch while printing nothing, so a DNS blip hangs
+          # the container silently until the Job's own 1h timeout kills it — an
+          # hour of GPU time for zero training steps. Disabling the Xet transfer
+          # path also shrinks the set of hosts that must resolve to
+          # huggingface.co plus its CDN.
+          export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-10}"
+          export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-30}"
+          export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+
+          # 1) Prefetch the dataset and the base model into the HF cache, so the
+          #    job's Hugging Face egress happens once, up front, and loudly. The
+          #    timeouts above do NOT cover a hung getaddrinfo, so `timeout` caps
+          #    the whole fetch as well and `retry` gives the blip time to pass.
+          #    Written to a file rather than piped as a heredoc: `retry` re-runs
+          #    the command, and a heredoc on stdin is already at EOF by then.
+          cat > /tmp/prefetch.py <<'PY'
+          from huggingface_hub import snapshot_download
+
+          # The card's `configs:` block is what maps the config name onto the
+          # parquet files, so it belongs in the cache too. Everything else in the
+          # repo is the wikitext-103 splits this demo does not touch.
+          snapshot_download(
+              "Salesforce/wikitext",
+              repo_type="dataset",
+              allow_patterns=["wikitext-2-raw-v1/*", "README.md"],
+          )
+          snapshot_download("Qwen/Qwen2.5-0.5B")
+          PY
+          retry timeout "${HF_PREFETCH_TIMEOUT:-300}" python /tmp/prefetch.py
+
+          # 2) Fine-tune against that warm cache. Adapters land in
+          #    /workspace/data/output (bucket-backed). Bounded as well, so a hang
+          #    anywhere in training fails the Job in minutes rather than idling
+          #    out the full Job timeout with no output.
+          if ! timeout "${TRAIN_TIMEOUT:-1800}" axolotl train /workspace/data/config.yaml; then
+            rc=$?
+            if [ "$rc" -eq 124 ]; then
+              echo "axolotl train made no progress within ${TRAIN_TIMEOUT:-1800}s; killed" >&2
+            fi
+            exit "$rc"
+          fi
+
+          # 3) Package the adapters as a layer rooted at /adapters (drop the
+          #    intermediate checkpoints — the endpoint only needs the final
+          #    adapter_config.json + adapter_model.safetensors).
+          tar --transform 's|^output|adapters|' --exclude='output/checkpoint-*' \
+              -czf /tmp/adapters-layer.tar.gz -C /workspace/data output
+
+          # 4) Install crane (daemonless registry client).
+          curl -fsSL --retry 5 --retry-all-errors https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin crane
+
+          # 5) Append the adapter layer to the vLLM base (crane streams the base
           #    layers from docker.io into the target registry), then rewrite the
           #    entrypoint so the endpoint serves the base model with the LoRA
           #    adapter mounted under the model name "demo". `crane auth login`
