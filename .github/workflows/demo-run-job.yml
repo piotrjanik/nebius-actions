@@ -112,7 +112,7 @@ jobs:
     steps:
       # Local action refs (./actions/...) only resolve after the repo is checked
       # out into the workspace.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Write the Axolotl config inline so this workflow is the single source of
       # truth, then hand the file to upload-object.
@@ -419,7 +419,7 @@ jobs:
       status: ${{ steps.wait.outputs.status }}
       exit-code: ${{ steps.wait.outputs.exit-code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Nebius
         uses: ./actions/setup
@@ -473,7 +473,7 @@ jobs:
       endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
       url: ${{ steps.endpoint.outputs.url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Nebius
         uses: ./actions/setup
@@ -568,7 +568,7 @@ jobs:
     needs: [submit, wait, deploy, try]
     if: always()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Nebius
         uses: ./actions/setup
