@@ -6,7 +6,7 @@ These are small, composable building blocks (one job per resource), not a rigid 
 
 - 🏃 **Training Jobs** — finite GPU/CPU workloads (train, fine-tune, batch) that run to completion.
 - 🌐 **Endpoints** — keep a container/model running behind a public URL.
-- 🪣 **Object Storage** — create buckets and move files in and out.
+- 🪣 **Object Storage** — create buckets and upload files into them.
 
 **Auth is short-lived.** You never store a long-lived Nebius secret in your repo. Either exchange GitHub's OIDC identity for a temporary IAM token (recommended, fully keyless), or use a service-account key. One `auth` step exports the token; every other action reuses it.
 
@@ -31,7 +31,8 @@ jobs:
       - uses: piotrjanik/nebius-actions/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
-      - uses: piotrjanik/nebius-actions/actions/run-job@v0
+      - id: submit
+        uses: piotrjanik/nebius-actions/actions/submit-job@v0
         with:
           name: smoke-train
           image: cr.eu-north1.nebius.cloud/your-project/trainer:latest
@@ -39,9 +40,12 @@ jobs:
           preset: 1gpu-8vcpu-32gb
           command: python train.py --epochs 1
           timeout: 1h
+      - uses: piotrjanik/nebius-actions/actions/wait-for-job@v0
+        with:
+          job-id: ${{ steps.submit.outputs.job-id }}
 ```
 
-`run-job` submits the job, streams its logs, waits for it to finish, and fails the step if it didn't succeed.
+`submit-job` creates the Job and returns as soon as it's accepted; `wait-for-job` streams its logs, polls it to a terminal state, and fails the step if it didn't succeed. Splitting them lets you do other work in between — or, as in the demo, put the two halves in separate GitHub jobs.
 
 **Serve a model:**
 
@@ -113,9 +117,9 @@ Get a short-lived IAM token and export it as `NEBIUS_IAM_TOKEN` (masked) for the
 
 ### 🏃 Training Jobs
 
-#### `run-job`
+#### `submit-job`
 
-The all-in-one: create a Job, stream its logs, wait for it to finish, and fail on non-success. Reach for this first.
+Create a Job and return as soon as it's accepted, without waiting. Pair with `wait-for-job` — either back-to-back in one job, or in separate GitHub jobs when you want to fan out, gate, or split the run graph.
 
 | Input | Req | Default | Description |
 | --- | --- | --- | --- |
@@ -131,28 +135,7 @@ The all-in-one: create a Job, stream its logs, wait for it to finish, and fail o
 | `preemptible` | | `false` | Use cheaper preemptible VMs |
 | `timeout` | | — | The Job's own run timeout (`1h`, `30m`) |
 | `subnet-id` | | auto | Subnet (auto-resolved from the project) |
-| `wait` | | `true` | Wait for completion (`false` = just submit) |
-| `poll-interval` | | `10` | Seconds between status polls |
 | `project-id` | | from `setup` | Parent project |
-
-**Outputs:** `job-id`, `status`, `exit-code`
-
-```yaml
-- uses: piotrjanik/nebius-actions/actions/run-job@v0
-  with:
-    name: finetune
-    image: cr.eu-north1.nebius.cloud/proj/trainer:latest
-    platform: gpu-l40s-a
-    preset: 1gpu-8vcpu-32gb
-    command: python train.py
-    args: --epochs 3
-    mounts: ${{ steps.bucket.outputs.bucket-id }}:/data:rw
-    timeout: 2h
-```
-
-#### `submit-job`
-
-Low-level: create a Job and return immediately, without waiting. Pair with `wait-for-job` when you want to do other work in between (matrix fan-out, manual gating). Same inputs as `run-job`, minus the `wait` / `poll-interval` knobs.
 
 **Outputs:** `job-id`, `status`
 
@@ -165,6 +148,9 @@ Low-level: create a Job and return immediately, without waiting. Pair with `wait
     platform: gpu-l40s-a
     preset: 1gpu-8vcpu-32gb
     command: python train.py
+    args: --epochs 3
+    mounts: ${{ steps.bucket.outputs.bucket-id }}:/data:rw
+    timeout: 2h
 ```
 
 #### `wait-for-job`
@@ -285,6 +271,8 @@ Delete an Endpoint by id, or by name + project. Endpoints cost money while up, s
 
 Storage actions accept **common inputs** in addition to those listed: `service-account-id` and `project-id` (both default to what `setup` exported), `expires-in` (default `2h`, the life of the minted S3 key), `endpoint` (default `https://storage.eu-north1.nebius.cloud`), and `region` (default `eu-north1`).
 
+These actions cover the *upload* direction. To get results back out of a Job, mount the bucket read-write (`mounts: <bucket-id>:/path:rw`) and have the Job write into it — the objects persist in the bucket after the Job exits.
+
 #### `create-bucket`
 
 Create an Object Storage bucket (control plane).
@@ -321,44 +309,6 @@ Upload a local file to an existing bucket. Mints a short-lived S3 key from the s
     source: ${{ runner.temp }}/config.yaml
     bucket: ${{ steps.bucket.outputs.bucket-name }}
     key: config.yaml
-```
-
-#### `download-object`
-
-Download every object under a bucket prefix to a local directory. Fails if the prefix is empty.
-
-| Input | Req | Default | Description |
-| --- | --- | --- | --- |
-| `bucket` | ✅ | — | Source bucket name |
-| `prefix` | ✅ | — | Key prefix to download |
-| `dest` | ✅ | — | Local destination directory |
-
-**Outputs:** `files-count`, `dest`
-
-```yaml
-- uses: piotrjanik/nebius-actions/actions/download-object@v0
-  with:
-    bucket: ${{ steps.bucket.outputs.bucket-name }}
-    prefix: output/
-    dest: ./artifacts
-```
-
-#### `check-object`
-
-Assert at least one object exists under a prefix (fails otherwise). Handy as a guard before a downstream step.
-
-| Input | Req | Default | Description |
-| --- | --- | --- | --- |
-| `bucket` | ✅ | — | Bucket name |
-| `prefix` | ✅ | — | Key prefix to check |
-
-**Outputs:** `object-count`
-
-```yaml
-- uses: piotrjanik/nebius-actions/actions/check-object@v0
-  with:
-    bucket: ${{ steps.bucket.outputs.bucket-name }}
-    prefix: output/adapter_model.safetensors
 ```
 
 #### `delete-bucket`
@@ -420,11 +370,12 @@ nebius iam binding create --parent-id "$NEBIUS_PROJECT_ID" --subject-id "$SA_ID"
 
 Copy-pasteable workflows live under [`examples/`](./examples) — swap the image/preset for your own:
 
-- [`train-job.yml`](./examples/train-job.yml) — `setup` + `auth` + `run-job`.
+- [`submit-and-wait.yml`](./examples/submit-and-wait.yml) — `setup` + `auth` + `submit-job` → `wait-for-job`, with `cancel-job` on cancellation.
 - [`deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `setup` + `auth` + `deploy-endpoint`, with teardown.
-- [`submit-and-wait.yml`](./examples/submit-and-wait.yml) — low-level `submit-job` → `wait-for-job`, with `cancel-job` on cancellation.
 
-For a full **train-to-serve** pipeline (fine-tune → bake a vLLM image → deploy → smoke test → clean up), see [`.github/workflows/demo-run-job.yml`](./.github/workflows/demo-run-job.yml).
+For a full **train-to-serve** pipeline, see [`.github/workflows/demo-run-job.yml`](./.github/workflows/demo-run-job.yml). It QLoRA-fine-tunes Qwen2.5-0.5B on a GPU, bakes the adapters into a vLLM image, deploys it, and smoke-tests it — split across five GitHub jobs:
+
+**Submit Training Job** → **Wait** → **Deploy** → **Try**, plus a **Cleanup** job that `needs` all four and runs `if: always()`, so the paid endpoint and the bucket are torn down even when an upstream job fails or the run is cancelled.
 
 ---
 

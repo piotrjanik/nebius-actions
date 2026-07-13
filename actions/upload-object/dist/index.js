@@ -96665,10 +96665,10 @@ Object.defineProperty(exports, "parseMount", ({ enumerable: true, get: function 
 /**
  * Adapter from GitHub Actions inputs to a `JobSpec`.
  *
- * Shared by the `run-job` and `submit-job` entrypoints, which accept the same
- * job inputs and create the job via the SDK (`jobs-sdk.ts`). The SDK takes a
- * structured spec, so there is no raw `extra-args` passthrough — disk size,
- * disk type, preemptible, and container args are first-class inputs.
+ * Used by the `submit-job` entrypoint, which creates the job via the SDK
+ * (`jobs-sdk.ts`). The SDK takes a structured spec, so there is no raw
+ * `extra-args` passthrough — disk size, disk type, preemptible, and container
+ * args are first-class inputs.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildJobSpecFromInputs = buildJobSpecFromInputs;

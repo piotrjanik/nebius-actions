@@ -32,7 +32,7 @@ inputs:
     description: >-
       Service account the key belongs to (required when `private-key` is set).
       When provided, it is also exported as NEBIUS_SERVICE_ACCOUNT_ID so later
-      resource steps (upload-object, check-object, delete-bucket) can omit it.
+      resource steps (upload-object, create-bucket, delete-bucket) can omit it.
     required: false
   public-key-id:
     description: 'Public key id of the authorized key (required when `private-key` is set).'
