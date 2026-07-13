@@ -14,7 +14,8 @@
 #   vars.NEBIUS_PUBLIC_KEY_ID       - the authorized key's public key id
 #   secrets.NEBIUS_PRIVATE_KEY      - the authorized key's PEM private key
 #   vars.NEBIUS_ENDPOINT_IMAGE      - a servable container image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID          - parent project (optional)
+#   vars.NEBIUS_PROJECT_ID          - parent project; required for the endpoint
+#                                     (used as the parent and to resolve its subnet)
 name: demo-endpoint-lifecycle
 
 on:
