@@ -378,7 +378,7 @@ jobs:
         with:
           endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
           poll-interval: 10
-          timeout: 30m
+          timeout: 1800
 
       # Prove the fine-tuned model actually serves: vLLM /health (with retries
       # while it downloads and loads the base model) plus one completion

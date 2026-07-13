@@ -77,7 +77,7 @@ jobs:
         with:
           endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
           poll-interval: 10
-          timeout: 30m
+          timeout: 1800
 
       - name: Show URL
         env:
