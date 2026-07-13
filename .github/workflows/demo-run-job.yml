@@ -68,6 +68,12 @@ on:
       endpoint-preset:
         description: 'Endpoint compute preset'
         default: '1gpu-16vcpu-200gb'
+      endpoint-platform:
+        description: 'Endpoint compute platform'
+        default: 'gpu-l40s-a'
+      endpoint-disk-size:
+        description: 'Endpoint main-disk size'
+        default: '100Gi'
 
 permissions:
   contents: read
@@ -361,6 +367,9 @@ jobs:
           port: 8000
           public: true
           preset: ${{ inputs.endpoint-preset }}
+          platform: ${{ inputs.endpoint-platform }}
+          disk-size: ${{ inputs.endpoint-disk-size }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           wait: false
 
       - name: Wait for endpoint

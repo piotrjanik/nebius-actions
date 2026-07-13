@@ -23,6 +23,12 @@ on:
       preset:
         description: 'Compute preset'
         default: '1gpu-16vcpu-200gb'
+      platform:
+        description: 'Compute platform'
+        default: 'gpu-l40s-a'
+      disk-size:
+        description: 'Endpoint main-disk size'
+        default: '100Gi'
 
 permissions:
   contents: read
@@ -55,6 +61,8 @@ jobs:
           port: 8080
           public: true
           preset: ${{ inputs.preset }}
+          platform: ${{ inputs.platform }}
+          disk-size: ${{ inputs.disk-size }}
           env: |
             MODEL_NAME=demo
             LOG_LEVEL=info
