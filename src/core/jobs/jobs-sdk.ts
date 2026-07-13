@@ -26,6 +26,7 @@ import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
 import { ListSubnetsRequest } from '@nebius/js-sdk/api/nebius/vpc/v1/index';
 import { dayjs } from '@nebius/js-sdk/runtime/protos/index';
 import { parseDurationMs } from '../time';
+import { resolveDiskType } from '../sdk/disk';
 import { JOB_STATUS } from '../constants';
 import type { Job, JobSpec } from './jobs';
 
@@ -72,14 +73,6 @@ export async function resolveSubnetId(
   }
   return id;
 }
-
-/** Map the `disk-type` input key onto the SDK disk-type enum. */
-const DISK_TYPES: Record<string, DiskSpec_DiskType> = {
-  'network-ssd': DiskSpec_DiskType.NETWORK_SSD,
-  'network-hdd': DiskSpec_DiskType.NETWORK_HDD,
-  'network-ssd-non-replicated': DiskSpec_DiskType.NETWORK_SSD_NON_REPLICATED,
-  'network-ssd-io-m3': DiskSpec_DiskType.NETWORK_SSD_IO_M3,
-};
 
 /**
  * Parse a `<source>:<containerPath>[:rw|ro]` mount string.
@@ -151,12 +144,7 @@ export function buildJobSpec(s: JobSpec): SdkJobSpecPartial {
     spec.timeout = dayjs.duration(timeoutMs);
   }
   if (s.diskSizeBytes !== undefined) {
-    const typeKey = (s.diskType ?? 'network-ssd').toLowerCase();
-    const type = DISK_TYPES[typeKey];
-    if (type === undefined) {
-      throw new Error(`buildJobSpec: unknown disk type '${s.diskType}'.`);
-    }
-    spec.disk = { sizeBytes: s.diskSizeBytes, type };
+    spec.disk = { sizeBytes: s.diskSizeBytes, type: resolveDiskType(s.diskType) };
   }
   return spec;
 }
