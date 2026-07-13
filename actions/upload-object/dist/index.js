@@ -96116,7 +96116,9 @@ function readState(status) {
 /**
  * Map an SDK `Endpoint` (or a plain object in tests) into the domain `Endpoint`.
  * Reads id/name from `metadata`, status from `status.state`, and the served URL
- * from `status.publicEndpoints[0]`, normalizing it to an `https://` URL.
+ * from `status.publicEndpoints[0]`. A value that already carries a scheme is
+ * kept as-is; a bare `host:port` (how Nebius reports a public-IP endpoint, which
+ * exposes the container port directly over HTTP) is prefixed with `http://`.
  */
 function mapSdkEndpoint(raw) {
     const e = (raw ?? {});
@@ -96126,7 +96128,7 @@ function mapSdkEndpoint(raw) {
     const url = e.status?.publicEndpoints?.[0];
     const endpoint = { id, name, status, raw };
     if (typeof url === 'string' && url !== '') {
-        endpoint.url = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        endpoint.url = /^https?:\/\//i.test(url) ? url : `http://${url}`;
     }
     return endpoint;
 }

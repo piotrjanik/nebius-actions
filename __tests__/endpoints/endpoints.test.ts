@@ -147,12 +147,12 @@ describe('mapSdkEndpoint', () => {
     });
   });
 
-  it('normalizes a bare host in publicEndpoints to an https URL', () => {
+  it('normalizes a bare host in publicEndpoints to an http URL', () => {
     const ep = mapSdkEndpoint({
       metadata: { id: 'ep-1', name: 'svc' },
       status: { state: { name: 'RUNNING' }, publicEndpoints: ['svc.example/v1'] },
     });
-    expect(ep.url).toBe('https://svc.example/v1');
+    expect(ep.url).toBe('http://svc.example/v1');
   });
 
   it('accepts a plain string state', () => {
