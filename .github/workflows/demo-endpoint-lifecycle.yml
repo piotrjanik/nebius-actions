@@ -23,7 +23,7 @@ on:
     inputs:
       preset:
         description: 'Compute preset'
-        default: '1gpu-16vcpu-200gb'
+        default: '1gpu-16vcpu-64gb'
       platform:
         description: 'Compute platform'
         default: 'gpu-l40s-a'

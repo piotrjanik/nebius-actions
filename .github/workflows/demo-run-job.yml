@@ -67,7 +67,7 @@ on:
         default: '250Gi'
       endpoint-preset:
         description: 'Endpoint compute preset'
-        default: '1gpu-16vcpu-200gb'
+        default: '1gpu-16vcpu-64gb'
       endpoint-platform:
         description: 'Endpoint compute platform'
         default: 'gpu-l40s-a'
