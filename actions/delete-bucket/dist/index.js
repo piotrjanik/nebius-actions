@@ -95469,10 +95469,20 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.cliAvailable = cliAvailable;
 exports.withJsonFormat = withJsonFormat;
 exports.runCli = runCli;
 const exec = __importStar(__nccwpck_require__(95236));
+const io = __importStar(__nccwpck_require__(94994));
 const constants_1 = __nccwpck_require__(26214);
+/**
+ * Whether the `nebius` CLI is resolvable on PATH. Resource actions run on the
+ * SDK and do not need the CLI; callers use this to decide whether optional
+ * CLI-only extras (job log streaming) are available.
+ */
+async function cliAvailable() {
+    return (await io.which(constants_1.CLI_BINARY_NAME, false)) !== '';
+}
 /**
  * Append `--format json` only when the caller asked for JSON and didn't already
  * specify a `--format`. It ensures `--format json` is placed BEFORE the variadic
@@ -95538,13 +95548,14 @@ async function runCli(args, opts = {}) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.configureCliProfile = exports.configureCliAuth = exports.withJsonFormat = exports.runCli = exports.ensureCli = void 0;
+exports.configureCliProfile = exports.configureCliAuth = exports.cliAvailable = exports.withJsonFormat = exports.runCli = exports.ensureCli = void 0;
 /** Public surface of the `cli` module. */
 var install_1 = __nccwpck_require__(90769);
 Object.defineProperty(exports, "ensureCli", ({ enumerable: true, get: function () { return install_1.ensureCli; } }));
 var exec_1 = __nccwpck_require__(893);
 Object.defineProperty(exports, "runCli", ({ enumerable: true, get: function () { return exec_1.runCli; } }));
 Object.defineProperty(exports, "withJsonFormat", ({ enumerable: true, get: function () { return exec_1.withJsonFormat; } }));
+Object.defineProperty(exports, "cliAvailable", ({ enumerable: true, get: function () { return exec_1.cliAvailable; } }));
 var auth_1 = __nccwpck_require__(54182);
 Object.defineProperty(exports, "configureCliAuth", ({ enumerable: true, get: function () { return auth_1.configureCliAuth; } }));
 var profile_1 = __nccwpck_require__(807);
@@ -95835,18 +95846,17 @@ async function configureCliProfile(o) {
  * assumptions" section. Keeping every such value here means verification is
  * a one-line change with no logic touched.
  *
- * Confirmation status (web-verified 2026-06-22):
+ * Confirmation status (web-verified 2026-06-22; SDK-verified 2026-07-13):
  *  - CONFIRMED: CLI binary name `nebius`; install via the curl script URL below;
- *    `nebius ai job {get,logs,cancel}` (the CLI verbs still used — job CREATE now
- *    goes through the SDK `JobService`, see `jobs/jobs-sdk.ts`); global
- *    `--format json`; IAM token env var `NEBIUS_IAM_TOKEN`; OIDC issuer +
- *    token-exchange URL.
- *  - VERIFY: exact job/endpoint status enum spellings; where the container exit
- *    code surfaces in CLI JSON; endpoint subcommand verbs + URL field; pinning a
- *    specific CLI version via the install script.
+ *    `nebius ai job logs` (the ONLY CLI verb still used — the whole resource
+ *    lifecycle goes through the SDK, see `jobs/jobs-sdk.ts`, `endpoints/`,
+ *    `storage/`); global `--format json`; IAM token env var `NEBIUS_IAM_TOKEN`;
+ *    OIDC issuer + token-exchange URL; job/endpoint status enum spellings
+ *    (from the SDK `JobStatus_State` / `EndpointStatus_State` enums).
+ *  - VERIFY: pinning a specific CLI version via the install script.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CLI_STORAGE_BUCKET_GROUP = exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = exports.CLI_ACCESS_KEY_GROUP = exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_EXIT_CODE_FIELDS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.SERVICE_ACCOUNT_ID_ENV = exports.PROJECT_ID_ENV = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
+exports.S3_REGION_DEFAULT = exports.S3_ENDPOINT_DEFAULT = exports.DEFAULT_POLL_BACKOFF_FACTOR = exports.POLL_TIMEOUT_BUFFER_MS = exports.DEFAULT_POLL_TIMEOUT_MS = exports.DEFAULT_MAX_POLL_INTERVAL_MS = exports.MIN_POLL_INTERVAL_MS = exports.DEFAULT_POLL_INTERVAL_MS = exports.ENDPOINT_TERMINAL_FAILURE_STATUSES = exports.ENDPOINT_READY_STATUSES = exports.ENDPOINT_STATUS = exports.JOB_SUCCESS_STATUSES = exports.JOB_TERMINAL_STATUSES = exports.JOB_STATUS = exports.CLI_JOB_GROUP = exports.DEFAULT_REGION = exports.CLI_FORMAT_JSON = exports.CLI_FORMAT_FLAG = exports.SERVICE_ACCOUNT_ID_ENV = exports.PROJECT_ID_ENV = exports.IAM_TOKEN_ENV = exports.CLI_INSTALL_SCRIPT_URL = exports.CLI_TOOL_CACHE_NAME = exports.CLI_BINARY_NAME = exports.GITHUB_OIDC_ISSUER = void 0;
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -95888,50 +95898,44 @@ exports.DEFAULT_REGION = 'eu';
 // ---------------------------------------------------------------------------
 // CLI command groups / verbs
 // ---------------------------------------------------------------------------
-/** `nebius ai job ...` — CONFIRMED. */
+/** `nebius ai job ...` — CONFIRMED. Used only for `logs` (no SDK logs RPC). */
 exports.CLI_JOB_GROUP = ['ai', 'job'];
-// Endpoint operations no longer use the CLI — they go through the SDK
-// `EndpointService` (see `endpoints.ts`). The former CLI endpoint group/verbs and
-// URL-field probes were removed with that migration.
+// Resource operations (jobs, endpoints, buckets, access keys) no longer use the
+// CLI — they go through the SDK service clients (see `jobs/jobs-sdk.ts`,
+// `endpoints/endpoints.ts`, `storage/bucket.ts`, `storage/keys.ts`). The former
+// CLI groups/verbs and JSON-field probes were removed with that migration.
 // ---------------------------------------------------------------------------
 // Job status enum
 // ---------------------------------------------------------------------------
 /**
- * Job status spellings. // VERIFY: exact enum casing/values from CLI JSON.
- * COMPLETED/FAILED/CANCELLED are referenced in Nebius serverless docs; RUNNING,
- * QUEUED, PENDING are the most likely in-flight states. Comparisons are
- * case-insensitive (see jobs.ts) so casing differences are tolerated.
+ * Job status spellings, CONFIRMED against the SDK `JobStatus_State` enum
+ * (@nebius/js-sdk 0.2.27): PROVISIONING, STARTING, RUNNING, CANCELLING,
+ * DELETING, COMPLETED, FAILED, CANCELLED, ERROR. `creating` is a client-side
+ * placeholder returned right after `create` (before the first `get`).
+ * Comparisons are case-insensitive (see jobs.ts) so casing differences are
+ * tolerated.
  */
 exports.JOB_STATUS = {
     creating: 'CREATING',
-    queued: 'QUEUED',
-    pending: 'PENDING',
+    provisioning: 'PROVISIONING',
     starting: 'STARTING',
     running: 'RUNNING',
+    cancelling: 'CANCELLING',
+    deleting: 'DELETING',
     completed: 'COMPLETED',
     failed: 'FAILED',
     cancelled: 'CANCELLED',
+    error: 'ERROR',
 };
-/** Terminal job statuses (no further transition expected). VERIFY (see JOB_STATUS). */
+/** Terminal job statuses (no further transition expected). */
 exports.JOB_TERMINAL_STATUSES = new Set([
     exports.JOB_STATUS.completed,
     exports.JOB_STATUS.failed,
     exports.JOB_STATUS.cancelled,
+    exports.JOB_STATUS.error,
 ]);
-/** Job statuses considered a success. VERIFY (see JOB_STATUS). */
+/** Job statuses considered a success. */
 exports.JOB_SUCCESS_STATUSES = new Set([exports.JOB_STATUS.completed]);
-/**
- * Candidate JSON paths (dot notation) where the container exit code surfaces.
- * // VERIFY: actual location in CLI JSON output.
- */
-exports.JOB_EXIT_CODE_FIELDS = [
-    'exit_code',
-    'exitCode',
-    'status.exit_code',
-    'status.exitCode',
-    'result.exit_code',
-    'result.exitCode',
-];
 // ---------------------------------------------------------------------------
 // Endpoint status enum
 // ---------------------------------------------------------------------------
@@ -96003,12 +96007,6 @@ exports.DEFAULT_POLL_BACKOFF_FACTOR = 1.5;
 exports.S3_ENDPOINT_DEFAULT = 'https://storage.eu-north1.nebius.cloud';
 /** Default S3 region for Nebius Object Storage. // VERIFY. */
 exports.S3_REGION_DEFAULT = 'eu-north1';
-/** `nebius iam v2 access-key ...` — CONFIRMED group (live CLI). */
-exports.CLI_ACCESS_KEY_GROUP = ['iam', 'v2', 'access-key'];
-/** `nebius mysterybox payload ...` — CONFIRMED group (live CLI). */
-exports.CLI_MYSTERYBOX_PAYLOAD_GROUP = ['mysterybox', 'payload'];
-/** `nebius storage bucket ...` — CONFIRMED group (live CLI). */
-exports.CLI_STORAGE_BUCKET_GROUP = ['storage', 'bucket'];
 
 
 /***/ }),
@@ -96050,6 +96048,7 @@ exports.isEndpointTerminalFailure = isEndpointTerminalFailure;
 // so tsconfig `paths` maps it to the generated d.ts for typechecking only.
 const index_1 = __nccwpck_require__(26375);
 const disk_1 = __nccwpck_require__(95131);
+const state_1 = __nccwpck_require__(40557);
 const constants_1 = __nccwpck_require__(26214);
 /** Build the SDK `ResourceMetadata` partial from a spec (pure). */
 function buildEndpointMetadata(s) {
@@ -96101,18 +96100,6 @@ function buildEndpointSpec(s) {
     }
     return spec;
 }
-/** Read the status string from an SDK status (enum `.name`) or a plain object. */
-function readState(status) {
-    const st = status?.state;
-    if (st == null)
-        return 'UNKNOWN';
-    if (typeof st === 'string')
-        return st;
-    const name = st.name;
-    if (typeof name === 'string')
-        return name;
-    return String(st);
-}
 /**
  * Map an SDK `Endpoint` (or a plain object in tests) into the domain `Endpoint`.
  * Reads id/name from `metadata`, status from `status.state`, and the served URL
@@ -96124,7 +96111,7 @@ function mapSdkEndpoint(raw) {
     const e = (raw ?? {});
     const id = e.metadata?.id ?? '';
     const name = e.metadata?.name ?? '';
-    const status = readState(e.status);
+    const status = (0, state_1.readState)(e.status);
     const url = e.status?.publicEndpoints?.[0];
     const endpoint = { id, name, status, raw };
     if (typeof url === 'string' && url !== '') {
@@ -96635,19 +96622,20 @@ function fail(err) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.parseMount = exports.buildJobMetadata = exports.buildJobSpec = exports.buildCreateJobRequest = exports.resolveSubnetId = exports.createJobViaSdk = exports.buildJobSpecFromInputs = exports.mapJobJson = exports.isJobSuccess = exports.isJobTerminal = exports.streamJobLogs = exports.cancelJob = exports.getJob = void 0;
+exports.parseMount = exports.buildJobMetadata = exports.buildJobSpec = exports.buildCreateJobRequest = exports.resolveSubnetId = exports.mapSdkJob = exports.cancelJob = exports.getJob = exports.createJobViaSdk = exports.buildJobSpecFromInputs = exports.isJobSuccess = exports.isJobTerminal = exports.maybeStreamJobLogs = exports.streamJobLogs = void 0;
 /** Public surface of the `jobs` module. */
 var jobs_1 = __nccwpck_require__(6938);
-Object.defineProperty(exports, "getJob", ({ enumerable: true, get: function () { return jobs_1.getJob; } }));
-Object.defineProperty(exports, "cancelJob", ({ enumerable: true, get: function () { return jobs_1.cancelJob; } }));
 Object.defineProperty(exports, "streamJobLogs", ({ enumerable: true, get: function () { return jobs_1.streamJobLogs; } }));
+Object.defineProperty(exports, "maybeStreamJobLogs", ({ enumerable: true, get: function () { return jobs_1.maybeStreamJobLogs; } }));
 Object.defineProperty(exports, "isJobTerminal", ({ enumerable: true, get: function () { return jobs_1.isJobTerminal; } }));
 Object.defineProperty(exports, "isJobSuccess", ({ enumerable: true, get: function () { return jobs_1.isJobSuccess; } }));
-Object.defineProperty(exports, "mapJobJson", ({ enumerable: true, get: function () { return jobs_1.mapJobJson; } }));
 var inputs_1 = __nccwpck_require__(71159);
 Object.defineProperty(exports, "buildJobSpecFromInputs", ({ enumerable: true, get: function () { return inputs_1.buildJobSpecFromInputs; } }));
 var jobs_sdk_1 = __nccwpck_require__(99819);
 Object.defineProperty(exports, "createJobViaSdk", ({ enumerable: true, get: function () { return jobs_sdk_1.createJobViaSdk; } }));
+Object.defineProperty(exports, "getJob", ({ enumerable: true, get: function () { return jobs_sdk_1.getJob; } }));
+Object.defineProperty(exports, "cancelJob", ({ enumerable: true, get: function () { return jobs_sdk_1.cancelJob; } }));
+Object.defineProperty(exports, "mapSdkJob", ({ enumerable: true, get: function () { return jobs_sdk_1.mapSdkJob; } }));
 Object.defineProperty(exports, "resolveSubnetId", ({ enumerable: true, get: function () { return jobs_sdk_1.resolveSubnetId; } }));
 Object.defineProperty(exports, "buildCreateJobRequest", ({ enumerable: true, get: function () { return jobs_sdk_1.buildCreateJobRequest; } }));
 Object.defineProperty(exports, "buildJobSpec", ({ enumerable: true, get: function () { return jobs_sdk_1.buildJobSpec; } }));
@@ -96730,15 +96718,15 @@ function buildJobSpecFromInputs() {
 "use strict";
 
 /**
- * Job creation over the `@nebius/js-sdk` `JobService` gRPC API (`nebius.ai.v1`).
+ * Job lifecycle over the `@nebius/js-sdk` `JobService` gRPC API (`nebius.ai.v1`).
  *
  * Mirrors the endpoints domain: pure builders map the domain `JobSpec` onto the
- * SDK `JobSpec`, and the single I/O function takes an injected `JobServiceLike`
- * so it is unit-testable with a fake (no SDK construction, no network).
+ * SDK `JobSpec`, and the I/O functions take an injected `JobServiceLike` so they
+ * are unit-testable with a fake (no SDK construction, no network).
  *
- * `create` returns a long-running Operation, not the Job — the new job id is
- * `op.resourceId()`. We return it with an initial `CREATING` status; the real
- * state is polled later by `wait-for-job` (still CLI-backed).
+ * `create`/`cancel` return a long-running Operation, not the Job — the new job
+ * id is `op.resourceId()`. Create returns immediately with an initial
+ * `CREATING` placeholder status; the real state is polled via `getJob`.
  *
  * Notes (verified against @nebius/js-sdk 0.2.27):
  *   - Proto `.create()` factories accept `DeepPartial`; a `Long` field accepts a
@@ -96746,6 +96734,8 @@ function buildJobSpecFromInputs() {
  *   - `timeout` is a dayjs `Duration` (`dayjs.duration(ms)`).
  *   - Enum fields take SDK enum members (`JobSpec_VolumeMount_Mode.*`,
  *     `DiskSpec_DiskType.*`), not raw strings.
+ *   - The Job status carries no container exit code, so `Job.exitCode` stays
+ *     unset on the SDK path.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.resolveSubnetId = resolveSubnetId;
@@ -96754,11 +96744,15 @@ exports.buildJobMetadata = buildJobMetadata;
 exports.buildJobSpec = buildJobSpec;
 exports.buildCreateJobRequest = buildCreateJobRequest;
 exports.createJobViaSdk = createJobViaSdk;
+exports.mapSdkJob = mapSdkJob;
+exports.getJob = getJob;
+exports.cancelJob = cancelJob;
 const index_1 = __nccwpck_require__(26375);
 const index_2 = __nccwpck_require__(34314);
 const index_3 = __nccwpck_require__(7101);
 const time_1 = __nccwpck_require__(22334);
 const disk_1 = __nccwpck_require__(95131);
+const state_1 = __nccwpck_require__(40557);
 const constants_1 = __nccwpck_require__(26214);
 /**
  * Resolve a subnet id for the job's project by listing the project's subnets and
@@ -96847,6 +96841,41 @@ async function createJobViaSdk(service, s) {
     const op = await service.create(buildCreateJobRequest(s)).result;
     return { id: op.resourceId(), status: constants_1.JOB_STATUS.creating, raw: op.raw?.() ?? op };
 }
+/**
+ * Map an SDK `Job` (or a plain object in tests) into the domain `Job`.
+ * Reads id/name from `metadata` and the status string from `status.state`
+ * (enum `.name`).
+ */
+function mapSdkJob(raw) {
+    const j = (raw ?? {});
+    const id = j.metadata?.id ?? '';
+    const name = j.metadata?.name;
+    const status = (0, state_1.readState)(j.status);
+    const job = { id, status, raw };
+    if (name !== undefined && name !== '') {
+        job.name = name;
+    }
+    return job;
+}
+/** Get a job by id. */
+async function getJob(service, id) {
+    if (!id) {
+        throw new Error('getJob: id is required.');
+    }
+    const job = await service.get(index_1.GetJobRequest.create({ id }));
+    return mapSdkJob(job);
+}
+/**
+ * Cancel a job by id. Cancel returns an Operation (not the Job), so the job is
+ * re-fetched afterwards to report its current status.
+ */
+async function cancelJob(service, id) {
+    if (!id) {
+        throw new Error('cancelJob: id is required.');
+    }
+    await service.cancel(index_1.CancelJobRequest.create({ id })).result;
+    return getJob(service, id);
+}
 
 
 /***/ }),
@@ -96857,85 +96886,28 @@ async function createJobViaSdk(service, s) {
 "use strict";
 
 /**
- * Job domain wrappers over the `nebius ai job` CLI group.
+ * Job domain: shared types, status helpers, and CLI-backed log streaming.
  *
- * CLI JSON is mapped into the typed `Job` shape via `mapJobJson`; status
- * helpers are case-insensitive to tolerate enum casing differences (see
- * constants VERIFY notes). Job creation goes through the SDK (see jobs-sdk.ts).
+ * The Job lifecycle (create/get/cancel) goes through the SDK `JobService` —
+ * see jobs-sdk.ts. The ONLY remaining CLI dependency is `streamJobLogs`:
+ * the AI service exposes no logs RPC, so log streaming shells out to
+ * `nebius ai job logs --follow` when the CLI is on PATH (i.e. the `setup`
+ * action ran) and is skipped with a notice otherwise.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.mapJobJson = mapJobJson;
-exports.getJob = getJob;
-exports.cancelJob = cancelJob;
 exports.streamJobLogs = streamJobLogs;
+exports.maybeStreamJobLogs = maybeStreamJobLogs;
 exports.isJobTerminal = isJobTerminal;
 exports.isJobSuccess = isJobSuccess;
 const exec_1 = __nccwpck_require__(893);
 const log_1 = __nccwpck_require__(45578);
-const json_1 = __nccwpck_require__(86153);
 const constants_1 = __nccwpck_require__(26214);
 const JOB = [...constants_1.CLI_JOB_GROUP];
-/** Extract the container exit code from candidate JSON paths. */
-function extractExitCode(obj) {
-    for (const path of constants_1.JOB_EXIT_CODE_FIELDS) {
-        const v = (0, json_1.readPath)(obj, path);
-        if (typeof v === 'number' && Number.isFinite(v)) {
-            return v;
-        }
-        if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) {
-            return Number(v);
-        }
-    }
-    return undefined;
-}
-/**
- * Map CLI JSON for a single job into the typed `Job`.
- * // VERIFY: exact field names (`metadata.id`, `status.state`, etc.). We probe
- * the most likely paths and keep the full payload in `raw`.
- */
-function mapJobJson(raw) {
-    const obj = (raw ?? {});
-    const id = (0, json_1.firstString)(obj, ['id', 'metadata.id', 'job_id', 'jobId', 'name', 'metadata.name']) ?? '';
-    const name = (0, json_1.firstString)(obj, ['name', 'metadata.name', 'spec.name']);
-    const status = (0, json_1.firstString)(obj, ['status', 'state', 'status.state', 'status.phase', 'status.status']) ??
-        'UNKNOWN';
-    const exitCode = extractExitCode(obj);
-    const job = { id, status, raw };
-    if (name !== undefined) {
-        job.name = name;
-    }
-    if (exitCode !== undefined) {
-        job.exitCode = exitCode;
-    }
-    return job;
-}
-/** Get a job by id. */
-async function getJob(id) {
-    if (!id) {
-        throw new Error('getJob: id is required.');
-    }
-    const res = await (0, exec_1.runCli)([...JOB, 'get', '--id', id], { json: true });
-    return mapJobJson(res.data);
-}
-/** Cancel a job by id. */
-async function cancelJob(id) {
-    if (!id) {
-        throw new Error('cancelJob: id is required.');
-    }
-    const res = await (0, exec_1.runCli)([...JOB, 'cancel', '--id', id], { json: true });
-    // Some verbs return an operation rather than the job; fall back to a fresh get.
-    const mapped = mapJobJson(res.data);
-    if (mapped.id) {
-        return mapped;
-    }
-    return getJob(id);
-}
 /**
  * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
- * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here (unlike
- * `get`/`cancel`, which take `--id`), and `--follow` streams in real time until
- * the job reaches a terminal state. Callers invoke this fire-and-forget
- * alongside the status poll loop.
+ * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here, and
+ * `--follow` streams in real time until the job reaches a terminal state.
+ * Callers invoke this fire-and-forget alongside the status poll loop.
  */
 async function streamJobLogs(id) {
     if (!id) {
@@ -96945,6 +96917,24 @@ async function streamJobLogs(id) {
         await (0, exec_1.runCli)([...JOB, 'logs', id, '--follow']);
     });
 }
+/**
+ * Best-effort log streaming for entrypoints: streams via the CLI when it is on
+ * PATH, otherwise logs a notice and returns (status polling still reports
+ * progress). Never throws — a log-stream hiccup must not fail the action.
+ */
+async function maybeStreamJobLogs(id) {
+    if (!(await (0, exec_1.cliAvailable)())) {
+        log_1.log.info('nebius CLI not found on PATH — skipping log streaming ' +
+            "(run the 'setup' action first to enable it).");
+        return;
+    }
+    try {
+        await streamJobLogs(id);
+    }
+    catch (err) {
+        log_1.log.warn(`Log streaming stopped: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
 /** True when the status is terminal (case-insensitive). */
 function isJobTerminal(status) {
     return constants_1.JOB_TERMINAL_STATUSES.has(status.trim().toUpperCase());
@@ -96952,50 +96942,6 @@ function isJobTerminal(status) {
 /** True when the status is a success (case-insensitive). */
 function isJobSuccess(status) {
     return constants_1.JOB_SUCCESS_STATUSES.has(status.trim().toUpperCase());
-}
-
-
-/***/ }),
-
-/***/ 86153:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-/**
- * Small, dependency-free helpers for safely reading values out of the
- * loosely-typed JSON the `nebius` CLI emits. Shared by the jobs and endpoints
- * mappers so the field-probing logic lives in exactly one place.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.readPath = readPath;
-exports.firstString = firstString;
-/** Read a dot-notation path from an unknown object (safe; returns undefined). */
-function readPath(obj, path) {
-    let cur = obj;
-    for (const key of path.split('.')) {
-        if (cur === null || typeof cur !== 'object') {
-            return undefined;
-        }
-        cur = cur[key];
-    }
-    return cur;
-}
-/**
- * First defined, non-empty string among the given candidate field paths.
- * Numbers are coerced to strings so numeric ids/ports are accepted.
- */
-function firstString(obj, keys) {
-    for (const k of keys) {
-        const v = readPath(obj, k);
-        if (typeof v === 'string' && v !== '') {
-            return v;
-        }
-        if (typeof v === 'number') {
-            return String(v);
-        }
-    }
-    return undefined;
 }
 
 
@@ -97108,11 +97054,18 @@ exports.createSdk = createSdk;
 exports.endpointService = endpointService;
 exports.jobService = jobService;
 exports.subnetService = subnetService;
+exports.bucketService = bucketService;
+exports.accessKeyService = accessKeyService;
+exports.payloadService = payloadService;
+exports.keyServices = keyServices;
 const js_sdk_1 = __nccwpck_require__(21922);
 // `./api/*` is a wildcard subpath export; runtime resolves it via the exports
 // map, tsc via the tsconfig `paths` mapping (see endpoints.ts).
 const index_1 = __nccwpck_require__(26375);
 const index_2 = __nccwpck_require__(34314);
+const index_3 = __nccwpck_require__(40568);
+const index_4 = __nccwpck_require__(24729);
+const index_5 = __nccwpck_require__(22803);
 const constants_1 = __nccwpck_require__(26214);
 /**
  * Construct an SDK authenticated with the exported IAM token.
@@ -97156,6 +97109,25 @@ function jobService(sdk) {
  */
 function subnetService(sdk) {
     return new index_2.SubnetService(sdk);
+}
+/**
+ * Build the Object Storage Bucket service client for an SDK (control plane:
+ * create/delete the bucket resource; object data still goes over S3).
+ */
+function bucketService(sdk) {
+    return new index_3.BucketService(sdk);
+}
+/** Build the IAM AccessKey service client for an SDK (ephemeral S3 key minting). */
+function accessKeyService(sdk) {
+    return new index_4.AccessKeyService(sdk);
+}
+/** Build the MysteryBox Payload service client for an SDK (plaintext secret reads). */
+function payloadService(sdk) {
+    return new index_5.PayloadService(sdk);
+}
+/** Build the service pair the storage key-minting flows need. */
+function keyServices(sdk) {
+    return { accessKeys: accessKeyService(sdk), payloads: payloadService(sdk) };
 }
 
 
@@ -97205,13 +97177,47 @@ function resolveDiskType(typeKey) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.subnetService = exports.jobService = exports.endpointService = exports.createSdk = void 0;
+exports.keyServices = exports.payloadService = exports.accessKeyService = exports.bucketService = exports.subnetService = exports.jobService = exports.endpointService = exports.createSdk = void 0;
 /** Public surface of the `sdk` module. */
 var client_1 = __nccwpck_require__(93645);
 Object.defineProperty(exports, "createSdk", ({ enumerable: true, get: function () { return client_1.createSdk; } }));
 Object.defineProperty(exports, "endpointService", ({ enumerable: true, get: function () { return client_1.endpointService; } }));
 Object.defineProperty(exports, "jobService", ({ enumerable: true, get: function () { return client_1.jobService; } }));
 Object.defineProperty(exports, "subnetService", ({ enumerable: true, get: function () { return client_1.subnetService; } }));
+Object.defineProperty(exports, "bucketService", ({ enumerable: true, get: function () { return client_1.bucketService; } }));
+Object.defineProperty(exports, "accessKeyService", ({ enumerable: true, get: function () { return client_1.accessKeyService; } }));
+Object.defineProperty(exports, "payloadService", ({ enumerable: true, get: function () { return client_1.payloadService; } }));
+Object.defineProperty(exports, "keyServices", ({ enumerable: true, get: function () { return client_1.keyServices; } }));
+
+
+/***/ }),
+
+/***/ 40557:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/**
+ * Shared SDK status-state reader.
+ *
+ * SDK resources expose their state as `status.state`, an enum instance whose
+ * `.name` is the status string (e.g. `RUNNING`); plain objects (tests, tolerant
+ * inputs) may carry a bare string instead. Normalizes both to a string.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.readState = readState;
+/** Read the status string from an SDK status (enum `.name`) or a plain object. */
+function readState(status) {
+    const st = status?.state;
+    if (st == null)
+        return 'UNKNOWN';
+    if (typeof st === 'string')
+        return st;
+    const name = st.name;
+    if (typeof name === 'string')
+        return name;
+    return String(st);
+}
 
 
 /***/ }),
@@ -97267,52 +97273,69 @@ function parseSizeBytes(input) {
 "use strict";
 
 /**
- * Bucket control-plane wrappers over the `nebius storage bucket` CLI group.
+ * Bucket control-plane wrappers over the `@nebius/js-sdk` `BucketService` gRPC
+ * API (`nebius.storage.v1`).
  *
  * Control plane only (create/delete the bucket resource) — NO object data and
  * NO aws-sdk. Importing this file must not pull in `s3.ts`, so the create-bucket
- * action stays free of @aws-sdk/client-s3. Pure arg-builders mirror jobs.ts.
+ * action stays free of @aws-sdk/client-s3. The I/O functions take an injected
+ * `BucketServiceLike` (mirroring endpoints/jobs) so they are unit-testable with
+ * a tiny fake; the request builders are pure and exported for direct testing.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.buildCreateBucketArgs = buildCreateBucketArgs;
+exports.buildCreateBucketRequest = buildCreateBucketRequest;
 exports.createBucket = createBucket;
-exports.buildDeleteBucketArgs = buildDeleteBucketArgs;
+exports.buildDeleteBucketRequest = buildDeleteBucketRequest;
 exports.deleteBucket = deleteBucket;
-const exec_1 = __nccwpck_require__(893);
-const json_1 = __nccwpck_require__(86153);
-const constants_1 = __nccwpck_require__(26214);
-const GROUP = [...constants_1.CLI_STORAGE_BUCKET_GROUP];
-/** Build `nebius storage bucket create ...` args (pure). */
-function buildCreateBucketArgs(s) {
+const index_1 = __nccwpck_require__(40568);
+const index_2 = __nccwpck_require__(7101);
+const time_1 = __nccwpck_require__(22334);
+/** Build the SDK `CreateBucketRequest` (pure). */
+function buildCreateBucketRequest(s) {
     if (!s.name)
         throw new Error('CreateBucketSpec.name is required.');
     if (!s.projectId)
         throw new Error('CreateBucketSpec.projectId is required.');
-    const args = [...GROUP, 'create', '--name', s.name, '--parent-id', s.projectId];
-    if (s.maxSizeBytes)
-        args.push('--max-size-bytes', s.maxSizeBytes);
-    return args;
+    let maxSizeBytes;
+    if (s.maxSizeBytes) {
+        maxSizeBytes = Number(s.maxSizeBytes);
+        if (!Number.isFinite(maxSizeBytes) || maxSizeBytes < 0) {
+            throw new Error(`CreateBucketSpec.maxSizeBytes is not a byte count: '${s.maxSizeBytes}'.`);
+        }
+    }
+    return index_1.CreateBucketRequest.create({
+        metadata: { name: s.name, parentId: s.projectId },
+        ...(maxSizeBytes !== undefined ? { spec: { maxSizeBytes } } : {}),
+    });
 }
-/** Create a bucket; return its id and name (tolerant JSON probing). */
-async function createBucket(s) {
-    const res = await (0, exec_1.runCli)(buildCreateBucketArgs(s), { json: true });
-    const obj = (res.data ?? {});
-    // VERIFY: exact field names from `storage bucket create` JSON.
-    const id = (0, json_1.firstString)(obj, ['id', 'metadata.id', 'bucket_id', 'bucketId']);
-    const name = (0, json_1.firstString)(obj, ['name', 'metadata.name', 'spec.name']) ?? s.name;
+/** Create a bucket; returns its id (from the Operation) and name. */
+async function createBucket(service, s) {
+    const op = await service.create(buildCreateBucketRequest(s)).result;
+    const id = op.resourceId();
     if (!id)
-        throw new Error('bucket id not found in create response.');
-    return { id, name };
+        throw new Error('bucket id not found in create operation.');
+    return { id, name: s.name };
 }
-/** Build `nebius storage bucket delete ...` args (pure). Zero ttl = instant. */
-function buildDeleteBucketArgs(id, ttl = '0s') {
+/**
+ * Build the SDK `DeleteBucketRequest` (pure). The purge `ttl` is how long the
+ * deleted bucket stays restorable; zero purges immediately (the API default
+ * would otherwise keep it for 7 days).
+ */
+function buildDeleteBucketRequest(id, ttl = '0s') {
     if (!id)
-        throw new Error('buildDeleteBucketArgs: id is required.');
-    return [...GROUP, 'delete', '--id', id, '--ttl', ttl];
+        throw new Error('buildDeleteBucketRequest: id is required.');
+    const ttlMs = (0, time_1.parseDurationMs)(ttl);
+    if (ttlMs === undefined) {
+        throw new Error(`buildDeleteBucketRequest: unparseable ttl '${ttl}'.`);
+    }
+    return index_1.DeleteBucketRequest.create({
+        id,
+        purge: { $case: 'ttl', ttl: index_2.dayjs.duration(ttlMs) },
+    });
 }
-/** Delete a bucket (instant by default). */
-async function deleteBucket(id, ttl = '0s') {
-    await (0, exec_1.runCli)(buildDeleteBucketArgs(id, ttl), { json: true });
+/** Delete a bucket (instant purge by default). */
+async function deleteBucket(service, id, ttl = '0s') {
+    await service.delete(buildDeleteBucketRequest(id, ttl)).result;
 }
 
 
@@ -97325,8 +97348,8 @@ async function deleteBucket(id, ttl = '0s') {
 
 /**
  * Empty a bucket by deleting every object (S3 data plane). Used by delete-bucket
- * before the CLI delete, so the delete works regardless of whether the CLI
- * refuses non-empty buckets.
+ * before the control-plane delete, so the delete works regardless of whether the
+ * API refuses non-empty buckets.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildEmptySpecFromInputs = buildEmptySpecFromInputs;
@@ -97348,16 +97371,15 @@ function buildEmptySpecFromInputs() {
     };
 }
 /** Mint a key, list all objects, delete them; return how many were deleted. */
-async function emptyBucket(spec, now = Date.now) {
+async function emptyBucket(services, spec, now = Date.now) {
     const ttlMs = (0, time_1.parseDurationMs)(spec.expiresIn) ?? DEFAULT_TTL_MS;
     const expiresAt = new Date(now() + ttlMs).toISOString();
-    const minted = await (0, keys_1.mintEphemeralKey)({
+    const { minted, secretAccessKey } = await (0, keys_1.mintS3Credentials)(services, {
         projectId: spec.projectId,
         serviceAccountId: spec.serviceAccountId,
         name: (0, keys_1.ephemeralKeyName)('empty', spec.bucket),
         expiresAt,
     });
-    const secretAccessKey = await (0, keys_1.readAccessKeySecret)(minted.secretId);
     const loc = { endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket };
     const creds = { accessKeyId: minted.awsAccessKeyId, secretAccessKey };
     const keys = await (0, s3_1.listObjects)(loc, creds, '');
@@ -97374,32 +97396,34 @@ async function emptyBucket(spec, now = Date.now) {
 "use strict";
 
 /**
- * Ephemeral S3 access-key minting via `nebius iam v2 access-key`.
+ * Ephemeral S3 access-key minting via the `@nebius/js-sdk` `AccessKeyService`
+ * (`nebius.iam.v2`) + MysteryBox `PayloadService` (`nebius.mysterybox.v1`).
  *
  * Mints a short-lived access key FROM the already-configured service account so
  * the runner can drive the S3 data plane (SigV4 PutObject) for `upload-object` —
  * the SA bearer token does not work for S3. The secret is delivered into
- * MysteryBox (`--secret-delivery-mode mystery_box`); the create response carries
- * only the MysteryBox handle (`status.secret_reference_id`), and the runner
- * resolves the plaintext via `mysterybox payload get`.
+ * MysteryBox (`secretDeliveryMode: MYSTERY_BOX`); the created key carries only
+ * the MysteryBox handle (`status.secretReferenceId`), and the runner resolves
+ * the plaintext via the MysteryBox payload API. Keeping MysteryBox delivery
+ * (rather than INLINE/EXPLICIT) preserves the `secret-id` output jobs use for
+ * S3 secret mounts.
  *
  * NOTE: this key is for the runner's own upload, NOT for a job bucket mount —
  * jobs mount a bucket by id (`--volume <bucket-id>:/path:rw`) with no S3 creds.
  *
- * Arg-building is a pure function so it is unit-testable without the CLI.
- * CLI JSON field names were confirmed against the live CLI (0.12.x).
+ * The I/O functions take injected service fakes (mirroring endpoints/jobs); the
+ * request builder is pure and exported for direct testing.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ephemeralKeyName = ephemeralKeyName;
-exports.buildMintKeyArgs = buildMintKeyArgs;
+exports.buildCreateAccessKeyRequest = buildCreateAccessKeyRequest;
 exports.mintEphemeralKey = mintEphemeralKey;
 exports.readAccessKeySecret = readAccessKeySecret;
-const exec_1 = __nccwpck_require__(893);
+exports.mintS3Credentials = mintS3Credentials;
+const index_1 = __nccwpck_require__(24729);
+const index_2 = __nccwpck_require__(22803);
+const index_3 = __nccwpck_require__(7101);
 const log_1 = __nccwpck_require__(45578);
-const json_1 = __nccwpck_require__(86153);
-const constants_1 = __nccwpck_require__(26214);
-const GROUP = [...constants_1.CLI_ACCESS_KEY_GROUP];
-const MYSTERYBOX_PAYLOAD = [...constants_1.CLI_MYSTERYBOX_PAYLOAD_GROUP];
 /** Max resource-name length accepted by the IAM API. */
 const KEY_NAME_MAX = 63;
 /**
@@ -97415,83 +97439,70 @@ function ephemeralKeyName(verb, bucket) {
     const base = `${verb}-${bucket}`.slice(0, KEY_NAME_MAX - suffix.length - 1);
     return `${base}-${suffix}`;
 }
-/** Build `nebius iam v2 access-key create ...` args (pure). */
-function buildMintKeyArgs(s) {
+/** Build the SDK `CreateAccessKeyRequest` (pure). */
+function buildCreateAccessKeyRequest(s) {
     if (!s.projectId)
         throw new Error('EphemeralKeySpec.projectId is required.');
     if (!s.serviceAccountId)
         throw new Error('EphemeralKeySpec.serviceAccountId is required.');
-    const args = [
-        ...GROUP, 'create',
-        '--parent-id', s.projectId,
-        '--account-service-account-id', s.serviceAccountId,
-        '--secret-delivery-mode', 'mystery_box',
-    ];
-    if (s.name)
-        args.push('--name', s.name);
-    if (s.expiresAt)
-        args.push('--expires-at', s.expiresAt);
-    return args;
+    return index_1.CreateAccessKeyRequest.create({
+        metadata: { parentId: s.projectId, ...(s.name ? { name: s.name } : {}) },
+        spec: {
+            account: {
+                type: { $case: 'serviceAccount', serviceAccount: { id: s.serviceAccountId } },
+            },
+            secretDeliveryMode: index_1.SecretDeliveryMode.MYSTERY_BOX,
+            ...(s.expiresAt ? { expiresAt: (0, index_3.dayjs)(s.expiresAt) } : {}),
+        },
+    });
 }
-/** Mint the ephemeral key and extract its ids (tolerant JSON probing). */
-async function mintEphemeralKey(s) {
-    const res = await (0, exec_1.runCli)(buildMintKeyArgs(s), { json: true, silent: true });
-    const obj = (res.data ?? {});
-    // Field names confirmed against live CLI 0.12.x: `metadata.id`,
-    // `status.aws_access_key_id`, `status.secret_reference_id`. Extra probes are
-    // tolerant fallbacks for older/SDK casings.
-    const accessKeyId = (0, json_1.firstString)(obj, ['id', 'metadata.id', 'access_key_id', 'accessKeyId']);
-    const awsAccessKeyId = (0, json_1.firstString)(obj, [
-        'aws_access_key_id', 'status.aws_access_key_id', 'awsAccessKeyId', 'status.awsAccessKeyId',
-    ]);
-    const secretId = (0, json_1.firstString)(obj, [
-        'status.secret_reference_id', 'secret_reference_id', 'status.secretReferenceId',
-        'status.secret_id', 'secret_id', 'status.secretId', 'status.mystery_box.secret_id',
-    ]);
+/**
+ * Mint the ephemeral key and extract its ids. Create returns an Operation; we
+ * wait for it (so the key's status is populated) and then `get` the key for
+ * `status.awsAccessKeyId` + `status.secretReferenceId`.
+ */
+async function mintEphemeralKey(service, s) {
+    const op = await service.create(buildCreateAccessKeyRequest(s)).result;
+    await op.wait(1);
+    const accessKeyId = op.resourceId();
     if (!accessKeyId)
-        throw new Error('access key id not found in create response.');
+        throw new Error('access key id not found in create operation.');
+    const key = (await service.get(index_1.GetAccessKeyRequest.create({ id: accessKeyId })));
+    const awsAccessKeyId = key?.status?.awsAccessKeyId;
+    const secretId = key?.status?.secretReferenceId;
     if (!awsAccessKeyId)
-        throw new Error('aws access key id not found in create response.');
+        throw new Error('aws access key id not found on the created key.');
     if (!secretId)
-        throw new Error('MysteryBox secret id not found in create response.');
+        throw new Error('MysteryBox secret id not found on the created key.');
     return { accessKeyId, awsAccessKeyId, secretId };
 }
 /**
  * Fetch and mask the plaintext AWS secret access key for a minted key.
  *
- * Keys minted with `--secret-delivery-mode mystery_box` reject
- * `access-key get-secret`; the plaintext lives in the MysteryBox secret whose id
- * is `status.secret_reference_id`. Read it via `mysterybox payload get`, whose
- * JSON is `{ data: [{ key, string_value }] }`.
+ * Keys minted with `secretDeliveryMode: MYSTERY_BOX` carry no inline secret;
+ * the plaintext lives in the MysteryBox secret whose id is
+ * `status.secretReferenceId`. The payload is a key/value list with the AWS
+ * secret under the `secret` key.
  */
-async function readAccessKeySecret(secretReferenceId) {
+async function readAccessKeySecret(service, secretReferenceId) {
     if (!secretReferenceId)
         throw new Error('readAccessKeySecret: secretReferenceId is required.');
-    const res = await (0, exec_1.runCli)([...MYSTERYBOX_PAYLOAD, 'get', '--secret-id', secretReferenceId], {
-        json: true,
-        silent: true,
-    });
-    const obj = (res.data ?? {});
-    const secret = payloadString(obj, 'secret');
+    const payload = (await service.get(index_2.GetPayloadRequest.create({ secretId: secretReferenceId })));
+    const entry = payload?.data?.find((e) => e?.key === 'secret');
+    const secret = entry?.payload?.$case === 'stringValue' ? entry.payload.stringValue : undefined;
     if (!secret)
         throw new Error('aws secret access key not found in MysteryBox payload.');
     (0, log_1.mask)(secret);
     return secret;
 }
-/** Extract a payload entry's plaintext value from `mysterybox payload get` JSON. */
-function payloadString(obj, key) {
-    const data = obj.data;
-    if (!Array.isArray(data))
-        return undefined;
-    for (const entry of data) {
-        if (entry && typeof entry === 'object') {
-            const e = entry;
-            if (e.key === key) {
-                return (0, json_1.firstString)(e, ['string_value', 'stringValue', 'value']);
-            }
-        }
-    }
-    return undefined;
+/**
+ * Mint an ephemeral key and resolve its plaintext secret — the full flow the
+ * storage orchestrators (upload/download/check/empty) share.
+ */
+async function mintS3Credentials(services, s) {
+    const minted = await mintEphemeralKey(services.accessKeys, s);
+    const secretAccessKey = await readAccessKeySecret(services.payloads, minted.secretId);
+    return { minted, secretAccessKey };
 }
 
 
@@ -155916,6 +155927,18442 @@ function createBaseUserAccountStatus() {
 
 /***/ }),
 
+/***/ 24729:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/* Generated by Nebius TS generator. DO NOT EDIT! */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TenantStatus = exports.TenantSpec = exports.Tenant = exports.TenantStatus_TenantState = exports.TenantService = exports.TenantServiceBaseClient = exports.TenantServiceServiceDescription = exports.ListTenantsResponse = exports.ListTenantsRequest = exports.UpdateTenantRequest = exports.GetTenantByNameRequest = exports.GetTenantRequest = exports.ProjectStatus = exports.ProjectSpec = exports.Project = exports.ProjectStatus_ProjectState = exports.ProjectService = exports.ProjectServiceBaseClient = exports.ProjectServiceServiceDescription = exports.ListProjectsResponse = exports.DeleteProjectRequest = exports.UpdateProjectRequest = exports.ListProjectsRequest = exports.GetProjectByNameRequest = exports.GetProjectRequest = exports.CreateProjectRequest = exports.AccessKeyStatus = exports.AccessKeySpec = exports.AccessKey = exports.AccessKeyStatus_State = exports.SecretDeliveryMode = exports.AccessKeyService = exports.AccessKeyServiceBaseClient = exports.AccessKeyServiceServiceDescription = exports.ListAccessKeysResponse = exports.GetAccessKeySecretResponse = exports.DeleteAccessKeyByAwsIdRequest = exports.DeleteAccessKeyRequest = exports.DeactivateAccessKeyByAwsIdRequest = exports.ActivateAccessKeyByAwsIdRequest = exports.DeactivateAccessKeyRequest = exports.ActivateAccessKeyRequest = exports.UpdateAccessKeyRequest = exports.ListAccessKeysByAccountRequest = exports.ListAccessKeysRequest = exports.GetAccessKeyByAwsIdRequest = exports.GetAccessKeySecretRequest = exports.GetAccessKeyRequest = exports.CreateAccessKeyRequest = void 0;
+const index_js_1 = __nccwpck_require__(7101);
+const util_1 = __nccwpck_require__(39023);
+const protobuf_js_1 = __nccwpck_require__(74846);
+const logging_js_1 = __nccwpck_require__(79087);
+const grpc_js_1 = __nccwpck_require__(83033);
+const request_js_1 = __nccwpck_require__(58544);
+const operation_js_1 = __nccwpck_require__(99624);
+const index_js_2 = __nccwpck_require__(64266);
+const index_js_3 = __nccwpck_require__(86912);
+const __deprecatedWarned = new Set();
+exports.CreateAccessKeyRequest = {
+    $type: "nebius.iam.v2.CreateAccessKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AccessKeySpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateAccessKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.AccessKeySpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateAccessKeyRequestCustom({
+            $type: "nebius.iam.v2.CreateAccessKeyRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.AccessKeySpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.AccessKeySpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateAccessKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateAccessKeyRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.AccessKeySpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateAccessKeyRequest);
+function CreateAccessKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateAccessKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateAccessKeyRequestCustom(message) {
+    message[logging_js_1.custom] = CreateAccessKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateAccessKeyRequestCustomJson;
+    return message;
+}
+function createBaseCreateAccessKeyRequest() {
+    const message = {
+        $type: "nebius.iam.v2.CreateAccessKeyRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateAccessKeyRequestCustom(message);
+}
+exports.GetAccessKeyRequest = {
+    $type: "nebius.iam.v2.GetAccessKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetAccessKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetAccessKeyRequestCustom({
+            $type: "nebius.iam.v2.GetAccessKeyRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetAccessKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetAccessKeyRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetAccessKeyRequest);
+function GetAccessKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetAccessKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetAccessKeyRequestCustom(message) {
+    message[logging_js_1.custom] = GetAccessKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = GetAccessKeyRequestCustomJson;
+    return message;
+}
+function createBaseGetAccessKeyRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetAccessKeyRequest",
+        id: "",
+    };
+    return applyGetAccessKeyRequestCustom(message);
+}
+exports.GetAccessKeySecretRequest = {
+    $type: "nebius.iam.v2.GetAccessKeySecretRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetAccessKeySecretRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetAccessKeySecretRequestCustom({
+            $type: "nebius.iam.v2.GetAccessKeySecretRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetAccessKeySecretRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetAccessKeySecretRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetAccessKeySecretRequest);
+function GetAccessKeySecretRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetAccessKeySecretRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetAccessKeySecretRequestCustom(message) {
+    message[logging_js_1.custom] = GetAccessKeySecretRequestCustomInspect;
+    message[logging_js_1.customJson] = GetAccessKeySecretRequestCustomJson;
+    return message;
+}
+function createBaseGetAccessKeySecretRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetAccessKeySecretRequest",
+        id: "",
+    };
+    return applyGetAccessKeySecretRequestCustom(message);
+}
+exports.GetAccessKeyByAwsIdRequest = {
+    $type: "nebius.iam.v2.GetAccessKeyByAwsIdRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.awsAccessKeyId !== "") {
+            writer.uint32(10).string(message.awsAccessKeyId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetAccessKeyByAwsIdRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.awsAccessKeyId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetAccessKeyByAwsIdRequestCustom({
+            $type: "nebius.iam.v2.GetAccessKeyByAwsIdRequest",
+            awsAccessKeyId: (0, index_js_1.isSet)(object.awsAccessKeyId ?? object.aws_access_key_id)
+                ? String(object.awsAccessKeyId ?? object.aws_access_key_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.awsAccessKeyId !== "") {
+            obj[pick("awsAccessKeyId", "aws_access_key_id")] = message.awsAccessKeyId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetAccessKeyByAwsIdRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetAccessKeyByAwsIdRequest();
+        message.awsAccessKeyId = (object.awsAccessKeyId !== undefined && object.awsAccessKeyId !== null)
+            ? object.awsAccessKeyId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetAccessKeyByAwsIdRequest);
+function GetAccessKeyByAwsIdRequestCustomInspect() {
+    const parts = [];
+    if (this.awsAccessKeyId !== "")
+        parts.push("awsAccessKeyId" + "=" + (0, util_1.inspect)(this.awsAccessKeyId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetAccessKeyByAwsIdRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.awsAccessKeyId !== "")
+        obj.awsAccessKeyId = (0, logging_js_1.inspectJson)(this.awsAccessKeyId);
+    return obj;
+}
+function applyGetAccessKeyByAwsIdRequestCustom(message) {
+    message[logging_js_1.custom] = GetAccessKeyByAwsIdRequestCustomInspect;
+    message[logging_js_1.customJson] = GetAccessKeyByAwsIdRequestCustomJson;
+    return message;
+}
+function createBaseGetAccessKeyByAwsIdRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetAccessKeyByAwsIdRequest",
+        awsAccessKeyId: "",
+    };
+    return applyGetAccessKeyByAwsIdRequestCustom(message);
+}
+exports.ListAccessKeysRequest = {
+    $type: "nebius.iam.v2.ListAccessKeysRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message.filter !== "") {
+            writer.uint32(34).string(message.filter);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAccessKeysRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.filter = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAccessKeysRequestCustom({
+            $type: "nebius.iam.v2.ListAccessKeysRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            filter: (0, index_js_1.isSet)(object.filter ?? object.filter)
+                ? String(object.filter ?? object.filter)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.filter !== "") {
+            obj[pick("filter", "filter")] = message.filter;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAccessKeysRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAccessKeysRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.filter = (object.filter !== undefined && object.filter !== null)
+            ? object.filter
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAccessKeysRequest);
+function ListAccessKeysRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.filter !== "")
+        parts.push("filter" + "=" + (0, util_1.inspect)(this.filter));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAccessKeysRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.filter !== "")
+        obj.filter = (0, logging_js_1.inspectJson)(this.filter);
+    return obj;
+}
+function applyListAccessKeysRequestCustom(message) {
+    message[logging_js_1.custom] = ListAccessKeysRequestCustomInspect;
+    message[logging_js_1.customJson] = ListAccessKeysRequestCustomJson;
+    return message;
+}
+function createBaseListAccessKeysRequest() {
+    const message = {
+        $type: "nebius.iam.v2.ListAccessKeysRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        filter: "",
+    };
+    return applyListAccessKeysRequestCustom(message);
+}
+exports.ListAccessKeysByAccountRequest = {
+    $type: "nebius.iam.v2.ListAccessKeysByAccountRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.account !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_3.Account.encode(message.account, w);
+            w.join();
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message.filter !== "") {
+            writer.uint32(34).string(message.filter);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAccessKeysByAccountRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.account = index_js_3.Account.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.filter = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAccessKeysByAccountRequestCustom({
+            $type: "nebius.iam.v2.ListAccessKeysByAccountRequest",
+            account: (0, index_js_1.isSet)(object.account ?? object.account)
+                ? index_js_3.Account.fromJSON(object.account ?? object.account)
+                : undefined,
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            filter: (0, index_js_1.isSet)(object.filter ?? object.filter)
+                ? String(object.filter ?? object.filter)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.account !== undefined) {
+            obj[pick("account", "account")] = message.account
+                ? index_js_3.Account.toJSON(message.account, use)
+                : undefined;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.filter !== "") {
+            obj[pick("filter", "filter")] = message.filter;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAccessKeysByAccountRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAccessKeysByAccountRequest();
+        message.account = (object.account !== undefined && object.account !== null)
+            ? index_js_3.Account.fromPartial(object.account)
+            : undefined;
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.filter = (object.filter !== undefined && object.filter !== null)
+            ? object.filter
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAccessKeysByAccountRequest);
+function ListAccessKeysByAccountRequestCustomInspect() {
+    const parts = [];
+    if (this.account !== undefined)
+        parts.push("account" + "=" + (0, util_1.inspect)(this.account));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.filter !== "")
+        parts.push("filter" + "=" + (0, util_1.inspect)(this.filter));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAccessKeysByAccountRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.account !== undefined)
+        obj.account = (0, logging_js_1.inspectJson)(this.account);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.filter !== "")
+        obj.filter = (0, logging_js_1.inspectJson)(this.filter);
+    return obj;
+}
+function applyListAccessKeysByAccountRequestCustom(message) {
+    message[logging_js_1.custom] = ListAccessKeysByAccountRequestCustomInspect;
+    message[logging_js_1.customJson] = ListAccessKeysByAccountRequestCustomJson;
+    return message;
+}
+function createBaseListAccessKeysByAccountRequest() {
+    const message = {
+        $type: "nebius.iam.v2.ListAccessKeysByAccountRequest",
+        account: undefined,
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        filter: "",
+    };
+    return applyListAccessKeysByAccountRequestCustom(message);
+}
+exports.UpdateAccessKeyRequest = {
+    $type: "nebius.iam.v2.UpdateAccessKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AccessKeySpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateAccessKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.AccessKeySpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateAccessKeyRequestCustom({
+            $type: "nebius.iam.v2.UpdateAccessKeyRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.AccessKeySpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.AccessKeySpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateAccessKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateAccessKeyRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.AccessKeySpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateAccessKeyRequest);
+function UpdateAccessKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateAccessKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateAccessKeyRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateAccessKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateAccessKeyRequestCustomJson;
+    return message;
+}
+function createBaseUpdateAccessKeyRequest() {
+    const message = {
+        $type: "nebius.iam.v2.UpdateAccessKeyRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateAccessKeyRequestCustom(message);
+}
+exports.ActivateAccessKeyRequest = {
+    $type: "nebius.iam.v2.ActivateAccessKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseActivateAccessKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyActivateAccessKeyRequestCustom({
+            $type: "nebius.iam.v2.ActivateAccessKeyRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ActivateAccessKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseActivateAccessKeyRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ActivateAccessKeyRequest);
+function ActivateAccessKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ActivateAccessKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyActivateAccessKeyRequestCustom(message) {
+    message[logging_js_1.custom] = ActivateAccessKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = ActivateAccessKeyRequestCustomJson;
+    return message;
+}
+function createBaseActivateAccessKeyRequest() {
+    const message = {
+        $type: "nebius.iam.v2.ActivateAccessKeyRequest",
+        id: "",
+    };
+    return applyActivateAccessKeyRequestCustom(message);
+}
+exports.DeactivateAccessKeyRequest = {
+    $type: "nebius.iam.v2.DeactivateAccessKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeactivateAccessKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeactivateAccessKeyRequestCustom({
+            $type: "nebius.iam.v2.DeactivateAccessKeyRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeactivateAccessKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeactivateAccessKeyRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeactivateAccessKeyRequest);
+function DeactivateAccessKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeactivateAccessKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeactivateAccessKeyRequestCustom(message) {
+    message[logging_js_1.custom] = DeactivateAccessKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = DeactivateAccessKeyRequestCustomJson;
+    return message;
+}
+function createBaseDeactivateAccessKeyRequest() {
+    const message = {
+        $type: "nebius.iam.v2.DeactivateAccessKeyRequest",
+        id: "",
+    };
+    return applyDeactivateAccessKeyRequestCustom(message);
+}
+exports.ActivateAccessKeyByAwsIdRequest = {
+    $type: "nebius.iam.v2.ActivateAccessKeyByAwsIdRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.awsAccessKeyId !== "") {
+            writer.uint32(10).string(message.awsAccessKeyId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseActivateAccessKeyByAwsIdRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.awsAccessKeyId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyActivateAccessKeyByAwsIdRequestCustom({
+            $type: "nebius.iam.v2.ActivateAccessKeyByAwsIdRequest",
+            awsAccessKeyId: (0, index_js_1.isSet)(object.awsAccessKeyId ?? object.aws_access_key_id)
+                ? String(object.awsAccessKeyId ?? object.aws_access_key_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.awsAccessKeyId !== "") {
+            obj[pick("awsAccessKeyId", "aws_access_key_id")] = message.awsAccessKeyId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ActivateAccessKeyByAwsIdRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseActivateAccessKeyByAwsIdRequest();
+        message.awsAccessKeyId = (object.awsAccessKeyId !== undefined && object.awsAccessKeyId !== null)
+            ? object.awsAccessKeyId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ActivateAccessKeyByAwsIdRequest);
+function ActivateAccessKeyByAwsIdRequestCustomInspect() {
+    const parts = [];
+    if (this.awsAccessKeyId !== "")
+        parts.push("awsAccessKeyId" + "=" + (0, util_1.inspect)(this.awsAccessKeyId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ActivateAccessKeyByAwsIdRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.awsAccessKeyId !== "")
+        obj.awsAccessKeyId = (0, logging_js_1.inspectJson)(this.awsAccessKeyId);
+    return obj;
+}
+function applyActivateAccessKeyByAwsIdRequestCustom(message) {
+    message[logging_js_1.custom] = ActivateAccessKeyByAwsIdRequestCustomInspect;
+    message[logging_js_1.customJson] = ActivateAccessKeyByAwsIdRequestCustomJson;
+    return message;
+}
+function createBaseActivateAccessKeyByAwsIdRequest() {
+    const message = {
+        $type: "nebius.iam.v2.ActivateAccessKeyByAwsIdRequest",
+        awsAccessKeyId: "",
+    };
+    return applyActivateAccessKeyByAwsIdRequestCustom(message);
+}
+exports.DeactivateAccessKeyByAwsIdRequest = {
+    $type: "nebius.iam.v2.DeactivateAccessKeyByAwsIdRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.awsAccessKeyId !== "") {
+            writer.uint32(10).string(message.awsAccessKeyId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeactivateAccessKeyByAwsIdRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.awsAccessKeyId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeactivateAccessKeyByAwsIdRequestCustom({
+            $type: "nebius.iam.v2.DeactivateAccessKeyByAwsIdRequest",
+            awsAccessKeyId: (0, index_js_1.isSet)(object.awsAccessKeyId ?? object.aws_access_key_id)
+                ? String(object.awsAccessKeyId ?? object.aws_access_key_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.awsAccessKeyId !== "") {
+            obj[pick("awsAccessKeyId", "aws_access_key_id")] = message.awsAccessKeyId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeactivateAccessKeyByAwsIdRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeactivateAccessKeyByAwsIdRequest();
+        message.awsAccessKeyId = (object.awsAccessKeyId !== undefined && object.awsAccessKeyId !== null)
+            ? object.awsAccessKeyId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeactivateAccessKeyByAwsIdRequest);
+function DeactivateAccessKeyByAwsIdRequestCustomInspect() {
+    const parts = [];
+    if (this.awsAccessKeyId !== "")
+        parts.push("awsAccessKeyId" + "=" + (0, util_1.inspect)(this.awsAccessKeyId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeactivateAccessKeyByAwsIdRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.awsAccessKeyId !== "")
+        obj.awsAccessKeyId = (0, logging_js_1.inspectJson)(this.awsAccessKeyId);
+    return obj;
+}
+function applyDeactivateAccessKeyByAwsIdRequestCustom(message) {
+    message[logging_js_1.custom] = DeactivateAccessKeyByAwsIdRequestCustomInspect;
+    message[logging_js_1.customJson] = DeactivateAccessKeyByAwsIdRequestCustomJson;
+    return message;
+}
+function createBaseDeactivateAccessKeyByAwsIdRequest() {
+    const message = {
+        $type: "nebius.iam.v2.DeactivateAccessKeyByAwsIdRequest",
+        awsAccessKeyId: "",
+    };
+    return applyDeactivateAccessKeyByAwsIdRequestCustom(message);
+}
+exports.DeleteAccessKeyRequest = {
+    $type: "nebius.iam.v2.DeleteAccessKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteAccessKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteAccessKeyRequestCustom({
+            $type: "nebius.iam.v2.DeleteAccessKeyRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteAccessKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteAccessKeyRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteAccessKeyRequest);
+function DeleteAccessKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteAccessKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteAccessKeyRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteAccessKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteAccessKeyRequestCustomJson;
+    return message;
+}
+function createBaseDeleteAccessKeyRequest() {
+    const message = {
+        $type: "nebius.iam.v2.DeleteAccessKeyRequest",
+        id: "",
+    };
+    return applyDeleteAccessKeyRequestCustom(message);
+}
+exports.DeleteAccessKeyByAwsIdRequest = {
+    $type: "nebius.iam.v2.DeleteAccessKeyByAwsIdRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.awsAccessKeyId !== "") {
+            writer.uint32(10).string(message.awsAccessKeyId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteAccessKeyByAwsIdRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.awsAccessKeyId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteAccessKeyByAwsIdRequestCustom({
+            $type: "nebius.iam.v2.DeleteAccessKeyByAwsIdRequest",
+            awsAccessKeyId: (0, index_js_1.isSet)(object.awsAccessKeyId ?? object.aws_access_key_id)
+                ? String(object.awsAccessKeyId ?? object.aws_access_key_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.awsAccessKeyId !== "") {
+            obj[pick("awsAccessKeyId", "aws_access_key_id")] = message.awsAccessKeyId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteAccessKeyByAwsIdRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteAccessKeyByAwsIdRequest();
+        message.awsAccessKeyId = (object.awsAccessKeyId !== undefined && object.awsAccessKeyId !== null)
+            ? object.awsAccessKeyId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteAccessKeyByAwsIdRequest);
+function DeleteAccessKeyByAwsIdRequestCustomInspect() {
+    const parts = [];
+    if (this.awsAccessKeyId !== "")
+        parts.push("awsAccessKeyId" + "=" + (0, util_1.inspect)(this.awsAccessKeyId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteAccessKeyByAwsIdRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.awsAccessKeyId !== "")
+        obj.awsAccessKeyId = (0, logging_js_1.inspectJson)(this.awsAccessKeyId);
+    return obj;
+}
+function applyDeleteAccessKeyByAwsIdRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteAccessKeyByAwsIdRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteAccessKeyByAwsIdRequestCustomJson;
+    return message;
+}
+function createBaseDeleteAccessKeyByAwsIdRequest() {
+    const message = {
+        $type: "nebius.iam.v2.DeleteAccessKeyByAwsIdRequest",
+        awsAccessKeyId: "",
+    };
+    return applyDeleteAccessKeyByAwsIdRequestCustom(message);
+}
+exports.GetAccessKeySecretResponse = {
+    $type: "nebius.iam.v2.GetAccessKeySecretResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.awsAccessKeyId !== "") {
+            writer.uint32(10).string(message.awsAccessKeyId);
+        }
+        if (message.secret !== "") {
+            writer.uint32(18).string(message.secret);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetAccessKeySecretResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.awsAccessKeyId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.secret = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetAccessKeySecretResponseCustom({
+            $type: "nebius.iam.v2.GetAccessKeySecretResponse",
+            awsAccessKeyId: (0, index_js_1.isSet)(object.awsAccessKeyId ?? object.aws_access_key_id)
+                ? String(object.awsAccessKeyId ?? object.aws_access_key_id)
+                : "",
+            secret: (0, index_js_1.isSet)(object.secret ?? object.secret)
+                ? String(object.secret ?? object.secret)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.awsAccessKeyId !== "") {
+            obj[pick("awsAccessKeyId", "aws_access_key_id")] = message.awsAccessKeyId;
+        }
+        if (message.secret !== "") {
+            obj[pick("secret", "secret")] = message.secret;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetAccessKeySecretResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetAccessKeySecretResponse();
+        message.awsAccessKeyId = (object.awsAccessKeyId !== undefined && object.awsAccessKeyId !== null)
+            ? object.awsAccessKeyId
+            : "";
+        message.secret = (object.secret !== undefined && object.secret !== null)
+            ? object.secret
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetAccessKeySecretResponse);
+function GetAccessKeySecretResponseCustomInspect() {
+    const parts = [];
+    if (this.awsAccessKeyId !== "")
+        parts.push("awsAccessKeyId" + "=" + (0, util_1.inspect)(this.awsAccessKeyId));
+    if (this.secret !== "")
+        parts.push("secret" + "=***");
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetAccessKeySecretResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.awsAccessKeyId !== "")
+        obj.awsAccessKeyId = (0, logging_js_1.inspectJson)(this.awsAccessKeyId);
+    if (this.secret !== "")
+        obj.secret = "***";
+    return obj;
+}
+function applyGetAccessKeySecretResponseCustom(message) {
+    message[logging_js_1.custom] = GetAccessKeySecretResponseCustomInspect;
+    message[logging_js_1.customJson] = GetAccessKeySecretResponseCustomJson;
+    return message;
+}
+function createBaseGetAccessKeySecretResponse() {
+    const message = {
+        $type: "nebius.iam.v2.GetAccessKeySecretResponse",
+        awsAccessKeyId: "",
+        secret: "",
+    };
+    return applyGetAccessKeySecretResponseCustom(message);
+}
+exports.ListAccessKeysResponse = {
+    $type: "nebius.iam.v2.ListAccessKeysResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.AccessKey.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListAccessKeysResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.AccessKey.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListAccessKeysResponseCustom({
+            $type: "nebius.iam.v2.ListAccessKeysResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.AccessKey.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.AccessKey.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListAccessKeysResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListAccessKeysResponse();
+        message.items = object.items?.map((e) => exports.AccessKey.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListAccessKeysResponse);
+function ListAccessKeysResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListAccessKeysResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListAccessKeysResponseCustom(message) {
+    message[logging_js_1.custom] = ListAccessKeysResponseCustomInspect;
+    message[logging_js_1.customJson] = ListAccessKeysResponseCustomJson;
+    return message;
+}
+function createBaseListAccessKeysResponse() {
+    const message = {
+        $type: "nebius.iam.v2.ListAccessKeysResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListAccessKeysResponseCustom(message);
+}
+exports.AccessKeyServiceServiceDescription = {
+    create: {
+        path: "/nebius.iam.v2.AccessKeyService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateAccessKeyRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateAccessKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    get: {
+        path: "/nebius.iam.v2.AccessKeyService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetAccessKeyRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetAccessKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.AccessKey.encode(value).finish()),
+        responseDeserialize: (value) => exports.AccessKey.decode(value),
+    },
+    getSecret: {
+        path: "/nebius.iam.v2.AccessKeyService/GetSecret",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetAccessKeySecretRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetAccessKeySecretRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.GetAccessKeySecretResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.GetAccessKeySecretResponse.decode(value),
+    },
+    list: {
+        path: "/nebius.iam.v2.AccessKeyService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListAccessKeysRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListAccessKeysRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListAccessKeysResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListAccessKeysResponse.decode(value),
+    },
+    update: {
+        path: "/nebius.iam.v2.AccessKeyService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateAccessKeyRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateAccessKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.iam.v2.AccessKeyService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteAccessKeyRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteAccessKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    activate: {
+        path: "/nebius.iam.v2.AccessKeyService/Activate",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ActivateAccessKeyRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ActivateAccessKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    deactivate: {
+        path: "/nebius.iam.v2.AccessKeyService/Deactivate",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeactivateAccessKeyRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeactivateAccessKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    listByAccount: {
+        path: "/nebius.iam.v2.AccessKeyService/ListByAccount",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListAccessKeysByAccountRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListAccessKeysByAccountRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListAccessKeysResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListAccessKeysResponse.decode(value),
+    },
+    getByAwsId: {
+        path: "/nebius.iam.v2.AccessKeyService/GetByAwsId",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetAccessKeyByAwsIdRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetAccessKeyByAwsIdRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.AccessKey.encode(value).finish()),
+        responseDeserialize: (value) => exports.AccessKey.decode(value),
+    },
+    deleteByAwsId: {
+        path: "/nebius.iam.v2.AccessKeyService/DeleteByAwsId",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteAccessKeyByAwsIdRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteAccessKeyByAwsIdRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    activateByAwsId: {
+        path: "/nebius.iam.v2.AccessKeyService/ActivateByAwsId",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ActivateAccessKeyByAwsIdRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ActivateAccessKeyByAwsIdRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    deactivateByAwsId: {
+        path: "/nebius.iam.v2.AccessKeyService/DeactivateByAwsId",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeactivateAccessKeyByAwsIdRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeactivateAccessKeyByAwsIdRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.AccessKeyServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.AccessKeyServiceServiceDescription, "nebius.iam.v2.AccessKeyService");
+class AccessKeyService {
+    sdk;
+    $type = "nebius.iam.v2.AccessKeyService";
+    addr;
+    spec;
+    apiServiceName = "cpl.iam";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.AccessKeyServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getSecret(...args) {
+        const spec = this.spec.getSecret;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    activate(...args) {
+        const spec = this.spec.activate;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    deactivate(...args) {
+        const spec = this.spec.deactivate;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    listByAccount(...args) {
+        const spec = this.spec.listByAccount;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByAwsId(...args) {
+        const spec = this.spec.getByAwsId;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    deleteByAwsId(...args) {
+        const spec = this.spec.deleteByAwsId;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    activateByAwsId(...args) {
+        const spec = this.spec.activateByAwsId;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    deactivateByAwsId(...args) {
+        const spec = this.spec.deactivateByAwsId;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.AccessKeyService = AccessKeyService;
+const SecretDeliveryMode_VALUE_COMMENTS = {
+    UNSPECIFIED: " If not specified, the default behaviour will be applied. Currently it's INLINE, later will be EXPLICIT.\n",
+    INLINE: " The secret value will be returned directly in the API response\n",
+    MYSTERY_BOX: " The secret will be delivered via a MysteryBox secret, in case of terraform it is recommended to use that enum\n",
+    EXPLICIT: " The secret value will be accessible via a separate method GetSecret\n",
+};
+exports.SecretDeliveryMode = (0, index_js_1.createEnum)("nebius.iam.v2.SecretDeliveryMode", {
+    /**
+     *  If not specified, the default behaviour will be applied. Currently it's INLINE, later will be EXPLICIT.
+     *
+     */
+    UNSPECIFIED: 0,
+    /**
+     *  The secret value will be returned directly in the API response
+     *
+     */
+    INLINE: 1,
+    /**
+     *  The secret will be delivered via a MysteryBox secret, in case of terraform it is recommended to use that enum
+     *
+     */
+    MYSTERY_BOX: 2,
+    /**
+     *  The secret value will be accessible via a separate method GetSecret
+     *
+     */
+    EXPLICIT: 3,
+}, SecretDeliveryMode_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.SecretDeliveryMode);
+exports.AccessKeyStatus_State = (0, index_js_1.createEnum)("nebius.iam.v2.AccessKeyStatus.State", {
+    STATE_UNSPECIFIED: 0,
+    ACTIVE: 1,
+    INACTIVE: 2,
+    EXPIRED: 3,
+    DELETING: 4,
+    DELETED: 5,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.AccessKeyStatus_State);
+exports.AccessKey = {
+    $type: "nebius.iam.v2.AccessKey",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.AccessKeySpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.AccessKeyStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAccessKey();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.AccessKeySpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.AccessKeyStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAccessKeyCustom({
+            $type: "nebius.iam.v2.AccessKey",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.AccessKeySpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.AccessKeyStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.AccessKeySpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.AccessKeyStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AccessKey.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAccessKey();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.AccessKeySpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.AccessKeyStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AccessKey);
+function AccessKeyCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AccessKeyCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyAccessKeyCustom(message) {
+    message[logging_js_1.custom] = AccessKeyCustomInspect;
+    message[logging_js_1.customJson] = AccessKeyCustomJson;
+    return message;
+}
+function createBaseAccessKey() {
+    const message = {
+        $type: "nebius.iam.v2.AccessKey",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyAccessKeyCustom(message);
+}
+exports.AccessKeySpec = {
+    $type: "nebius.iam.v2.AccessKeySpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.account !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_3.Account.encode(message.account, w);
+            w.join();
+        }
+        if (message.expiresAt !== undefined) {
+            const w = writer.uint32(18).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.expiresAt);
+            w.join();
+        }
+        if (message.description !== "") {
+            writer.uint32(26).string(message.description);
+        }
+        if ((message.secretDeliveryMode ?? exports.SecretDeliveryMode.UNSPECIFIED) !== exports.SecretDeliveryMode.UNSPECIFIED) {
+            exports.SecretDeliveryMode.encodeField(writer, 4, message.secretDeliveryMode);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAccessKeySpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.account = index_js_3.Account.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    const len = reader.uint32();
+                    message.expiresAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.description = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.secretDeliveryMode = exports.SecretDeliveryMode.fromNumber(reader.int32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAccessKeySpecCustom({
+            $type: "nebius.iam.v2.AccessKeySpec",
+            account: (0, index_js_1.isSet)(object.account ?? object.account)
+                ? index_js_3.Account.fromJSON(object.account ?? object.account)
+                : undefined,
+            expiresAt: (0, index_js_1.isSet)(object.expiresAt ?? object.expires_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.expiresAt ?? object.expires_at)
+                : undefined,
+            description: (0, index_js_1.isSet)(object.description ?? object.description)
+                ? String(object.description ?? object.description)
+                : "",
+            secretDeliveryMode: (0, index_js_1.isSet)(object.secretDeliveryMode ?? object.secret_delivery_mode)
+                ? exports.SecretDeliveryMode.fromJSON(object.secretDeliveryMode ?? object.secret_delivery_mode)
+                : exports.SecretDeliveryMode.UNSPECIFIED,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.account !== undefined) {
+            obj[pick("account", "account")] = message.account
+                ? index_js_3.Account.toJSON(message.account, use)
+                : undefined;
+        }
+        if (message.expiresAt !== undefined) {
+            obj[pick("expiresAt", "expires_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.expiresAt, use);
+        }
+        if (message.description !== "") {
+            obj[pick("description", "description")] = message.description;
+        }
+        if ((message.secretDeliveryMode ?? exports.SecretDeliveryMode.UNSPECIFIED) !== exports.SecretDeliveryMode.UNSPECIFIED) {
+            obj[pick("secretDeliveryMode", "secret_delivery_mode")] = exports.SecretDeliveryMode.toJSON(message.secretDeliveryMode);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AccessKeySpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAccessKeySpec();
+        message.account = (object.account !== undefined && object.account !== null)
+            ? index_js_3.Account.fromPartial(object.account)
+            : undefined;
+        message.expiresAt = (object.expiresAt !== undefined && object.expiresAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.expiresAt)
+            : undefined;
+        message.description = (object.description !== undefined && object.description !== null)
+            ? object.description
+            : "";
+        message.secretDeliveryMode = (object.secretDeliveryMode !== undefined && object.secretDeliveryMode !== null)
+            ? exports.SecretDeliveryMode.fromJSON(object.secretDeliveryMode.name)
+            : exports.SecretDeliveryMode.UNSPECIFIED;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AccessKeySpec);
+function AccessKeySpecCustomInspect() {
+    const parts = [];
+    if (this.account !== undefined)
+        parts.push("account" + "=" + (0, util_1.inspect)(this.account));
+    if (this.expiresAt !== undefined)
+        parts.push("expiresAt" + "=" + (0, util_1.inspect)(this.expiresAt));
+    if (this.description !== "")
+        parts.push("description" + "=" + (0, util_1.inspect)(this.description));
+    if (this.secretDeliveryMode !== undefined)
+        parts.push("secretDeliveryMode" + "=" + (0, util_1.inspect)(this.secretDeliveryMode));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AccessKeySpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.account !== undefined)
+        obj.account = (0, logging_js_1.inspectJson)(this.account);
+    if (this.expiresAt !== undefined)
+        obj.expiresAt = (0, logging_js_1.inspectJson)(this.expiresAt);
+    if (this.description !== "")
+        obj.description = (0, logging_js_1.inspectJson)(this.description);
+    if (this.secretDeliveryMode !== undefined)
+        obj.secretDeliveryMode = (0, logging_js_1.inspectJson)(this.secretDeliveryMode);
+    return obj;
+}
+function applyAccessKeySpecCustom(message) {
+    message[logging_js_1.custom] = AccessKeySpecCustomInspect;
+    message[logging_js_1.customJson] = AccessKeySpecCustomJson;
+    return message;
+}
+function createBaseAccessKeySpec() {
+    const message = {
+        $type: "nebius.iam.v2.AccessKeySpec",
+        account: undefined,
+        expiresAt: undefined,
+        description: "",
+        secretDeliveryMode: exports.SecretDeliveryMode.UNSPECIFIED,
+    };
+    return applyAccessKeySpecCustom(message);
+}
+exports.AccessKeyStatus = {
+    $type: "nebius.iam.v2.AccessKeyStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.AccessKeyStatus_State.STATE_UNSPECIFIED) !== exports.AccessKeyStatus_State.STATE_UNSPECIFIED) {
+            exports.AccessKeyStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.fingerprint !== "") {
+            writer.uint32(18).string(message.fingerprint);
+        }
+        if (message.algorithm !== "") {
+            writer.uint32(26).string(message.algorithm);
+        }
+        if ((message.keySize ?? 0) !== 0) {
+            writer.uint32(32).int32(message.keySize);
+        }
+        if (message.awsAccessKeyId !== "") {
+            writer.uint32(42).string(message.awsAccessKeyId);
+        }
+        if (message.secret !== "") {
+            writer.uint32(50).string(message.secret);
+        }
+        if (message.secretReferenceId !== "") {
+            writer.uint32(58).string(message.secretReferenceId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseAccessKeyStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.AccessKeyStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.fingerprint = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.algorithm = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.keySize = reader.int32();
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.awsAccessKeyId = reader.string();
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 50)
+                        break;
+                    message.secret = reader.string();
+                    continue;
+                }
+                case 7: {
+                    if (tag !== 58)
+                        break;
+                    message.secretReferenceId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyAccessKeyStatusCustom({
+            $type: "nebius.iam.v2.AccessKeyStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.AccessKeyStatus_State.fromJSON(object.state ?? object.state)
+                : exports.AccessKeyStatus_State.STATE_UNSPECIFIED,
+            fingerprint: (0, index_js_1.isSet)(object.fingerprint ?? object.fingerprint)
+                ? String(object.fingerprint ?? object.fingerprint)
+                : "",
+            algorithm: (0, index_js_1.isSet)(object.algorithm ?? object.algorithm)
+                ? String(object.algorithm ?? object.algorithm)
+                : "",
+            keySize: (0, index_js_1.isSet)(object.keySize ?? object.key_size)
+                ? Number(object.keySize ?? object.key_size)
+                : 0,
+            awsAccessKeyId: (0, index_js_1.isSet)(object.awsAccessKeyId ?? object.aws_access_key_id)
+                ? String(object.awsAccessKeyId ?? object.aws_access_key_id)
+                : "",
+            secret: (0, index_js_1.isSet)(object.secret ?? object.secret)
+                ? String(object.secret ?? object.secret)
+                : "",
+            secretReferenceId: (0, index_js_1.isSet)(object.secretReferenceId ?? object.secret_reference_id)
+                ? String(object.secretReferenceId ?? object.secret_reference_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.AccessKeyStatus_State.STATE_UNSPECIFIED) !== exports.AccessKeyStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.AccessKeyStatus_State.toJSON(message.state);
+        }
+        if (message.fingerprint !== "") {
+            obj[pick("fingerprint", "fingerprint")] = message.fingerprint;
+        }
+        if (message.algorithm !== "") {
+            obj[pick("algorithm", "algorithm")] = message.algorithm;
+        }
+        if ((message.keySize ?? 0) !== 0) {
+            obj[pick("keySize", "key_size")] = message.keySize;
+        }
+        if (message.awsAccessKeyId !== "") {
+            obj[pick("awsAccessKeyId", "aws_access_key_id")] = message.awsAccessKeyId;
+        }
+        if (message.secret !== "") {
+            obj[pick("secret", "secret")] = message.secret;
+        }
+        if (message.secretReferenceId !== "") {
+            obj[pick("secretReferenceId", "secret_reference_id")] = message.secretReferenceId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.AccessKeyStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseAccessKeyStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.AccessKeyStatus_State.fromJSON(object.state.name)
+            : exports.AccessKeyStatus_State.STATE_UNSPECIFIED;
+        message.fingerprint = (object.fingerprint !== undefined && object.fingerprint !== null)
+            ? object.fingerprint
+            : "";
+        message.algorithm = (object.algorithm !== undefined && object.algorithm !== null)
+            ? object.algorithm
+            : "";
+        message.keySize = (object.keySize !== undefined && object.keySize !== null)
+            ? object.keySize
+            : 0;
+        message.awsAccessKeyId = (object.awsAccessKeyId !== undefined && object.awsAccessKeyId !== null)
+            ? object.awsAccessKeyId
+            : "";
+        message.secret = (object.secret !== undefined && object.secret !== null)
+            ? object.secret
+            : "";
+        message.secretReferenceId = (object.secretReferenceId !== undefined && object.secretReferenceId !== null)
+            ? object.secretReferenceId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.AccessKeyStatus);
+function AccessKeyStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.fingerprint !== "")
+        parts.push("fingerprint" + "=" + (0, util_1.inspect)(this.fingerprint));
+    if (this.algorithm !== "")
+        parts.push("algorithm" + "=" + (0, util_1.inspect)(this.algorithm));
+    if ((this.keySize ?? 0) !== 0)
+        parts.push("keySize" + "=" + (0, util_1.inspect)(this.keySize));
+    if (this.awsAccessKeyId !== "")
+        parts.push("awsAccessKeyId" + "=" + (0, util_1.inspect)(this.awsAccessKeyId));
+    if (this.secret !== "")
+        parts.push("secret" + "=***");
+    if (this.secretReferenceId !== "")
+        parts.push("secretReferenceId" + "=" + (0, util_1.inspect)(this.secretReferenceId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function AccessKeyStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.fingerprint !== "")
+        obj.fingerprint = (0, logging_js_1.inspectJson)(this.fingerprint);
+    if (this.algorithm !== "")
+        obj.algorithm = (0, logging_js_1.inspectJson)(this.algorithm);
+    if ((this.keySize ?? 0) !== 0)
+        obj.keySize = (0, logging_js_1.inspectJson)(this.keySize);
+    if (this.awsAccessKeyId !== "")
+        obj.awsAccessKeyId = (0, logging_js_1.inspectJson)(this.awsAccessKeyId);
+    if (this.secret !== "")
+        obj.secret = "***";
+    if (this.secretReferenceId !== "")
+        obj.secretReferenceId = (0, logging_js_1.inspectJson)(this.secretReferenceId);
+    return obj;
+}
+function applyAccessKeyStatusCustom(message) {
+    message[logging_js_1.custom] = AccessKeyStatusCustomInspect;
+    message[logging_js_1.customJson] = AccessKeyStatusCustomJson;
+    return message;
+}
+function createBaseAccessKeyStatus() {
+    const message = {
+        $type: "nebius.iam.v2.AccessKeyStatus",
+        state: exports.AccessKeyStatus_State.STATE_UNSPECIFIED,
+        fingerprint: "",
+        algorithm: "",
+        keySize: 0,
+        awsAccessKeyId: "",
+        secret: "",
+        secretReferenceId: "",
+    };
+    return applyAccessKeyStatusCustom(message);
+}
+exports.CreateProjectRequest = {
+    $type: "nebius.iam.v2.CreateProjectRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.ProjectSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateProjectRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.ProjectSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateProjectRequestCustom({
+            $type: "nebius.iam.v2.CreateProjectRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.ProjectSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.ProjectSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateProjectRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateProjectRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.ProjectSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateProjectRequest);
+function CreateProjectRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateProjectRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateProjectRequestCustom(message) {
+    message[logging_js_1.custom] = CreateProjectRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateProjectRequestCustomJson;
+    return message;
+}
+function createBaseCreateProjectRequest() {
+    const message = {
+        $type: "nebius.iam.v2.CreateProjectRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateProjectRequestCustom(message);
+}
+exports.GetProjectRequest = {
+    $type: "nebius.iam.v2.GetProjectRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetProjectRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetProjectRequestCustom({
+            $type: "nebius.iam.v2.GetProjectRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetProjectRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetProjectRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetProjectRequest);
+function GetProjectRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetProjectRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetProjectRequestCustom(message) {
+    message[logging_js_1.custom] = GetProjectRequestCustomInspect;
+    message[logging_js_1.customJson] = GetProjectRequestCustomJson;
+    return message;
+}
+function createBaseGetProjectRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetProjectRequest",
+        id: "",
+    };
+    return applyGetProjectRequestCustom(message);
+}
+exports.GetProjectByNameRequest = {
+    $type: "nebius.iam.v2.GetProjectByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetProjectByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetProjectByNameRequestCustom({
+            $type: "nebius.iam.v2.GetProjectByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetProjectByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetProjectByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetProjectByNameRequest);
+function GetProjectByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetProjectByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetProjectByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetProjectByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetProjectByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetProjectByNameRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetProjectByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetProjectByNameRequestCustom(message);
+}
+exports.ListProjectsRequest = {
+    $type: "nebius.iam.v2.ListProjectsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message.filter !== "") {
+            writer.uint32(34).string(message.filter);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListProjectsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.filter = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListProjectsRequestCustom({
+            $type: "nebius.iam.v2.ListProjectsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            filter: (0, index_js_1.isSet)(object.filter ?? object.filter)
+                ? String(object.filter ?? object.filter)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.filter !== "") {
+            obj[pick("filter", "filter")] = message.filter;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListProjectsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListProjectsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.filter = (object.filter !== undefined && object.filter !== null)
+            ? object.filter
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListProjectsRequest);
+function ListProjectsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.filter !== "")
+        parts.push("filter" + "=" + (0, util_1.inspect)(this.filter));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListProjectsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.filter !== "")
+        obj.filter = (0, logging_js_1.inspectJson)(this.filter);
+    return obj;
+}
+function applyListProjectsRequestCustom(message) {
+    message[logging_js_1.custom] = ListProjectsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListProjectsRequestCustomJson;
+    return message;
+}
+function createBaseListProjectsRequest() {
+    const message = {
+        $type: "nebius.iam.v2.ListProjectsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        filter: "",
+    };
+    return applyListProjectsRequestCustom(message);
+}
+exports.UpdateProjectRequest = {
+    $type: "nebius.iam.v2.UpdateProjectRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.ProjectSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateProjectRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.ProjectSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateProjectRequestCustom({
+            $type: "nebius.iam.v2.UpdateProjectRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.ProjectSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.ProjectSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateProjectRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateProjectRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.ProjectSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateProjectRequest);
+function UpdateProjectRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateProjectRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateProjectRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateProjectRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateProjectRequestCustomJson;
+    return message;
+}
+function createBaseUpdateProjectRequest() {
+    const message = {
+        $type: "nebius.iam.v2.UpdateProjectRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateProjectRequestCustom(message);
+}
+exports.DeleteProjectRequest = {
+    $type: "nebius.iam.v2.DeleteProjectRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.dryRun === true) {
+            writer.uint32(16).bool(message.dryRun);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteProjectRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.dryRun = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteProjectRequestCustom({
+            $type: "nebius.iam.v2.DeleteProjectRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            dryRun: (0, index_js_1.isSet)(object.dryRun ?? object.dry_run)
+                ? Boolean(object.dryRun ?? object.dry_run)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.dryRun === true) {
+            obj[pick("dryRun", "dry_run")] = message.dryRun;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteProjectRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteProjectRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.dryRun = (object.dryRun !== undefined && object.dryRun !== null)
+            ? object.dryRun
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteProjectRequest);
+function DeleteProjectRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.dryRun === true)
+        parts.push("dryRun" + "=" + (0, util_1.inspect)(this.dryRun));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteProjectRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.dryRun === true)
+        obj.dryRun = (0, logging_js_1.inspectJson)(this.dryRun);
+    return obj;
+}
+function applyDeleteProjectRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteProjectRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteProjectRequestCustomJson;
+    return message;
+}
+function createBaseDeleteProjectRequest() {
+    const message = {
+        $type: "nebius.iam.v2.DeleteProjectRequest",
+        id: "",
+        dryRun: false,
+    };
+    return applyDeleteProjectRequestCustom(message);
+}
+exports.ListProjectsResponse = {
+    $type: "nebius.iam.v2.ListProjectsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Project.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListProjectsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Project.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListProjectsResponseCustom({
+            $type: "nebius.iam.v2.ListProjectsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Project.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Project.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListProjectsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListProjectsResponse();
+        message.items = object.items?.map((e) => exports.Project.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListProjectsResponse);
+function ListProjectsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListProjectsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListProjectsResponseCustom(message) {
+    message[logging_js_1.custom] = ListProjectsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListProjectsResponseCustomJson;
+    return message;
+}
+function createBaseListProjectsResponse() {
+    const message = {
+        $type: "nebius.iam.v2.ListProjectsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListProjectsResponseCustom(message);
+}
+exports.ProjectServiceServiceDescription = {
+    create: {
+        path: "/nebius.iam.v2.ProjectService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateProjectRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateProjectRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    get: {
+        path: "/nebius.iam.v2.ProjectService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetProjectRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetProjectRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Project.encode(value).finish()),
+        responseDeserialize: (value) => exports.Project.decode(value),
+    },
+    getByName: {
+        path: "/nebius.iam.v2.ProjectService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetProjectByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetProjectByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Project.encode(value).finish()),
+        responseDeserialize: (value) => exports.Project.decode(value),
+    },
+    list: {
+        path: "/nebius.iam.v2.ProjectService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListProjectsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListProjectsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListProjectsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListProjectsResponse.decode(value),
+    },
+    update: {
+        path: "/nebius.iam.v2.ProjectService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateProjectRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateProjectRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.iam.v2.ProjectService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteProjectRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteProjectRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.ProjectServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.ProjectServiceServiceDescription, "nebius.iam.v2.ProjectService");
+class ProjectService {
+    sdk;
+    $type = "nebius.iam.v2.ProjectService";
+    addr;
+    spec;
+    apiServiceName = "cpl.iam";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.ProjectServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.ProjectService = ProjectService;
+exports.ProjectStatus_ProjectState = (0, index_js_1.createEnum)("nebius.iam.v2.ProjectStatus.ProjectState", {
+    STATE_UNSPECIFIED: 0,
+    CREATING: 1,
+    ACTIVE: 2,
+    PURGING: 3,
+    CREATED: 4,
+    ACTIVATING: 5,
+    PARKING: 6,
+    PARKED: 7,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.ProjectStatus_ProjectState);
+exports.Project = {
+    $type: "nebius.iam.v2.Project",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.ProjectSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.ProjectStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseProject();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.ProjectSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.ProjectStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyProjectCustom({
+            $type: "nebius.iam.v2.Project",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.ProjectSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.ProjectStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.ProjectSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.ProjectStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Project.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseProject();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.ProjectSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.ProjectStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Project);
+function ProjectCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ProjectCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyProjectCustom(message) {
+    message[logging_js_1.custom] = ProjectCustomInspect;
+    message[logging_js_1.customJson] = ProjectCustomJson;
+    return message;
+}
+function createBaseProject() {
+    const message = {
+        $type: "nebius.iam.v2.Project",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyProjectCustom(message);
+}
+exports.ProjectSpec = {
+    $type: "nebius.iam.v2.ProjectSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.region !== "") {
+            writer.uint32(10).string(message.region);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseProjectSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.region = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyProjectSpecCustom({
+            $type: "nebius.iam.v2.ProjectSpec",
+            region: (0, index_js_1.isSet)(object.region ?? object.region)
+                ? String(object.region ?? object.region)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.region !== "") {
+            obj[pick("region", "region")] = message.region;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ProjectSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseProjectSpec();
+        message.region = (object.region !== undefined && object.region !== null)
+            ? object.region
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ProjectSpec);
+function ProjectSpecCustomInspect() {
+    const parts = [];
+    if (this.region !== "")
+        parts.push("region" + "=" + (0, util_1.inspect)(this.region));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ProjectSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.region !== "")
+        obj.region = (0, logging_js_1.inspectJson)(this.region);
+    return obj;
+}
+function applyProjectSpecCustom(message) {
+    message[logging_js_1.custom] = ProjectSpecCustomInspect;
+    message[logging_js_1.customJson] = ProjectSpecCustomJson;
+    return message;
+}
+function createBaseProjectSpec() {
+    const message = {
+        $type: "nebius.iam.v2.ProjectSpec",
+        region: "",
+    };
+    return applyProjectSpecCustom(message);
+}
+exports.ProjectStatus = {
+    $type: "nebius.iam.v2.ProjectStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.projectState ?? exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED) !== exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED) {
+            exports.ProjectStatus_ProjectState.encodeField(writer, 1, message.projectState);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseProjectStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.projectState = exports.ProjectStatus_ProjectState.fromNumber(reader.int32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyProjectStatusCustom({
+            $type: "nebius.iam.v2.ProjectStatus",
+            projectState: (0, index_js_1.isSet)(object.projectState ?? object.project_state)
+                ? exports.ProjectStatus_ProjectState.fromJSON(object.projectState ?? object.project_state)
+                : exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.projectState ?? exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED) !== exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED) {
+            obj[pick("projectState", "project_state")] = exports.ProjectStatus_ProjectState.toJSON(message.projectState);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ProjectStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseProjectStatus();
+        message.projectState = (object.projectState !== undefined && object.projectState !== null)
+            ? exports.ProjectStatus_ProjectState.fromJSON(object.projectState.name)
+            : exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ProjectStatus);
+function ProjectStatusCustomInspect() {
+    const parts = [];
+    if (this.projectState !== undefined)
+        parts.push("projectState" + "=" + (0, util_1.inspect)(this.projectState));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ProjectStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.projectState !== undefined)
+        obj.projectState = (0, logging_js_1.inspectJson)(this.projectState);
+    return obj;
+}
+function applyProjectStatusCustom(message) {
+    message[logging_js_1.custom] = ProjectStatusCustomInspect;
+    message[logging_js_1.customJson] = ProjectStatusCustomJson;
+    return message;
+}
+function createBaseProjectStatus() {
+    const message = {
+        $type: "nebius.iam.v2.ProjectStatus",
+        projectState: exports.ProjectStatus_ProjectState.STATE_UNSPECIFIED,
+    };
+    return applyProjectStatusCustom(message);
+}
+exports.GetTenantRequest = {
+    $type: "nebius.iam.v2.GetTenantRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetTenantRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetTenantRequestCustom({
+            $type: "nebius.iam.v2.GetTenantRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetTenantRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetTenantRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetTenantRequest);
+function GetTenantRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetTenantRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetTenantRequestCustom(message) {
+    message[logging_js_1.custom] = GetTenantRequestCustomInspect;
+    message[logging_js_1.customJson] = GetTenantRequestCustomJson;
+    return message;
+}
+function createBaseGetTenantRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetTenantRequest",
+        id: "",
+    };
+    return applyGetTenantRequestCustom(message);
+}
+exports.GetTenantByNameRequest = {
+    $type: "nebius.iam.v2.GetTenantByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetTenantByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetTenantByNameRequestCustom({
+            $type: "nebius.iam.v2.GetTenantByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetTenantByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetTenantByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetTenantByNameRequest);
+function GetTenantByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetTenantByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetTenantByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetTenantByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetTenantByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetTenantByNameRequest() {
+    const message = {
+        $type: "nebius.iam.v2.GetTenantByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetTenantByNameRequestCustom(message);
+}
+exports.UpdateTenantRequest = {
+    $type: "nebius.iam.v2.UpdateTenantRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TenantSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.namePrefix !== "") {
+            writer.uint32(26).string(message.namePrefix);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateTenantRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TenantSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.namePrefix = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateTenantRequestCustom({
+            $type: "nebius.iam.v2.UpdateTenantRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TenantSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            namePrefix: (0, index_js_1.isSet)(object.namePrefix ?? object.name_prefix)
+                ? String(object.namePrefix ?? object.name_prefix)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TenantSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.namePrefix !== "") {
+            obj[pick("namePrefix", "name_prefix")] = message.namePrefix;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateTenantRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateTenantRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TenantSpec.fromPartial(object.spec)
+            : undefined;
+        message.namePrefix = (object.namePrefix !== undefined && object.namePrefix !== null)
+            ? object.namePrefix
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateTenantRequest);
+function UpdateTenantRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.namePrefix !== "")
+        parts.push("namePrefix" + "=" + (0, util_1.inspect)(this.namePrefix));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateTenantRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.namePrefix !== "")
+        obj.namePrefix = (0, logging_js_1.inspectJson)(this.namePrefix);
+    return obj;
+}
+function applyUpdateTenantRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateTenantRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateTenantRequestCustomJson;
+    return message;
+}
+function createBaseUpdateTenantRequest() {
+    const message = {
+        $type: "nebius.iam.v2.UpdateTenantRequest",
+        metadata: undefined,
+        spec: undefined,
+        namePrefix: "",
+    };
+    return applyUpdateTenantRequestCustom(message);
+}
+exports.ListTenantsRequest = {
+    $type: "nebius.iam.v2.ListTenantsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(8).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(18).string(message.pageToken);
+        }
+        if (message.filter !== "") {
+            writer.uint32(26).string(message.filter);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListTenantsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.filter = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListTenantsRequestCustom({
+            $type: "nebius.iam.v2.ListTenantsRequest",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            filter: (0, index_js_1.isSet)(object.filter ?? object.filter)
+                ? String(object.filter ?? object.filter)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.filter !== "") {
+            obj[pick("filter", "filter")] = message.filter;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListTenantsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListTenantsRequest();
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.filter = (object.filter !== undefined && object.filter !== null)
+            ? object.filter
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListTenantsRequest);
+function ListTenantsRequestCustomInspect() {
+    const parts = [];
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.filter !== "")
+        parts.push("filter" + "=" + (0, util_1.inspect)(this.filter));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListTenantsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.filter !== "")
+        obj.filter = (0, logging_js_1.inspectJson)(this.filter);
+    return obj;
+}
+function applyListTenantsRequestCustom(message) {
+    message[logging_js_1.custom] = ListTenantsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListTenantsRequestCustomJson;
+    return message;
+}
+function createBaseListTenantsRequest() {
+    const message = {
+        $type: "nebius.iam.v2.ListTenantsRequest",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        filter: "",
+    };
+    return applyListTenantsRequestCustom(message);
+}
+exports.ListTenantsResponse = {
+    $type: "nebius.iam.v2.ListTenantsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Tenant.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListTenantsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Tenant.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListTenantsResponseCustom({
+            $type: "nebius.iam.v2.ListTenantsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Tenant.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Tenant.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListTenantsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListTenantsResponse();
+        message.items = object.items?.map((e) => exports.Tenant.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListTenantsResponse);
+function ListTenantsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListTenantsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListTenantsResponseCustom(message) {
+    message[logging_js_1.custom] = ListTenantsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListTenantsResponseCustomJson;
+    return message;
+}
+function createBaseListTenantsResponse() {
+    const message = {
+        $type: "nebius.iam.v2.ListTenantsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListTenantsResponseCustom(message);
+}
+exports.TenantServiceServiceDescription = {
+    get: {
+        path: "/nebius.iam.v2.TenantService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetTenantRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetTenantRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Tenant.encode(value).finish()),
+        responseDeserialize: (value) => exports.Tenant.decode(value),
+    },
+    getByName: {
+        path: "/nebius.iam.v2.TenantService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetTenantByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetTenantByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Tenant.encode(value).finish()),
+        responseDeserialize: (value) => exports.Tenant.decode(value),
+    },
+    list: {
+        path: "/nebius.iam.v2.TenantService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListTenantsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListTenantsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListTenantsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListTenantsResponse.decode(value),
+    },
+    update: {
+        path: "/nebius.iam.v2.TenantService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateTenantRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateTenantRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.TenantServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.TenantServiceServiceDescription, "nebius.iam.v2.TenantService");
+class TenantService {
+    sdk;
+    $type = "nebius.iam.v2.TenantService";
+    addr;
+    spec;
+    apiServiceName = "cpl.iam";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.TenantServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.TenantService = TenantService;
+exports.TenantStatus_TenantState = (0, index_js_1.createEnum)("nebius.iam.v2.TenantStatus.TenantState", {
+    STATE_UNSPECIFIED: 0,
+    CREATING: 1,
+    ACTIVE: 2,
+    CREATED: 3,
+    ACTIVATING: 4,
+    PARKING: 5,
+    PARKED: 6,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.TenantStatus_TenantState);
+exports.Tenant = {
+    $type: "nebius.iam.v2.Tenant",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TenantSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.TenantStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTenant();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TenantSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.TenantStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTenantCustom({
+            $type: "nebius.iam.v2.Tenant",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TenantSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.TenantStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TenantSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.TenantStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Tenant.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTenant();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TenantSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.TenantStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Tenant);
+function TenantCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TenantCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyTenantCustom(message) {
+    message[logging_js_1.custom] = TenantCustomInspect;
+    message[logging_js_1.customJson] = TenantCustomJson;
+    return message;
+}
+function createBaseTenant() {
+    const message = {
+        $type: "nebius.iam.v2.Tenant",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyTenantCustom(message);
+}
+exports.TenantSpec = {
+    $type: "nebius.iam.v2.TenantSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTenantSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTenantSpecCustom({
+            $type: "nebius.iam.v2.TenantSpec",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        return obj;
+    },
+    create(base) {
+        return exports.TenantSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTenantSpec();
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TenantSpec);
+function TenantSpecCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TenantSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyTenantSpecCustom(message) {
+    message[logging_js_1.custom] = TenantSpecCustomInspect;
+    message[logging_js_1.customJson] = TenantSpecCustomJson;
+    return message;
+}
+function createBaseTenantSpec() {
+    const message = {
+        $type: "nebius.iam.v2.TenantSpec",
+    };
+    return applyTenantSpecCustom(message);
+}
+exports.TenantStatus = {
+    $type: "nebius.iam.v2.TenantStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.tenantState ?? exports.TenantStatus_TenantState.STATE_UNSPECIFIED) !== exports.TenantStatus_TenantState.STATE_UNSPECIFIED) {
+            exports.TenantStatus_TenantState.encodeField(writer, 1, message.tenantState);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTenantStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.tenantState = exports.TenantStatus_TenantState.fromNumber(reader.int32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTenantStatusCustom({
+            $type: "nebius.iam.v2.TenantStatus",
+            tenantState: (0, index_js_1.isSet)(object.tenantState ?? object.tenant_state)
+                ? exports.TenantStatus_TenantState.fromJSON(object.tenantState ?? object.tenant_state)
+                : exports.TenantStatus_TenantState.STATE_UNSPECIFIED,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.tenantState ?? exports.TenantStatus_TenantState.STATE_UNSPECIFIED) !== exports.TenantStatus_TenantState.STATE_UNSPECIFIED) {
+            obj[pick("tenantState", "tenant_state")] = exports.TenantStatus_TenantState.toJSON(message.tenantState);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TenantStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTenantStatus();
+        message.tenantState = (object.tenantState !== undefined && object.tenantState !== null)
+            ? exports.TenantStatus_TenantState.fromJSON(object.tenantState.name)
+            : exports.TenantStatus_TenantState.STATE_UNSPECIFIED;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TenantStatus);
+function TenantStatusCustomInspect() {
+    const parts = [];
+    if (this.tenantState !== undefined)
+        parts.push("tenantState" + "=" + (0, util_1.inspect)(this.tenantState));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TenantStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.tenantState !== undefined)
+        obj.tenantState = (0, logging_js_1.inspectJson)(this.tenantState);
+    return obj;
+}
+function applyTenantStatusCustom(message) {
+    message[logging_js_1.custom] = TenantStatusCustomInspect;
+    message[logging_js_1.customJson] = TenantStatusCustomJson;
+    return message;
+}
+function createBaseTenantStatus() {
+    const message = {
+        $type: "nebius.iam.v2.TenantStatus",
+        tenantState: exports.TenantStatus_TenantState.STATE_UNSPECIFIED,
+    };
+    return applyTenantStatusCustom(message);
+}
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 22803:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/* Generated by Nebius TS generator. DO NOT EDIT! */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SecretStatus = exports.SecretSpec = exports.Secret = exports.SecretStatus_State = exports.SecretVersionStatus = exports.SecretVersionSpec = exports.SecretVersion = exports.SecretVersionStatus_State = exports.SecretVersionService = exports.SecretVersionServiceBaseClient = exports.SecretVersionServiceServiceDescription = exports.UndeleteSecretVersionRequest = exports.DeleteSecretVersionRequest = exports.ListSecretVersionsResponse = exports.ListSecretVersionsRequest = exports.GetSecretVersionRequest = exports.CreateSecretVersionRequest = exports.SecretService = exports.SecretServiceBaseClient = exports.SecretServiceServiceDescription = exports.UndeleteSecretRequest = exports.DeleteSecretRequest = exports.ListSecretsResponse = exports.ListSecretsRequest = exports.GetSecretByNameRequest = exports.GetSecretRequest = exports.UpdateSecretRequest = exports.CreateSecretRequest = exports.Payload = exports.PayloadService = exports.PayloadServiceBaseClient = exports.PayloadServiceServiceDescription = exports.SecretPayloadEntry = exports.SecretPayload = exports.GetPayloadByKeyRequest = exports.GetPayloadRequest = void 0;
+const index_js_1 = __nccwpck_require__(7101);
+const util_1 = __nccwpck_require__(39023);
+const protobuf_js_1 = __nccwpck_require__(74846);
+const logging_js_1 = __nccwpck_require__(79087);
+const grpc_js_1 = __nccwpck_require__(83033);
+const request_js_1 = __nccwpck_require__(58544);
+const operation_js_1 = __nccwpck_require__(99624);
+const index_js_2 = __nccwpck_require__(64266);
+const __deprecatedWarned = new Set();
+exports.GetPayloadRequest = {
+    $type: "nebius.mysterybox.v1.GetPayloadRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.secretId !== "") {
+            writer.uint32(10).string(message.secretId);
+        }
+        if (message.versionId !== "") {
+            writer.uint32(18).string(message.versionId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetPayloadRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.secretId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.versionId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetPayloadRequestCustom({
+            $type: "nebius.mysterybox.v1.GetPayloadRequest",
+            secretId: (0, index_js_1.isSet)(object.secretId ?? object.secret_id)
+                ? String(object.secretId ?? object.secret_id)
+                : "",
+            versionId: (0, index_js_1.isSet)(object.versionId ?? object.version_id)
+                ? String(object.versionId ?? object.version_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.secretId !== "") {
+            obj[pick("secretId", "secret_id")] = message.secretId;
+        }
+        if (message.versionId !== "") {
+            obj[pick("versionId", "version_id")] = message.versionId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetPayloadRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetPayloadRequest();
+        message.secretId = (object.secretId !== undefined && object.secretId !== null)
+            ? object.secretId
+            : "";
+        message.versionId = (object.versionId !== undefined && object.versionId !== null)
+            ? object.versionId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetPayloadRequest);
+function GetPayloadRequestCustomInspect() {
+    const parts = [];
+    if (this.secretId !== "")
+        parts.push("secretId" + "=" + (0, util_1.inspect)(this.secretId));
+    if (this.versionId !== "")
+        parts.push("versionId" + "=" + (0, util_1.inspect)(this.versionId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetPayloadRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.secretId !== "")
+        obj.secretId = (0, logging_js_1.inspectJson)(this.secretId);
+    if (this.versionId !== "")
+        obj.versionId = (0, logging_js_1.inspectJson)(this.versionId);
+    return obj;
+}
+function applyGetPayloadRequestCustom(message) {
+    message[logging_js_1.custom] = GetPayloadRequestCustomInspect;
+    message[logging_js_1.customJson] = GetPayloadRequestCustomJson;
+    return message;
+}
+function createBaseGetPayloadRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.GetPayloadRequest",
+        secretId: "",
+        versionId: "",
+    };
+    return applyGetPayloadRequestCustom(message);
+}
+exports.GetPayloadByKeyRequest = {
+    $type: "nebius.mysterybox.v1.GetPayloadByKeyRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.secretId !== "") {
+            writer.uint32(10).string(message.secretId);
+        }
+        if (message.versionId !== "") {
+            writer.uint32(18).string(message.versionId);
+        }
+        if (message.key !== "") {
+            writer.uint32(26).string(message.key);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetPayloadByKeyRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.secretId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.versionId = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.key = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetPayloadByKeyRequestCustom({
+            $type: "nebius.mysterybox.v1.GetPayloadByKeyRequest",
+            secretId: (0, index_js_1.isSet)(object.secretId ?? object.secret_id)
+                ? String(object.secretId ?? object.secret_id)
+                : "",
+            versionId: (0, index_js_1.isSet)(object.versionId ?? object.version_id)
+                ? String(object.versionId ?? object.version_id)
+                : "",
+            key: (0, index_js_1.isSet)(object.key ?? object.key)
+                ? String(object.key ?? object.key)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.secretId !== "") {
+            obj[pick("secretId", "secret_id")] = message.secretId;
+        }
+        if (message.versionId !== "") {
+            obj[pick("versionId", "version_id")] = message.versionId;
+        }
+        if (message.key !== "") {
+            obj[pick("key", "key")] = message.key;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetPayloadByKeyRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetPayloadByKeyRequest();
+        message.secretId = (object.secretId !== undefined && object.secretId !== null)
+            ? object.secretId
+            : "";
+        message.versionId = (object.versionId !== undefined && object.versionId !== null)
+            ? object.versionId
+            : "";
+        message.key = (object.key !== undefined && object.key !== null)
+            ? object.key
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetPayloadByKeyRequest);
+function GetPayloadByKeyRequestCustomInspect() {
+    const parts = [];
+    if (this.secretId !== "")
+        parts.push("secretId" + "=" + (0, util_1.inspect)(this.secretId));
+    if (this.versionId !== "")
+        parts.push("versionId" + "=" + (0, util_1.inspect)(this.versionId));
+    if (this.key !== "")
+        parts.push("key" + "=" + (0, util_1.inspect)(this.key));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetPayloadByKeyRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.secretId !== "")
+        obj.secretId = (0, logging_js_1.inspectJson)(this.secretId);
+    if (this.versionId !== "")
+        obj.versionId = (0, logging_js_1.inspectJson)(this.versionId);
+    if (this.key !== "")
+        obj.key = (0, logging_js_1.inspectJson)(this.key);
+    return obj;
+}
+function applyGetPayloadByKeyRequestCustom(message) {
+    message[logging_js_1.custom] = GetPayloadByKeyRequestCustomInspect;
+    message[logging_js_1.customJson] = GetPayloadByKeyRequestCustomJson;
+    return message;
+}
+function createBaseGetPayloadByKeyRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.GetPayloadByKeyRequest",
+        secretId: "",
+        versionId: "",
+        key: "",
+    };
+    return applyGetPayloadByKeyRequestCustom(message);
+}
+exports.SecretPayload = {
+    $type: "nebius.mysterybox.v1.SecretPayload",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.versionId !== "") {
+            writer.uint32(10).string(message.versionId);
+        }
+        for (const v of (message.data ?? [])) {
+            const w = writer.uint32(18).fork();
+            exports.Payload.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretPayload();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.versionId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.data.push(exports.Payload.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretPayloadCustom({
+            $type: "nebius.mysterybox.v1.SecretPayload",
+            versionId: (0, index_js_1.isSet)(object.versionId ?? object.version_id)
+                ? String(object.versionId ?? object.version_id)
+                : "",
+            data: globalThis.Array.isArray(object?.data ?? object?.data)
+                ? (object.data ?? object.data).map((e) => exports.Payload.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.versionId !== "") {
+            obj[pick("versionId", "version_id")] = message.versionId;
+        }
+        if (message.data?.length) {
+            obj[pick("data", "data")] = message.data.map((e) => e ? exports.Payload.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretPayload.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretPayload();
+        message.versionId = (object.versionId !== undefined && object.versionId !== null)
+            ? object.versionId
+            : "";
+        message.data = object.data?.map((e) => exports.Payload.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretPayload);
+function SecretPayloadCustomInspect() {
+    const parts = [];
+    if (this.versionId !== "")
+        parts.push("versionId" + "=" + (0, util_1.inspect)(this.versionId));
+    if ((this.data?.length ?? 0) !== 0)
+        parts.push("data" + "=" + (0, util_1.inspect)(this.data));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretPayloadCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.versionId !== "")
+        obj.versionId = (0, logging_js_1.inspectJson)(this.versionId);
+    if ((this.data?.length ?? 0) !== 0)
+        obj.data = (0, logging_js_1.inspectJson)(this.data);
+    return obj;
+}
+function applySecretPayloadCustom(message) {
+    message[logging_js_1.custom] = SecretPayloadCustomInspect;
+    message[logging_js_1.customJson] = SecretPayloadCustomJson;
+    return message;
+}
+function createBaseSecretPayload() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretPayload",
+        versionId: "",
+        data: [],
+    };
+    return applySecretPayloadCustom(message);
+}
+exports.SecretPayloadEntry = {
+    $type: "nebius.mysterybox.v1.SecretPayloadEntry",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.versionId !== "") {
+            writer.uint32(10).string(message.versionId);
+        }
+        if (message.data !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.Payload.encode(message.data, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretPayloadEntry();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.versionId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.data = exports.Payload.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretPayloadEntryCustom({
+            $type: "nebius.mysterybox.v1.SecretPayloadEntry",
+            versionId: (0, index_js_1.isSet)(object.versionId ?? object.version_id)
+                ? String(object.versionId ?? object.version_id)
+                : "",
+            data: (0, index_js_1.isSet)(object.data ?? object.data)
+                ? exports.Payload.fromJSON(object.data ?? object.data)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.versionId !== "") {
+            obj[pick("versionId", "version_id")] = message.versionId;
+        }
+        if (message.data !== undefined) {
+            obj[pick("data", "data")] = message.data
+                ? exports.Payload.toJSON(message.data, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretPayloadEntry.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretPayloadEntry();
+        message.versionId = (object.versionId !== undefined && object.versionId !== null)
+            ? object.versionId
+            : "";
+        message.data = (object.data !== undefined && object.data !== null)
+            ? exports.Payload.fromPartial(object.data)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretPayloadEntry);
+function SecretPayloadEntryCustomInspect() {
+    const parts = [];
+    if (this.versionId !== "")
+        parts.push("versionId" + "=" + (0, util_1.inspect)(this.versionId));
+    if (this.data !== undefined)
+        parts.push("data" + "=" + (0, util_1.inspect)(this.data));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretPayloadEntryCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.versionId !== "")
+        obj.versionId = (0, logging_js_1.inspectJson)(this.versionId);
+    if (this.data !== undefined)
+        obj.data = (0, logging_js_1.inspectJson)(this.data);
+    return obj;
+}
+function applySecretPayloadEntryCustom(message) {
+    message[logging_js_1.custom] = SecretPayloadEntryCustomInspect;
+    message[logging_js_1.customJson] = SecretPayloadEntryCustomJson;
+    return message;
+}
+function createBaseSecretPayloadEntry() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretPayloadEntry",
+        versionId: "",
+        data: undefined,
+    };
+    return applySecretPayloadEntryCustom(message);
+}
+exports.PayloadServiceServiceDescription = {
+    get: {
+        path: "/nebius.mysterybox.v1.PayloadService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetPayloadRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetPayloadRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecretPayload.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecretPayload.decode(value),
+    },
+    getByKey: {
+        path: "/nebius.mysterybox.v1.PayloadService/GetByKey",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetPayloadByKeyRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetPayloadByKeyRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecretPayloadEntry.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecretPayloadEntry.decode(value),
+    },
+};
+exports.PayloadServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.PayloadServiceServiceDescription, "nebius.mysterybox.v1.PayloadService");
+class PayloadService {
+    sdk;
+    $type = "nebius.mysterybox.v1.PayloadService";
+    addr;
+    spec;
+    apiServiceName = "dpl.mysterybox";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.PayloadServiceServiceDescription;
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByKey(...args) {
+        const spec = this.spec.getByKey;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.PayloadService = PayloadService;
+exports.Payload = {
+    $type: "nebius.mysterybox.v1.Payload",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.key !== "") {
+            writer.uint32(10).string(message.key);
+        }
+        if (message.payload?.$case === undefined) { /* noop */ }
+        else if (message.payload?.$case === "stringValue") {
+            writer.uint32(98).string(message.payload.stringValue);
+        }
+        else if (message.payload?.$case === "binaryValue") {
+            writer.uint32(106).bytes(message.payload.binaryValue);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePayload();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.key = reader.string();
+                    continue;
+                }
+                case 12: {
+                    if (tag !== 98)
+                        break;
+                    message.payload = {
+                        $case: "stringValue",
+                        stringValue: reader.string()
+                    };
+                    continue;
+                }
+                case 13: {
+                    if (tag !== 106)
+                        break;
+                    message.payload = {
+                        $case: "binaryValue",
+                        binaryValue: reader.bytes()
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPayloadCustom({
+            $type: "nebius.mysterybox.v1.Payload",
+            key: (0, index_js_1.isSet)(object.key ?? object.key)
+                ? String(object.key ?? object.key)
+                : "",
+            payload: (() => {
+                if ((0, index_js_1.isSet)(object.stringValue) || (0, index_js_1.isSet)(object.string_value)) {
+                    return {
+                        $case: "stringValue",
+                        stringValue: String(object.stringValue ?? object.string_value)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.binaryValue) || (0, index_js_1.isSet)(object.binary_value)) {
+                    return {
+                        $case: "binaryValue",
+                        binaryValue: (0, index_js_1.bytesFromBase64)(object.binaryValue ?? object.binary_value)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.key !== "") {
+            obj[pick("key", "key")] = message.key;
+        }
+        switch (message.payload?.$case) {
+            case "stringValue": {
+                obj[pick("stringValue", "string_value")] = message.payload.stringValue;
+                break;
+            }
+            case "binaryValue": {
+                obj[pick("binaryValue", "binary_value")] = (0, index_js_1.base64FromBytes)(message.payload.binaryValue);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Payload.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePayload();
+        message.key = (object.key !== undefined && object.key !== null)
+            ? object.key
+            : "";
+        switch (object.payload?.$case) {
+            case "stringValue": {
+                if (object.payload?.stringValue !== undefined && object.payload?.stringValue !== null) {
+                    message.payload = {
+                        $case: "stringValue",
+                        stringValue: object.payload.stringValue,
+                    };
+                }
+                break;
+            }
+            case "binaryValue": {
+                if (object.payload?.binaryValue !== undefined && object.payload?.binaryValue !== null) {
+                    message.payload = {
+                        $case: "binaryValue",
+                        binaryValue: object.payload.binaryValue,
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Payload);
+function PayloadCustomInspect() {
+    const parts = [];
+    if (this.key !== "")
+        parts.push("key" + "=***");
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PayloadCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.key !== "")
+        obj.key = "***";
+    return obj;
+}
+function applyPayloadCustom(message) {
+    message[logging_js_1.custom] = PayloadCustomInspect;
+    message[logging_js_1.customJson] = PayloadCustomJson;
+    return message;
+}
+function createBasePayload() {
+    const message = {
+        $type: "nebius.mysterybox.v1.Payload",
+        key: "",
+        payload: undefined,
+    };
+    return applyPayloadCustom(message);
+}
+exports.CreateSecretRequest = {
+    $type: "nebius.mysterybox.v1.CreateSecretRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecretSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateSecretRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecretSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateSecretRequestCustom({
+            $type: "nebius.mysterybox.v1.CreateSecretRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecretSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecretSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateSecretRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateSecretRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecretSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateSecretRequest);
+function CreateSecretRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateSecretRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateSecretRequestCustom(message) {
+    message[logging_js_1.custom] = CreateSecretRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateSecretRequestCustomJson;
+    return message;
+}
+function createBaseCreateSecretRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.CreateSecretRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateSecretRequestCustom(message);
+}
+exports.UpdateSecretRequest = {
+    $type: "nebius.mysterybox.v1.UpdateSecretRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecretSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateSecretRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecretSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateSecretRequestCustom({
+            $type: "nebius.mysterybox.v1.UpdateSecretRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecretSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecretSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateSecretRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateSecretRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecretSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateSecretRequest);
+function UpdateSecretRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateSecretRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateSecretRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateSecretRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateSecretRequestCustomJson;
+    return message;
+}
+function createBaseUpdateSecretRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.UpdateSecretRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateSecretRequestCustom(message);
+}
+exports.GetSecretRequest = {
+    $type: "nebius.mysterybox.v1.GetSecretRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.showScheduledForDeletion === true) {
+            writer.uint32(16).bool(message.showScheduledForDeletion);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecretRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.showScheduledForDeletion = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecretRequestCustom({
+            $type: "nebius.mysterybox.v1.GetSecretRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            showScheduledForDeletion: (0, index_js_1.isSet)(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                ? Boolean(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.showScheduledForDeletion === true) {
+            obj[pick("showScheduledForDeletion", "show_scheduled_for_deletion")] = message.showScheduledForDeletion;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecretRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecretRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.showScheduledForDeletion = (object.showScheduledForDeletion !== undefined && object.showScheduledForDeletion !== null)
+            ? object.showScheduledForDeletion
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecretRequest);
+function GetSecretRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.showScheduledForDeletion === true)
+        parts.push("showScheduledForDeletion" + "=" + (0, util_1.inspect)(this.showScheduledForDeletion));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecretRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.showScheduledForDeletion === true)
+        obj.showScheduledForDeletion = (0, logging_js_1.inspectJson)(this.showScheduledForDeletion);
+    return obj;
+}
+function applyGetSecretRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecretRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecretRequestCustomJson;
+    return message;
+}
+function createBaseGetSecretRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.GetSecretRequest",
+        id: "",
+        showScheduledForDeletion: false,
+    };
+    return applyGetSecretRequestCustom(message);
+}
+exports.GetSecretByNameRequest = {
+    $type: "nebius.mysterybox.v1.GetSecretByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecretByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecretByNameRequestCustom({
+            $type: "nebius.mysterybox.v1.GetSecretByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecretByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecretByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecretByNameRequest);
+function GetSecretByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecretByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetSecretByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecretByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecretByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetSecretByNameRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.GetSecretByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetSecretByNameRequestCustom(message);
+}
+exports.ListSecretsRequest = {
+    $type: "nebius.mysterybox.v1.ListSecretsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message.showScheduledForDeletion === true) {
+            writer.uint32(32).bool(message.showScheduledForDeletion);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecretsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.showScheduledForDeletion = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecretsRequestCustom({
+            $type: "nebius.mysterybox.v1.ListSecretsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            showScheduledForDeletion: (0, index_js_1.isSet)(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                ? Boolean(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.showScheduledForDeletion === true) {
+            obj[pick("showScheduledForDeletion", "show_scheduled_for_deletion")] = message.showScheduledForDeletion;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecretsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecretsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.showScheduledForDeletion = (object.showScheduledForDeletion !== undefined && object.showScheduledForDeletion !== null)
+            ? object.showScheduledForDeletion
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecretsRequest);
+function ListSecretsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.showScheduledForDeletion === true)
+        parts.push("showScheduledForDeletion" + "=" + (0, util_1.inspect)(this.showScheduledForDeletion));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecretsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.showScheduledForDeletion === true)
+        obj.showScheduledForDeletion = (0, logging_js_1.inspectJson)(this.showScheduledForDeletion);
+    return obj;
+}
+function applyListSecretsRequestCustom(message) {
+    message[logging_js_1.custom] = ListSecretsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSecretsRequestCustomJson;
+    return message;
+}
+function createBaseListSecretsRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.ListSecretsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        showScheduledForDeletion: false,
+    };
+    return applyListSecretsRequestCustom(message);
+}
+exports.ListSecretsResponse = {
+    $type: "nebius.mysterybox.v1.ListSecretsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(26).fork();
+            exports.Secret.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecretsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.items.push(exports.Secret.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecretsResponseCustom({
+            $type: "nebius.mysterybox.v1.ListSecretsResponse",
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Secret.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Secret.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecretsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecretsResponse();
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        message.items = object.items?.map((e) => exports.Secret.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecretsResponse);
+function ListSecretsResponseCustomInspect() {
+    const parts = [];
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecretsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    return obj;
+}
+function applyListSecretsResponseCustom(message) {
+    message[logging_js_1.custom] = ListSecretsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListSecretsResponseCustomJson;
+    return message;
+}
+function createBaseListSecretsResponse() {
+    const message = {
+        $type: "nebius.mysterybox.v1.ListSecretsResponse",
+        nextPageToken: "",
+        items: [],
+    };
+    return applyListSecretsResponseCustom(message);
+}
+exports.DeleteSecretRequest = {
+    $type: "nebius.mysterybox.v1.DeleteSecretRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteSecretRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteSecretRequestCustom({
+            $type: "nebius.mysterybox.v1.DeleteSecretRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteSecretRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteSecretRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteSecretRequest);
+function DeleteSecretRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteSecretRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteSecretRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteSecretRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteSecretRequestCustomJson;
+    return message;
+}
+function createBaseDeleteSecretRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.DeleteSecretRequest",
+        id: "",
+    };
+    return applyDeleteSecretRequestCustom(message);
+}
+exports.UndeleteSecretRequest = {
+    $type: "nebius.mysterybox.v1.UndeleteSecretRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUndeleteSecretRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUndeleteSecretRequestCustom({
+            $type: "nebius.mysterybox.v1.UndeleteSecretRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UndeleteSecretRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUndeleteSecretRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UndeleteSecretRequest);
+function UndeleteSecretRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UndeleteSecretRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyUndeleteSecretRequestCustom(message) {
+    message[logging_js_1.custom] = UndeleteSecretRequestCustomInspect;
+    message[logging_js_1.customJson] = UndeleteSecretRequestCustomJson;
+    return message;
+}
+function createBaseUndeleteSecretRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.UndeleteSecretRequest",
+        id: "",
+        name: "",
+    };
+    return applyUndeleteSecretRequestCustom(message);
+}
+exports.SecretServiceServiceDescription = {
+    create: {
+        path: "/nebius.mysterybox.v1.SecretService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateSecretRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateSecretRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.mysterybox.v1.SecretService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateSecretRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateSecretRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    get: {
+        path: "/nebius.mysterybox.v1.SecretService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecretRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecretRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Secret.encode(value).finish()),
+        responseDeserialize: (value) => exports.Secret.decode(value),
+    },
+    getByName: {
+        path: "/nebius.mysterybox.v1.SecretService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecretByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecretByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Secret.encode(value).finish()),
+        responseDeserialize: (value) => exports.Secret.decode(value),
+    },
+    list: {
+        path: "/nebius.mysterybox.v1.SecretService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSecretsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSecretsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSecretsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSecretsResponse.decode(value),
+    },
+    delete: {
+        path: "/nebius.mysterybox.v1.SecretService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteSecretRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteSecretRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    undelete: {
+        path: "/nebius.mysterybox.v1.SecretService/Undelete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UndeleteSecretRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.UndeleteSecretRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.SecretServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.SecretServiceServiceDescription, "nebius.mysterybox.v1.SecretService");
+class SecretService {
+    sdk;
+    $type = "nebius.mysterybox.v1.SecretService";
+    addr;
+    spec;
+    apiServiceName = "cpl.mysterybox";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.SecretServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    undelete(...args) {
+        const spec = this.spec.undelete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.SecretService = SecretService;
+exports.CreateSecretVersionRequest = {
+    $type: "nebius.mysterybox.v1.CreateSecretVersionRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecretVersionSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateSecretVersionRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecretVersionSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateSecretVersionRequestCustom({
+            $type: "nebius.mysterybox.v1.CreateSecretVersionRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecretVersionSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecretVersionSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateSecretVersionRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateSecretVersionRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecretVersionSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateSecretVersionRequest);
+function CreateSecretVersionRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateSecretVersionRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateSecretVersionRequestCustom(message) {
+    message[logging_js_1.custom] = CreateSecretVersionRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateSecretVersionRequestCustomJson;
+    return message;
+}
+function createBaseCreateSecretVersionRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.CreateSecretVersionRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateSecretVersionRequestCustom(message);
+}
+exports.GetSecretVersionRequest = {
+    $type: "nebius.mysterybox.v1.GetSecretVersionRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.showScheduledForDeletion === true) {
+            writer.uint32(16).bool(message.showScheduledForDeletion);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetSecretVersionRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.showScheduledForDeletion = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetSecretVersionRequestCustom({
+            $type: "nebius.mysterybox.v1.GetSecretVersionRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            showScheduledForDeletion: (0, index_js_1.isSet)(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                ? Boolean(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.showScheduledForDeletion === true) {
+            obj[pick("showScheduledForDeletion", "show_scheduled_for_deletion")] = message.showScheduledForDeletion;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetSecretVersionRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetSecretVersionRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.showScheduledForDeletion = (object.showScheduledForDeletion !== undefined && object.showScheduledForDeletion !== null)
+            ? object.showScheduledForDeletion
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetSecretVersionRequest);
+function GetSecretVersionRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.showScheduledForDeletion === true)
+        parts.push("showScheduledForDeletion" + "=" + (0, util_1.inspect)(this.showScheduledForDeletion));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetSecretVersionRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.showScheduledForDeletion === true)
+        obj.showScheduledForDeletion = (0, logging_js_1.inspectJson)(this.showScheduledForDeletion);
+    return obj;
+}
+function applyGetSecretVersionRequestCustom(message) {
+    message[logging_js_1.custom] = GetSecretVersionRequestCustomInspect;
+    message[logging_js_1.customJson] = GetSecretVersionRequestCustomJson;
+    return message;
+}
+function createBaseGetSecretVersionRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.GetSecretVersionRequest",
+        id: "",
+        showScheduledForDeletion: false,
+    };
+    return applyGetSecretVersionRequestCustom(message);
+}
+exports.ListSecretVersionsRequest = {
+    $type: "nebius.mysterybox.v1.ListSecretVersionsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message.showScheduledForDeletion === true) {
+            writer.uint32(32).bool(message.showScheduledForDeletion);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecretVersionsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.showScheduledForDeletion = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecretVersionsRequestCustom({
+            $type: "nebius.mysterybox.v1.ListSecretVersionsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            showScheduledForDeletion: (0, index_js_1.isSet)(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                ? Boolean(object.showScheduledForDeletion ?? object.show_scheduled_for_deletion)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.showScheduledForDeletion === true) {
+            obj[pick("showScheduledForDeletion", "show_scheduled_for_deletion")] = message.showScheduledForDeletion;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecretVersionsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecretVersionsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.showScheduledForDeletion = (object.showScheduledForDeletion !== undefined && object.showScheduledForDeletion !== null)
+            ? object.showScheduledForDeletion
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecretVersionsRequest);
+function ListSecretVersionsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.showScheduledForDeletion === true)
+        parts.push("showScheduledForDeletion" + "=" + (0, util_1.inspect)(this.showScheduledForDeletion));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecretVersionsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.showScheduledForDeletion === true)
+        obj.showScheduledForDeletion = (0, logging_js_1.inspectJson)(this.showScheduledForDeletion);
+    return obj;
+}
+function applyListSecretVersionsRequestCustom(message) {
+    message[logging_js_1.custom] = ListSecretVersionsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListSecretVersionsRequestCustomJson;
+    return message;
+}
+function createBaseListSecretVersionsRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.ListSecretVersionsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        showScheduledForDeletion: false,
+    };
+    return applyListSecretVersionsRequestCustom(message);
+}
+exports.ListSecretVersionsResponse = {
+    $type: "nebius.mysterybox.v1.ListSecretVersionsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(26).fork();
+            exports.SecretVersion.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListSecretVersionsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.items.push(exports.SecretVersion.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListSecretVersionsResponseCustom({
+            $type: "nebius.mysterybox.v1.ListSecretVersionsResponse",
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.SecretVersion.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.SecretVersion.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListSecretVersionsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListSecretVersionsResponse();
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        message.items = object.items?.map((e) => exports.SecretVersion.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListSecretVersionsResponse);
+function ListSecretVersionsResponseCustomInspect() {
+    const parts = [];
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListSecretVersionsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    return obj;
+}
+function applyListSecretVersionsResponseCustom(message) {
+    message[logging_js_1.custom] = ListSecretVersionsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListSecretVersionsResponseCustomJson;
+    return message;
+}
+function createBaseListSecretVersionsResponse() {
+    const message = {
+        $type: "nebius.mysterybox.v1.ListSecretVersionsResponse",
+        nextPageToken: "",
+        items: [],
+    };
+    return applyListSecretVersionsResponseCustom(message);
+}
+exports.DeleteSecretVersionRequest = {
+    $type: "nebius.mysterybox.v1.DeleteSecretVersionRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteSecretVersionRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteSecretVersionRequestCustom({
+            $type: "nebius.mysterybox.v1.DeleteSecretVersionRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteSecretVersionRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteSecretVersionRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteSecretVersionRequest);
+function DeleteSecretVersionRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteSecretVersionRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteSecretVersionRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteSecretVersionRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteSecretVersionRequestCustomJson;
+    return message;
+}
+function createBaseDeleteSecretVersionRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.DeleteSecretVersionRequest",
+        id: "",
+    };
+    return applyDeleteSecretVersionRequestCustom(message);
+}
+exports.UndeleteSecretVersionRequest = {
+    $type: "nebius.mysterybox.v1.UndeleteSecretVersionRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUndeleteSecretVersionRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUndeleteSecretVersionRequestCustom({
+            $type: "nebius.mysterybox.v1.UndeleteSecretVersionRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UndeleteSecretVersionRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUndeleteSecretVersionRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UndeleteSecretVersionRequest);
+function UndeleteSecretVersionRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UndeleteSecretVersionRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyUndeleteSecretVersionRequestCustom(message) {
+    message[logging_js_1.custom] = UndeleteSecretVersionRequestCustomInspect;
+    message[logging_js_1.customJson] = UndeleteSecretVersionRequestCustomJson;
+    return message;
+}
+function createBaseUndeleteSecretVersionRequest() {
+    const message = {
+        $type: "nebius.mysterybox.v1.UndeleteSecretVersionRequest",
+        id: "",
+    };
+    return applyUndeleteSecretVersionRequestCustom(message);
+}
+exports.SecretVersionServiceServiceDescription = {
+    create: {
+        path: "/nebius.mysterybox.v1.SecretVersionService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateSecretVersionRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateSecretVersionRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    get: {
+        path: "/nebius.mysterybox.v1.SecretVersionService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetSecretVersionRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetSecretVersionRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.SecretVersion.encode(value).finish()),
+        responseDeserialize: (value) => exports.SecretVersion.decode(value),
+    },
+    list: {
+        path: "/nebius.mysterybox.v1.SecretVersionService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListSecretVersionsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListSecretVersionsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListSecretVersionsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListSecretVersionsResponse.decode(value),
+    },
+    delete: {
+        path: "/nebius.mysterybox.v1.SecretVersionService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteSecretVersionRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteSecretVersionRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    undelete: {
+        path: "/nebius.mysterybox.v1.SecretVersionService/Undelete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UndeleteSecretVersionRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.UndeleteSecretVersionRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.SecretVersionServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.SecretVersionServiceServiceDescription, "nebius.mysterybox.v1.SecretVersionService");
+class SecretVersionService {
+    sdk;
+    $type = "nebius.mysterybox.v1.SecretVersionService";
+    addr;
+    spec;
+    apiServiceName = "cpl.mysterybox";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.SecretVersionServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    undelete(...args) {
+        const spec = this.spec.undelete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.SecretVersionService = SecretVersionService;
+const SecretVersionStatus_State_VALUE_COMMENTS = {
+    ACTIVE: " Resource is active, ready for use\n",
+    SCHEDULED_FOR_DELETION: " Resource was marked as soft deleted\n",
+};
+exports.SecretVersionStatus_State = (0, index_js_1.createEnum)("nebius.mysterybox.v1.SecretVersionStatus.State", {
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Resource is active, ready for use
+     *
+     */
+    ACTIVE: 1,
+    /**
+     *  Resource was marked as soft deleted
+     *
+     */
+    SCHEDULED_FOR_DELETION: 2,
+}, SecretVersionStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.SecretVersionStatus_State);
+exports.SecretVersion = {
+    $type: "nebius.mysterybox.v1.SecretVersion",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecretVersionSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.SecretVersionStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretVersion();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecretVersionSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.SecretVersionStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretVersionCustom({
+            $type: "nebius.mysterybox.v1.SecretVersion",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecretVersionSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.SecretVersionStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecretVersionSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.SecretVersionStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretVersion.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretVersion();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecretVersionSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.SecretVersionStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretVersion);
+function SecretVersionCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretVersionCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applySecretVersionCustom(message) {
+    message[logging_js_1.custom] = SecretVersionCustomInspect;
+    message[logging_js_1.customJson] = SecretVersionCustomJson;
+    return message;
+}
+function createBaseSecretVersion() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretVersion",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applySecretVersionCustom(message);
+}
+exports.SecretVersionSpec = {
+    $type: "nebius.mysterybox.v1.SecretVersionSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.description !== "") {
+            writer.uint32(10).string(message.description);
+        }
+        for (const v of (message.payload ?? [])) {
+            const w = writer.uint32(18).fork();
+            exports.Payload.encode(v, w);
+            w.join();
+        }
+        if (message.setPrimary === true) {
+            writer.uint32(24).bool(message.setPrimary);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretVersionSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.description = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.payload.push(exports.Payload.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.setPrimary = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretVersionSpecCustom({
+            $type: "nebius.mysterybox.v1.SecretVersionSpec",
+            description: (0, index_js_1.isSet)(object.description ?? object.description)
+                ? String(object.description ?? object.description)
+                : "",
+            payload: globalThis.Array.isArray(object?.payload ?? object?.payload)
+                ? (object.payload ?? object.payload).map((e) => exports.Payload.fromJSON(e))
+                : [],
+            setPrimary: (0, index_js_1.isSet)(object.setPrimary ?? object.set_primary)
+                ? Boolean(object.setPrimary ?? object.set_primary)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.description !== "") {
+            obj[pick("description", "description")] = message.description;
+        }
+        if (message.payload?.length) {
+            obj[pick("payload", "payload")] = message.payload.map((e) => e ? exports.Payload.toJSON(e, use) : undefined);
+        }
+        if (message.setPrimary === true) {
+            obj[pick("setPrimary", "set_primary")] = message.setPrimary;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretVersionSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretVersionSpec();
+        message.description = (object.description !== undefined && object.description !== null)
+            ? object.description
+            : "";
+        message.payload = object.payload?.map((e) => exports.Payload.fromPartial(e)) || [];
+        message.setPrimary = (object.setPrimary !== undefined && object.setPrimary !== null)
+            ? object.setPrimary
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretVersionSpec);
+function SecretVersionSpecCustomInspect() {
+    const parts = [];
+    if (this.description !== "")
+        parts.push("description" + "=" + (0, util_1.inspect)(this.description));
+    if ((this.payload?.length ?? 0) !== 0)
+        parts.push("payload" + "=" + (0, util_1.inspect)(this.payload));
+    if (this.setPrimary === true)
+        parts.push("setPrimary" + "=" + (0, util_1.inspect)(this.setPrimary));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretVersionSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.description !== "")
+        obj.description = (0, logging_js_1.inspectJson)(this.description);
+    if ((this.payload?.length ?? 0) !== 0)
+        obj.payload = (0, logging_js_1.inspectJson)(this.payload);
+    if (this.setPrimary === true)
+        obj.setPrimary = (0, logging_js_1.inspectJson)(this.setPrimary);
+    return obj;
+}
+function applySecretVersionSpecCustom(message) {
+    message[logging_js_1.custom] = SecretVersionSpecCustomInspect;
+    message[logging_js_1.customJson] = SecretVersionSpecCustomJson;
+    return message;
+}
+function createBaseSecretVersionSpec() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretVersionSpec",
+        description: "",
+        payload: [],
+        setPrimary: false,
+    };
+    return applySecretVersionSpecCustom(message);
+}
+exports.SecretVersionStatus = {
+    $type: "nebius.mysterybox.v1.SecretVersionStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.SecretVersionStatus_State.STATE_UNSPECIFIED) !== exports.SecretVersionStatus_State.STATE_UNSPECIFIED) {
+            exports.SecretVersionStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.deletedAt !== undefined) {
+            const w = writer.uint32(18).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.deletedAt);
+            w.join();
+        }
+        if (message.purgeAt !== undefined) {
+            const w = writer.uint32(26).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.purgeAt);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretVersionStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.SecretVersionStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    const len = reader.uint32();
+                    message.deletedAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    const len = reader.uint32();
+                    message.purgeAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretVersionStatusCustom({
+            $type: "nebius.mysterybox.v1.SecretVersionStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.SecretVersionStatus_State.fromJSON(object.state ?? object.state)
+                : exports.SecretVersionStatus_State.STATE_UNSPECIFIED,
+            deletedAt: (0, index_js_1.isSet)(object.deletedAt ?? object.deleted_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.deletedAt ?? object.deleted_at)
+                : undefined,
+            purgeAt: (0, index_js_1.isSet)(object.purgeAt ?? object.purge_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.purgeAt ?? object.purge_at)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.SecretVersionStatus_State.STATE_UNSPECIFIED) !== exports.SecretVersionStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.SecretVersionStatus_State.toJSON(message.state);
+        }
+        if (message.deletedAt !== undefined) {
+            obj[pick("deletedAt", "deleted_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.deletedAt, use);
+        }
+        if (message.purgeAt !== undefined) {
+            obj[pick("purgeAt", "purge_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.purgeAt, use);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretVersionStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretVersionStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.SecretVersionStatus_State.fromJSON(object.state.name)
+            : exports.SecretVersionStatus_State.STATE_UNSPECIFIED;
+        message.deletedAt = (object.deletedAt !== undefined && object.deletedAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.deletedAt)
+            : undefined;
+        message.purgeAt = (object.purgeAt !== undefined && object.purgeAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.purgeAt)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretVersionStatus);
+function SecretVersionStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.deletedAt !== undefined)
+        parts.push("deletedAt" + "=" + (0, util_1.inspect)(this.deletedAt));
+    if (this.purgeAt !== undefined)
+        parts.push("purgeAt" + "=" + (0, util_1.inspect)(this.purgeAt));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretVersionStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.deletedAt !== undefined)
+        obj.deletedAt = (0, logging_js_1.inspectJson)(this.deletedAt);
+    if (this.purgeAt !== undefined)
+        obj.purgeAt = (0, logging_js_1.inspectJson)(this.purgeAt);
+    return obj;
+}
+function applySecretVersionStatusCustom(message) {
+    message[logging_js_1.custom] = SecretVersionStatusCustomInspect;
+    message[logging_js_1.customJson] = SecretVersionStatusCustomJson;
+    return message;
+}
+function createBaseSecretVersionStatus() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretVersionStatus",
+        state: exports.SecretVersionStatus_State.STATE_UNSPECIFIED,
+        deletedAt: undefined,
+        purgeAt: undefined,
+    };
+    return applySecretVersionStatusCustom(message);
+}
+const SecretStatus_State_VALUE_COMMENTS = {
+    ACTIVE: " Resource is active, ready for use\n",
+    SCHEDULED_FOR_DELETION: " Resource was marked as soft deleted\n",
+};
+exports.SecretStatus_State = (0, index_js_1.createEnum)("nebius.mysterybox.v1.SecretStatus.State", {
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Resource is active, ready for use
+     *
+     */
+    ACTIVE: 1,
+    /**
+     *  Resource was marked as soft deleted
+     *
+     */
+    SCHEDULED_FOR_DELETION: 2,
+}, SecretStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.SecretStatus_State);
+exports.Secret = {
+    $type: "nebius.mysterybox.v1.Secret",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.SecretSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.SecretStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecret();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.SecretSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.SecretStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretCustom({
+            $type: "nebius.mysterybox.v1.Secret",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.SecretSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.SecretStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.SecretSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.SecretStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Secret.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecret();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.SecretSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.SecretStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Secret);
+function SecretCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applySecretCustom(message) {
+    message[logging_js_1.custom] = SecretCustomInspect;
+    message[logging_js_1.customJson] = SecretCustomJson;
+    return message;
+}
+function createBaseSecret() {
+    const message = {
+        $type: "nebius.mysterybox.v1.Secret",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applySecretCustom(message);
+}
+exports.SecretSpec = {
+    $type: "nebius.mysterybox.v1.SecretSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.description !== "") {
+            writer.uint32(10).string(message.description);
+        }
+        if (message.primaryVersionId !== undefined) {
+            writer.uint32(26).string(message.primaryVersionId);
+        }
+        if (message.secretVersion !== undefined) {
+            const w = writer.uint32(34).fork();
+            exports.SecretVersionSpec.encode(message.secretVersion, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.description = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.primaryVersionId = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.secretVersion = exports.SecretVersionSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretSpecCustom({
+            $type: "nebius.mysterybox.v1.SecretSpec",
+            description: (0, index_js_1.isSet)(object.description ?? object.description)
+                ? String(object.description ?? object.description)
+                : "",
+            primaryVersionId: (0, index_js_1.isSet)(object.primaryVersionId ?? object.primary_version_id)
+                ? String(object.primaryVersionId ?? object.primary_version_id)
+                : undefined,
+            secretVersion: (0, index_js_1.isSet)(object.secretVersion ?? object.secret_version)
+                ? exports.SecretVersionSpec.fromJSON(object.secretVersion ?? object.secret_version)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.description !== "") {
+            obj[pick("description", "description")] = message.description;
+        }
+        if (message.primaryVersionId !== undefined) {
+            obj[pick("primaryVersionId", "primary_version_id")] = message.primaryVersionId;
+        }
+        if (message.secretVersion !== undefined) {
+            obj[pick("secretVersion", "secret_version")] = message.secretVersion
+                ? exports.SecretVersionSpec.toJSON(message.secretVersion, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretSpec();
+        message.description = (object.description !== undefined && object.description !== null)
+            ? object.description
+            : "";
+        message.primaryVersionId = (object.primaryVersionId !== undefined && object.primaryVersionId !== null)
+            ? object.primaryVersionId
+            : undefined;
+        message.secretVersion = (object.secretVersion !== undefined && object.secretVersion !== null)
+            ? exports.SecretVersionSpec.fromPartial(object.secretVersion)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretSpec);
+function SecretSpecCustomInspect() {
+    const parts = [];
+    if (this.description !== "")
+        parts.push("description" + "=" + (0, util_1.inspect)(this.description));
+    if (this.primaryVersionId !== undefined)
+        parts.push("primaryVersionId" + "=" + (0, util_1.inspect)(this.primaryVersionId));
+    if (this.secretVersion !== undefined)
+        parts.push("secretVersion" + "=" + (0, util_1.inspect)(this.secretVersion));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.description !== "")
+        obj.description = (0, logging_js_1.inspectJson)(this.description);
+    if (this.primaryVersionId !== undefined)
+        obj.primaryVersionId = (0, logging_js_1.inspectJson)(this.primaryVersionId);
+    if (this.secretVersion !== undefined)
+        obj.secretVersion = (0, logging_js_1.inspectJson)(this.secretVersion);
+    return obj;
+}
+function applySecretSpecCustom(message) {
+    message[logging_js_1.custom] = SecretSpecCustomInspect;
+    message[logging_js_1.customJson] = SecretSpecCustomJson;
+    return message;
+}
+function createBaseSecretSpec() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretSpec",
+        description: "",
+        primaryVersionId: undefined,
+        secretVersion: undefined,
+    };
+    return applySecretSpecCustom(message);
+}
+exports.SecretStatus = {
+    $type: "nebius.mysterybox.v1.SecretStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.SecretStatus_State.STATE_UNSPECIFIED) !== exports.SecretStatus_State.STATE_UNSPECIFIED) {
+            exports.SecretStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.deletedAt !== undefined) {
+            const w = writer.uint32(18).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.deletedAt);
+            w.join();
+        }
+        if (message.purgeAt !== undefined) {
+            const w = writer.uint32(26).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.purgeAt);
+            w.join();
+        }
+        if (message.effectiveKmsKeyId !== "") {
+            writer.uint32(34).string(message.effectiveKmsKeyId);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseSecretStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.SecretStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    const len = reader.uint32();
+                    message.deletedAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    const len = reader.uint32();
+                    message.purgeAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.effectiveKmsKeyId = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applySecretStatusCustom({
+            $type: "nebius.mysterybox.v1.SecretStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.SecretStatus_State.fromJSON(object.state ?? object.state)
+                : exports.SecretStatus_State.STATE_UNSPECIFIED,
+            deletedAt: (0, index_js_1.isSet)(object.deletedAt ?? object.deleted_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.deletedAt ?? object.deleted_at)
+                : undefined,
+            purgeAt: (0, index_js_1.isSet)(object.purgeAt ?? object.purge_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.purgeAt ?? object.purge_at)
+                : undefined,
+            effectiveKmsKeyId: (0, index_js_1.isSet)(object.effectiveKmsKeyId ?? object.effective_kms_key_id)
+                ? String(object.effectiveKmsKeyId ?? object.effective_kms_key_id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.SecretStatus_State.STATE_UNSPECIFIED) !== exports.SecretStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.SecretStatus_State.toJSON(message.state);
+        }
+        if (message.deletedAt !== undefined) {
+            obj[pick("deletedAt", "deleted_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.deletedAt, use);
+        }
+        if (message.purgeAt !== undefined) {
+            obj[pick("purgeAt", "purge_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.purgeAt, use);
+        }
+        if (message.effectiveKmsKeyId !== "") {
+            obj[pick("effectiveKmsKeyId", "effective_kms_key_id")] = message.effectiveKmsKeyId;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.SecretStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseSecretStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.SecretStatus_State.fromJSON(object.state.name)
+            : exports.SecretStatus_State.STATE_UNSPECIFIED;
+        message.deletedAt = (object.deletedAt !== undefined && object.deletedAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.deletedAt)
+            : undefined;
+        message.purgeAt = (object.purgeAt !== undefined && object.purgeAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.purgeAt)
+            : undefined;
+        message.effectiveKmsKeyId = (object.effectiveKmsKeyId !== undefined && object.effectiveKmsKeyId !== null)
+            ? object.effectiveKmsKeyId
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.SecretStatus);
+function SecretStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.deletedAt !== undefined)
+        parts.push("deletedAt" + "=" + (0, util_1.inspect)(this.deletedAt));
+    if (this.purgeAt !== undefined)
+        parts.push("purgeAt" + "=" + (0, util_1.inspect)(this.purgeAt));
+    if (this.effectiveKmsKeyId !== "")
+        parts.push("effectiveKmsKeyId" + "=" + (0, util_1.inspect)(this.effectiveKmsKeyId));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function SecretStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.deletedAt !== undefined)
+        obj.deletedAt = (0, logging_js_1.inspectJson)(this.deletedAt);
+    if (this.purgeAt !== undefined)
+        obj.purgeAt = (0, logging_js_1.inspectJson)(this.purgeAt);
+    if (this.effectiveKmsKeyId !== "")
+        obj.effectiveKmsKeyId = (0, logging_js_1.inspectJson)(this.effectiveKmsKeyId);
+    return obj;
+}
+function applySecretStatusCustom(message) {
+    message[logging_js_1.custom] = SecretStatusCustomInspect;
+    message[logging_js_1.customJson] = SecretStatusCustomJson;
+    return message;
+}
+function createBaseSecretStatus() {
+    const message = {
+        $type: "nebius.mysterybox.v1.SecretStatus",
+        state: exports.SecretStatus_State.STATE_UNSPECIFIED,
+        deletedAt: undefined,
+        purgeAt: undefined,
+        effectiveKmsKeyId: "",
+    };
+    return applySecretStatusCustom(message);
+}
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 40568:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+/* Generated by Nebius TS generator. DO NOT EDIT! */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DeleteTransferRequest = exports.ResumeTransferRequest = exports.StopTransferRequest = exports.UpdateTransferRequest = exports.CreateTransferRequest = exports.ListTransfersResponse = exports.ListTransfersRequest = exports.GetTransferRequest = exports.LifecycleNoncurrentVersionTransition = exports.LifecycleTransition = exports.LifecycleAbortIncompleteMultipartUpload = exports.LifecycleNoncurrentVersionExpiration = exports.LifecycleExpiration = exports.LifecycleAccessFilter_Condition = exports.LifecycleAccessFilter = exports.LifecycleFilter_Tag = exports.LifecycleFilter = exports.LifecycleRule = exports.LifecycleConfiguration = exports.LifecycleAccessFilter_Condition_Method = exports.LifecycleAccessFilter_Condition_Type = exports.LifecycleRule_Status = exports.CORSRule = exports.CORSConfiguration = exports.BucketStatus = exports.BucketSpec = exports.Bucket = exports.BucketStatus_SuspensionState = exports.BucketStatus_State = exports.BucketSpec_ObjectAuditLogging = exports.BucketService = exports.BucketServiceBaseClient = exports.BucketServiceServiceDescription = exports.ListBucketsResponse = exports.ListBucketsRequest = exports.UndeleteBucketRequest = exports.PurgeBucketRequest = exports.DeleteBucketRequest = exports.UpdateBucketRequest = exports.CreateBucketRequest = exports.GetBucketByNameRequest = exports.GetBucketRequest = exports.BucketPolicy_Rule_AnonymousAccess = exports.BucketPolicy_Rule = exports.BucketPolicy = exports.BucketCounters = exports.NonCurrentBucketCounters = exports.CurrentBucketCounters = exports.VersioningPolicy = exports.StorageClass = void 0;
+exports.TransferError = exports.TransferIteration = exports.TransferStatus = exports.TransferCredentialsAzureStorageAccount = exports.TransferCredentialsAccessKey = exports.TransferCredentialsAnonymous = exports.TransferDestination_S3CompatibleProvider = exports.TransferDestination_NebiusProvider = exports.TransferDestination = exports.TransferSource_AzureBlobStorageProvider = exports.TransferSource_S3CompatibleProvider = exports.TransferSource_NebiusProvider = exports.TransferSource = exports.TransferSpec_StopConditionInfinite = exports.TransferSpec_StopConditionAfterNEmptyIterations = exports.TransferSpec_StopConditionAfterOneIteration = exports.TransferSpec_Limiters = exports.TransferSpec = exports.Transfer = exports.TransferError_Origin = exports.TransferIteration_State = exports.TransferStatus_SuspensionState = exports.TransferStatus_State = exports.TransferSpec_OverwriteStrategy = exports.TransferService = exports.TransferServiceBaseClient = exports.TransferServiceServiceDescription = exports.GetIterationHistoryResponse = exports.GetIterationHistoryRequest = void 0;
+const index_js_1 = __nccwpck_require__(7101);
+const util_1 = __nccwpck_require__(39023);
+const protobuf_js_1 = __nccwpck_require__(74846);
+const logging_js_1 = __nccwpck_require__(79087);
+const grpc_js_1 = __nccwpck_require__(83033);
+const request_js_1 = __nccwpck_require__(58544);
+const operation_js_1 = __nccwpck_require__(99624);
+const index_js_2 = __nccwpck_require__(64266);
+const __deprecatedWarned = new Set();
+const StorageClass_VALUE_COMMENTS = {
+    FILESYSTEM: " Special storage class only for filesystem buckets.\n",
+};
+exports.StorageClass = (0, index_js_1.createEnum)("nebius.storage.v1.StorageClass", {
+    STORAGE_CLASS_UNSPECIFIED: 0,
+    STANDARD: 1,
+    ENHANCED_THROUGHPUT: 2,
+    INTELLIGENT: 3,
+    /**
+     *  Special storage class only for filesystem buckets.
+     *
+     */
+    FILESYSTEM: 4,
+}, StorageClass_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.StorageClass);
+exports.VersioningPolicy = (0, index_js_1.createEnum)("nebius.storage.v1.VersioningPolicy", {
+    VERSIONING_POLICY_UNSPECIFIED: 0,
+    DISABLED: 1,
+    ENABLED: 2,
+    SUSPENDED: 3,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.VersioningPolicy);
+exports.CurrentBucketCounters = {
+    $type: "nebius.storage.v1.CurrentBucketCounters",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.simpleObjectsQuantity !== undefined && !message.simpleObjectsQuantity.isZero?.()) {
+            writer.uint32(8).int64(message.simpleObjectsQuantity.toString());
+        }
+        if (message.simpleObjectsSize !== undefined && !message.simpleObjectsSize.isZero?.()) {
+            writer.uint32(16).int64(message.simpleObjectsSize.toString());
+        }
+        if (message.multipartObjectsQuantity !== undefined && !message.multipartObjectsQuantity.isZero?.()) {
+            writer.uint32(24).int64(message.multipartObjectsQuantity.toString());
+        }
+        if (message.multipartObjectsSize !== undefined && !message.multipartObjectsSize.isZero?.()) {
+            writer.uint32(32).int64(message.multipartObjectsSize.toString());
+        }
+        if (message.multipartUploadsQuantity !== undefined && !message.multipartUploadsQuantity.isZero?.()) {
+            writer.uint32(40).int64(message.multipartUploadsQuantity.toString());
+        }
+        if (message.inflightPartsQuantity !== undefined && !message.inflightPartsQuantity.isZero?.()) {
+            writer.uint32(48).int64(message.inflightPartsQuantity.toString());
+        }
+        if (message.inflightPartsSize !== undefined && !message.inflightPartsSize.isZero?.()) {
+            writer.uint32(56).int64(message.inflightPartsSize.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCurrentBucketCounters();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.simpleObjectsQuantity = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.simpleObjectsSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.multipartObjectsQuantity = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.multipartObjectsSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 40)
+                        break;
+                    message.multipartUploadsQuantity = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 48)
+                        break;
+                    message.inflightPartsQuantity = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 7: {
+                    if (tag !== 56)
+                        break;
+                    message.inflightPartsSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCurrentBucketCountersCustom({
+            $type: "nebius.storage.v1.CurrentBucketCounters",
+            simpleObjectsQuantity: (0, index_js_1.isSet)(object.simpleObjectsQuantity ?? object.simple_objects_quantity)
+                ? index_js_1.Long.fromValue(object.simpleObjectsQuantity ?? object.simple_objects_quantity)
+                : index_js_1.Long.ZERO,
+            simpleObjectsSize: (0, index_js_1.isSet)(object.simpleObjectsSize ?? object.simple_objects_size)
+                ? index_js_1.Long.fromValue(object.simpleObjectsSize ?? object.simple_objects_size)
+                : index_js_1.Long.ZERO,
+            multipartObjectsQuantity: (0, index_js_1.isSet)(object.multipartObjectsQuantity ?? object.multipart_objects_quantity)
+                ? index_js_1.Long.fromValue(object.multipartObjectsQuantity ?? object.multipart_objects_quantity)
+                : index_js_1.Long.ZERO,
+            multipartObjectsSize: (0, index_js_1.isSet)(object.multipartObjectsSize ?? object.multipart_objects_size)
+                ? index_js_1.Long.fromValue(object.multipartObjectsSize ?? object.multipart_objects_size)
+                : index_js_1.Long.ZERO,
+            multipartUploadsQuantity: (0, index_js_1.isSet)(object.multipartUploadsQuantity ?? object.multipart_uploads_quantity)
+                ? index_js_1.Long.fromValue(object.multipartUploadsQuantity ?? object.multipart_uploads_quantity)
+                : index_js_1.Long.ZERO,
+            inflightPartsQuantity: (0, index_js_1.isSet)(object.inflightPartsQuantity ?? object.inflight_parts_quantity)
+                ? index_js_1.Long.fromValue(object.inflightPartsQuantity ?? object.inflight_parts_quantity)
+                : index_js_1.Long.ZERO,
+            inflightPartsSize: (0, index_js_1.isSet)(object.inflightPartsSize ?? object.inflight_parts_size)
+                ? index_js_1.Long.fromValue(object.inflightPartsSize ?? object.inflight_parts_size)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (!message.simpleObjectsQuantity?.isZero?.()) {
+            obj[pick("simpleObjectsQuantity", "simple_objects_quantity")] = (message.simpleObjectsQuantity || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.simpleObjectsSize?.isZero?.()) {
+            obj[pick("simpleObjectsSize", "simple_objects_size")] = (message.simpleObjectsSize || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.multipartObjectsQuantity?.isZero?.()) {
+            obj[pick("multipartObjectsQuantity", "multipart_objects_quantity")] = (message.multipartObjectsQuantity || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.multipartObjectsSize?.isZero?.()) {
+            obj[pick("multipartObjectsSize", "multipart_objects_size")] = (message.multipartObjectsSize || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.multipartUploadsQuantity?.isZero?.()) {
+            obj[pick("multipartUploadsQuantity", "multipart_uploads_quantity")] = (message.multipartUploadsQuantity || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.inflightPartsQuantity?.isZero?.()) {
+            obj[pick("inflightPartsQuantity", "inflight_parts_quantity")] = (message.inflightPartsQuantity || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.inflightPartsSize?.isZero?.()) {
+            obj[pick("inflightPartsSize", "inflight_parts_size")] = (message.inflightPartsSize || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CurrentBucketCounters.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCurrentBucketCounters();
+        message.simpleObjectsQuantity = (object.simpleObjectsQuantity !== undefined && object.simpleObjectsQuantity !== null)
+            ? index_js_1.Long.fromValue(object.simpleObjectsQuantity)
+            : index_js_1.Long.ZERO;
+        message.simpleObjectsSize = (object.simpleObjectsSize !== undefined && object.simpleObjectsSize !== null)
+            ? index_js_1.Long.fromValue(object.simpleObjectsSize)
+            : index_js_1.Long.ZERO;
+        message.multipartObjectsQuantity = (object.multipartObjectsQuantity !== undefined && object.multipartObjectsQuantity !== null)
+            ? index_js_1.Long.fromValue(object.multipartObjectsQuantity)
+            : index_js_1.Long.ZERO;
+        message.multipartObjectsSize = (object.multipartObjectsSize !== undefined && object.multipartObjectsSize !== null)
+            ? index_js_1.Long.fromValue(object.multipartObjectsSize)
+            : index_js_1.Long.ZERO;
+        message.multipartUploadsQuantity = (object.multipartUploadsQuantity !== undefined && object.multipartUploadsQuantity !== null)
+            ? index_js_1.Long.fromValue(object.multipartUploadsQuantity)
+            : index_js_1.Long.ZERO;
+        message.inflightPartsQuantity = (object.inflightPartsQuantity !== undefined && object.inflightPartsQuantity !== null)
+            ? index_js_1.Long.fromValue(object.inflightPartsQuantity)
+            : index_js_1.Long.ZERO;
+        message.inflightPartsSize = (object.inflightPartsSize !== undefined && object.inflightPartsSize !== null)
+            ? index_js_1.Long.fromValue(object.inflightPartsSize)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CurrentBucketCounters);
+function CurrentBucketCountersCustomInspect() {
+    const parts = [];
+    if (!this.simpleObjectsQuantity?.isZero?.())
+        parts.push("simpleObjectsQuantity" + "=" + (0, util_1.inspect)(this.simpleObjectsQuantity));
+    if (!this.simpleObjectsSize?.isZero?.())
+        parts.push("simpleObjectsSize" + "=" + (0, util_1.inspect)(this.simpleObjectsSize));
+    if (!this.multipartObjectsQuantity?.isZero?.())
+        parts.push("multipartObjectsQuantity" + "=" + (0, util_1.inspect)(this.multipartObjectsQuantity));
+    if (!this.multipartObjectsSize?.isZero?.())
+        parts.push("multipartObjectsSize" + "=" + (0, util_1.inspect)(this.multipartObjectsSize));
+    if (!this.multipartUploadsQuantity?.isZero?.())
+        parts.push("multipartUploadsQuantity" + "=" + (0, util_1.inspect)(this.multipartUploadsQuantity));
+    if (!this.inflightPartsQuantity?.isZero?.())
+        parts.push("inflightPartsQuantity" + "=" + (0, util_1.inspect)(this.inflightPartsQuantity));
+    if (!this.inflightPartsSize?.isZero?.())
+        parts.push("inflightPartsSize" + "=" + (0, util_1.inspect)(this.inflightPartsSize));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CurrentBucketCountersCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (!this.simpleObjectsQuantity?.isZero?.())
+        obj.simpleObjectsQuantity = (0, logging_js_1.inspectJson)(this.simpleObjectsQuantity);
+    if (!this.simpleObjectsSize?.isZero?.())
+        obj.simpleObjectsSize = (0, logging_js_1.inspectJson)(this.simpleObjectsSize);
+    if (!this.multipartObjectsQuantity?.isZero?.())
+        obj.multipartObjectsQuantity = (0, logging_js_1.inspectJson)(this.multipartObjectsQuantity);
+    if (!this.multipartObjectsSize?.isZero?.())
+        obj.multipartObjectsSize = (0, logging_js_1.inspectJson)(this.multipartObjectsSize);
+    if (!this.multipartUploadsQuantity?.isZero?.())
+        obj.multipartUploadsQuantity = (0, logging_js_1.inspectJson)(this.multipartUploadsQuantity);
+    if (!this.inflightPartsQuantity?.isZero?.())
+        obj.inflightPartsQuantity = (0, logging_js_1.inspectJson)(this.inflightPartsQuantity);
+    if (!this.inflightPartsSize?.isZero?.())
+        obj.inflightPartsSize = (0, logging_js_1.inspectJson)(this.inflightPartsSize);
+    return obj;
+}
+function applyCurrentBucketCountersCustom(message) {
+    message[logging_js_1.custom] = CurrentBucketCountersCustomInspect;
+    message[logging_js_1.customJson] = CurrentBucketCountersCustomJson;
+    return message;
+}
+function createBaseCurrentBucketCounters() {
+    const message = {
+        $type: "nebius.storage.v1.CurrentBucketCounters",
+        simpleObjectsQuantity: index_js_1.Long.ZERO,
+        simpleObjectsSize: index_js_1.Long.ZERO,
+        multipartObjectsQuantity: index_js_1.Long.ZERO,
+        multipartObjectsSize: index_js_1.Long.ZERO,
+        multipartUploadsQuantity: index_js_1.Long.ZERO,
+        inflightPartsQuantity: index_js_1.Long.ZERO,
+        inflightPartsSize: index_js_1.Long.ZERO,
+    };
+    return applyCurrentBucketCountersCustom(message);
+}
+exports.NonCurrentBucketCounters = {
+    $type: "nebius.storage.v1.NonCurrentBucketCounters",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.simpleObjectsQuantity !== undefined && !message.simpleObjectsQuantity.isZero?.()) {
+            writer.uint32(8).int64(message.simpleObjectsQuantity.toString());
+        }
+        if (message.simpleObjectsSize !== undefined && !message.simpleObjectsSize.isZero?.()) {
+            writer.uint32(16).int64(message.simpleObjectsSize.toString());
+        }
+        if (message.multipartObjectsQuantity !== undefined && !message.multipartObjectsQuantity.isZero?.()) {
+            writer.uint32(24).int64(message.multipartObjectsQuantity.toString());
+        }
+        if (message.multipartObjectsSize !== undefined && !message.multipartObjectsSize.isZero?.()) {
+            writer.uint32(32).int64(message.multipartObjectsSize.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseNonCurrentBucketCounters();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.simpleObjectsQuantity = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.simpleObjectsSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.multipartObjectsQuantity = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.multipartObjectsSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyNonCurrentBucketCountersCustom({
+            $type: "nebius.storage.v1.NonCurrentBucketCounters",
+            simpleObjectsQuantity: (0, index_js_1.isSet)(object.simpleObjectsQuantity ?? object.simple_objects_quantity)
+                ? index_js_1.Long.fromValue(object.simpleObjectsQuantity ?? object.simple_objects_quantity)
+                : index_js_1.Long.ZERO,
+            simpleObjectsSize: (0, index_js_1.isSet)(object.simpleObjectsSize ?? object.simple_objects_size)
+                ? index_js_1.Long.fromValue(object.simpleObjectsSize ?? object.simple_objects_size)
+                : index_js_1.Long.ZERO,
+            multipartObjectsQuantity: (0, index_js_1.isSet)(object.multipartObjectsQuantity ?? object.multipart_objects_quantity)
+                ? index_js_1.Long.fromValue(object.multipartObjectsQuantity ?? object.multipart_objects_quantity)
+                : index_js_1.Long.ZERO,
+            multipartObjectsSize: (0, index_js_1.isSet)(object.multipartObjectsSize ?? object.multipart_objects_size)
+                ? index_js_1.Long.fromValue(object.multipartObjectsSize ?? object.multipart_objects_size)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (!message.simpleObjectsQuantity?.isZero?.()) {
+            obj[pick("simpleObjectsQuantity", "simple_objects_quantity")] = (message.simpleObjectsQuantity || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.simpleObjectsSize?.isZero?.()) {
+            obj[pick("simpleObjectsSize", "simple_objects_size")] = (message.simpleObjectsSize || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.multipartObjectsQuantity?.isZero?.()) {
+            obj[pick("multipartObjectsQuantity", "multipart_objects_quantity")] = (message.multipartObjectsQuantity || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.multipartObjectsSize?.isZero?.()) {
+            obj[pick("multipartObjectsSize", "multipart_objects_size")] = (message.multipartObjectsSize || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.NonCurrentBucketCounters.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseNonCurrentBucketCounters();
+        message.simpleObjectsQuantity = (object.simpleObjectsQuantity !== undefined && object.simpleObjectsQuantity !== null)
+            ? index_js_1.Long.fromValue(object.simpleObjectsQuantity)
+            : index_js_1.Long.ZERO;
+        message.simpleObjectsSize = (object.simpleObjectsSize !== undefined && object.simpleObjectsSize !== null)
+            ? index_js_1.Long.fromValue(object.simpleObjectsSize)
+            : index_js_1.Long.ZERO;
+        message.multipartObjectsQuantity = (object.multipartObjectsQuantity !== undefined && object.multipartObjectsQuantity !== null)
+            ? index_js_1.Long.fromValue(object.multipartObjectsQuantity)
+            : index_js_1.Long.ZERO;
+        message.multipartObjectsSize = (object.multipartObjectsSize !== undefined && object.multipartObjectsSize !== null)
+            ? index_js_1.Long.fromValue(object.multipartObjectsSize)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.NonCurrentBucketCounters);
+function NonCurrentBucketCountersCustomInspect() {
+    const parts = [];
+    if (!this.simpleObjectsQuantity?.isZero?.())
+        parts.push("simpleObjectsQuantity" + "=" + (0, util_1.inspect)(this.simpleObjectsQuantity));
+    if (!this.simpleObjectsSize?.isZero?.())
+        parts.push("simpleObjectsSize" + "=" + (0, util_1.inspect)(this.simpleObjectsSize));
+    if (!this.multipartObjectsQuantity?.isZero?.())
+        parts.push("multipartObjectsQuantity" + "=" + (0, util_1.inspect)(this.multipartObjectsQuantity));
+    if (!this.multipartObjectsSize?.isZero?.())
+        parts.push("multipartObjectsSize" + "=" + (0, util_1.inspect)(this.multipartObjectsSize));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function NonCurrentBucketCountersCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (!this.simpleObjectsQuantity?.isZero?.())
+        obj.simpleObjectsQuantity = (0, logging_js_1.inspectJson)(this.simpleObjectsQuantity);
+    if (!this.simpleObjectsSize?.isZero?.())
+        obj.simpleObjectsSize = (0, logging_js_1.inspectJson)(this.simpleObjectsSize);
+    if (!this.multipartObjectsQuantity?.isZero?.())
+        obj.multipartObjectsQuantity = (0, logging_js_1.inspectJson)(this.multipartObjectsQuantity);
+    if (!this.multipartObjectsSize?.isZero?.())
+        obj.multipartObjectsSize = (0, logging_js_1.inspectJson)(this.multipartObjectsSize);
+    return obj;
+}
+function applyNonCurrentBucketCountersCustom(message) {
+    message[logging_js_1.custom] = NonCurrentBucketCountersCustomInspect;
+    message[logging_js_1.customJson] = NonCurrentBucketCountersCustomJson;
+    return message;
+}
+function createBaseNonCurrentBucketCounters() {
+    const message = {
+        $type: "nebius.storage.v1.NonCurrentBucketCounters",
+        simpleObjectsQuantity: index_js_1.Long.ZERO,
+        simpleObjectsSize: index_js_1.Long.ZERO,
+        multipartObjectsQuantity: index_js_1.Long.ZERO,
+        multipartObjectsSize: index_js_1.Long.ZERO,
+    };
+    return applyNonCurrentBucketCountersCustom(message);
+}
+exports.BucketCounters = {
+    $type: "nebius.storage.v1.BucketCounters",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.storageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            exports.StorageClass.encodeField(writer, 1, message.storageClass);
+        }
+        if (message.counters !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.CurrentBucketCounters.encode(message.counters, w);
+            w.join();
+        }
+        if (message.nonCurrentCounters !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.NonCurrentBucketCounters.encode(message.nonCurrentCounters, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucketCounters();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.storageClass = exports.StorageClass.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.counters = exports.CurrentBucketCounters.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.nonCurrentCounters = exports.NonCurrentBucketCounters.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketCountersCustom({
+            $type: "nebius.storage.v1.BucketCounters",
+            storageClass: (0, index_js_1.isSet)(object.storageClass ?? object.storage_class)
+                ? exports.StorageClass.fromJSON(object.storageClass ?? object.storage_class)
+                : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+            counters: (0, index_js_1.isSet)(object.counters ?? object.counters)
+                ? exports.CurrentBucketCounters.fromJSON(object.counters ?? object.counters)
+                : undefined,
+            nonCurrentCounters: (0, index_js_1.isSet)(object.nonCurrentCounters ?? object.non_current_counters)
+                ? exports.NonCurrentBucketCounters.fromJSON(object.nonCurrentCounters ?? object.non_current_counters)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.storageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            obj[pick("storageClass", "storage_class")] = exports.StorageClass.toJSON(message.storageClass);
+        }
+        if (message.counters !== undefined) {
+            obj[pick("counters", "counters")] = message.counters
+                ? exports.CurrentBucketCounters.toJSON(message.counters, use)
+                : undefined;
+        }
+        if (message.nonCurrentCounters !== undefined) {
+            obj[pick("nonCurrentCounters", "non_current_counters")] = message.nonCurrentCounters
+                ? exports.NonCurrentBucketCounters.toJSON(message.nonCurrentCounters, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.BucketCounters.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucketCounters();
+        message.storageClass = (object.storageClass !== undefined && object.storageClass !== null)
+            ? exports.StorageClass.fromJSON(object.storageClass.name)
+            : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED;
+        message.counters = (object.counters !== undefined && object.counters !== null)
+            ? exports.CurrentBucketCounters.fromPartial(object.counters)
+            : undefined;
+        message.nonCurrentCounters = (object.nonCurrentCounters !== undefined && object.nonCurrentCounters !== null)
+            ? exports.NonCurrentBucketCounters.fromPartial(object.nonCurrentCounters)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.BucketCounters);
+function BucketCountersCustomInspect() {
+    const parts = [];
+    if (this.storageClass !== undefined)
+        parts.push("storageClass" + "=" + (0, util_1.inspect)(this.storageClass));
+    if (this.counters !== undefined)
+        parts.push("counters" + "=" + (0, util_1.inspect)(this.counters));
+    if (this.nonCurrentCounters !== undefined)
+        parts.push("nonCurrentCounters" + "=" + (0, util_1.inspect)(this.nonCurrentCounters));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketCountersCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.storageClass !== undefined)
+        obj.storageClass = (0, logging_js_1.inspectJson)(this.storageClass);
+    if (this.counters !== undefined)
+        obj.counters = (0, logging_js_1.inspectJson)(this.counters);
+    if (this.nonCurrentCounters !== undefined)
+        obj.nonCurrentCounters = (0, logging_js_1.inspectJson)(this.nonCurrentCounters);
+    return obj;
+}
+function applyBucketCountersCustom(message) {
+    message[logging_js_1.custom] = BucketCountersCustomInspect;
+    message[logging_js_1.customJson] = BucketCountersCustomJson;
+    return message;
+}
+function createBaseBucketCounters() {
+    const message = {
+        $type: "nebius.storage.v1.BucketCounters",
+        storageClass: exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+        counters: undefined,
+        nonCurrentCounters: undefined,
+    };
+    return applyBucketCountersCustom(message);
+}
+exports.BucketPolicy = {
+    $type: "nebius.storage.v1.BucketPolicy",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.rules ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.BucketPolicy_Rule.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucketPolicy();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.rules.push(exports.BucketPolicy_Rule.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketPolicyCustom({
+            $type: "nebius.storage.v1.BucketPolicy",
+            rules: globalThis.Array.isArray(object?.rules ?? object?.rules)
+                ? (object.rules ?? object.rules).map((e) => exports.BucketPolicy_Rule.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.rules?.length) {
+            obj[pick("rules", "rules")] = message.rules.map((e) => e ? exports.BucketPolicy_Rule.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.BucketPolicy.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucketPolicy();
+        message.rules = object.rules?.map((e) => exports.BucketPolicy_Rule.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.BucketPolicy);
+function BucketPolicyCustomInspect() {
+    const parts = [];
+    if ((this.rules?.length ?? 0) !== 0)
+        parts.push("rules" + "=" + (0, util_1.inspect)(this.rules));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketPolicyCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.rules?.length ?? 0) !== 0)
+        obj.rules = (0, logging_js_1.inspectJson)(this.rules);
+    return obj;
+}
+function applyBucketPolicyCustom(message) {
+    message[logging_js_1.custom] = BucketPolicyCustomInspect;
+    message[logging_js_1.customJson] = BucketPolicyCustomJson;
+    return message;
+}
+function createBaseBucketPolicy() {
+    const message = {
+        $type: "nebius.storage.v1.BucketPolicy",
+        rules: [],
+    };
+    return applyBucketPolicyCustom(message);
+}
+exports.BucketPolicy_Rule = {
+    $type: "nebius.storage.v1.BucketPolicy.Rule",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.paths ?? [])) {
+            writer.uint32(10).string(v);
+        }
+        for (const v of (message.roles ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        if (message.subject?.$case === undefined) { /* noop */ }
+        else if (message.subject?.$case === "groupId") {
+            writer.uint32(34).string(message.subject.groupId);
+        }
+        else if (message.subject?.$case === "anonymous") {
+            const w = writer.uint32(42).fork();
+            exports.BucketPolicy_Rule_AnonymousAccess.encode(message.subject.anonymous, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucketPolicy_Rule();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.paths.push(reader.string());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.roles.push(reader.string());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.subject = {
+                        $case: "groupId",
+                        groupId: reader.string()
+                    };
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.subject = {
+                        $case: "anonymous",
+                        anonymous: exports.BucketPolicy_Rule_AnonymousAccess.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketPolicy_RuleCustom({
+            $type: "nebius.storage.v1.BucketPolicy.Rule",
+            paths: globalThis.Array.isArray(object?.paths ?? object?.paths)
+                ? (object.paths ?? object.paths).map((e) => String(e))
+                : [],
+            roles: globalThis.Array.isArray(object?.roles ?? object?.roles)
+                ? (object.roles ?? object.roles).map((e) => String(e))
+                : [],
+            subject: (() => {
+                if ((0, index_js_1.isSet)(object.groupId) || (0, index_js_1.isSet)(object.group_id)) {
+                    return {
+                        $case: "groupId",
+                        groupId: String(object.groupId ?? object.group_id)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.anonymous) || (0, index_js_1.isSet)(object.anonymous)) {
+                    return {
+                        $case: "anonymous",
+                        anonymous: exports.BucketPolicy_Rule_AnonymousAccess.fromJSON(object.anonymous ?? object.anonymous)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.paths?.length) {
+            obj[pick("paths", "paths")] = message.paths.map((e) => e);
+        }
+        if (message.roles?.length) {
+            obj[pick("roles", "roles")] = message.roles.map((e) => e);
+        }
+        switch (message.subject?.$case) {
+            case "groupId": {
+                obj[pick("groupId", "group_id")] = message.subject.groupId;
+                break;
+            }
+            case "anonymous": {
+                obj[pick("anonymous", "anonymous")] = exports.BucketPolicy_Rule_AnonymousAccess.toJSON(message.subject.anonymous, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.BucketPolicy_Rule.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucketPolicy_Rule();
+        message.paths = object.paths?.map((e) => e) || [];
+        message.roles = object.roles?.map((e) => e) || [];
+        switch (object.subject?.$case) {
+            case "groupId": {
+                if (object.subject?.groupId !== undefined && object.subject?.groupId !== null) {
+                    message.subject = {
+                        $case: "groupId",
+                        groupId: object.subject.groupId,
+                    };
+                }
+                break;
+            }
+            case "anonymous": {
+                if (object.subject.anonymous !== undefined && object.subject.anonymous !== null) {
+                    message.subject = {
+                        $case: "anonymous",
+                        anonymous: exports.BucketPolicy_Rule_AnonymousAccess.fromPartial(object.subject.anonymous),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.BucketPolicy_Rule);
+function BucketPolicy_RuleCustomInspect() {
+    const parts = [];
+    if ((this.paths?.length ?? 0) !== 0)
+        parts.push("paths" + "=" + (0, util_1.inspect)(this.paths));
+    if ((this.roles?.length ?? 0) !== 0)
+        parts.push("roles" + "=" + (0, util_1.inspect)(this.roles));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketPolicy_RuleCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.paths?.length ?? 0) !== 0)
+        obj.paths = (0, logging_js_1.inspectJson)(this.paths);
+    if ((this.roles?.length ?? 0) !== 0)
+        obj.roles = (0, logging_js_1.inspectJson)(this.roles);
+    return obj;
+}
+function applyBucketPolicy_RuleCustom(message) {
+    message[logging_js_1.custom] = BucketPolicy_RuleCustomInspect;
+    message[logging_js_1.customJson] = BucketPolicy_RuleCustomJson;
+    return message;
+}
+function createBaseBucketPolicy_Rule() {
+    const message = {
+        $type: "nebius.storage.v1.BucketPolicy.Rule",
+        paths: [],
+        roles: [],
+        subject: undefined,
+    };
+    return applyBucketPolicy_RuleCustom(message);
+}
+exports.BucketPolicy_Rule_AnonymousAccess = {
+    $type: "nebius.storage.v1.BucketPolicy.Rule.AnonymousAccess",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucketPolicy_Rule_AnonymousAccess();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketPolicy_Rule_AnonymousAccessCustom({
+            $type: "nebius.storage.v1.BucketPolicy.Rule.AnonymousAccess",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        return obj;
+    },
+    create(base) {
+        return exports.BucketPolicy_Rule_AnonymousAccess.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucketPolicy_Rule_AnonymousAccess();
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.BucketPolicy_Rule_AnonymousAccess);
+function BucketPolicy_Rule_AnonymousAccessCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketPolicy_Rule_AnonymousAccessCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyBucketPolicy_Rule_AnonymousAccessCustom(message) {
+    message[logging_js_1.custom] = BucketPolicy_Rule_AnonymousAccessCustomInspect;
+    message[logging_js_1.customJson] = BucketPolicy_Rule_AnonymousAccessCustomJson;
+    return message;
+}
+function createBaseBucketPolicy_Rule_AnonymousAccess() {
+    const message = {
+        $type: "nebius.storage.v1.BucketPolicy.Rule.AnonymousAccess",
+    };
+    return applyBucketPolicy_Rule_AnonymousAccessCustom(message);
+}
+exports.GetBucketRequest = {
+    $type: "nebius.storage.v1.GetBucketRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetBucketRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetBucketRequestCustom({
+            $type: "nebius.storage.v1.GetBucketRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetBucketRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetBucketRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetBucketRequest);
+function GetBucketRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetBucketRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetBucketRequestCustom(message) {
+    message[logging_js_1.custom] = GetBucketRequestCustomInspect;
+    message[logging_js_1.customJson] = GetBucketRequestCustomJson;
+    return message;
+}
+function createBaseGetBucketRequest() {
+    const message = {
+        $type: "nebius.storage.v1.GetBucketRequest",
+        id: "",
+    };
+    return applyGetBucketRequestCustom(message);
+}
+exports.GetBucketByNameRequest = {
+    $type: "nebius.storage.v1.GetBucketByNameRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.name !== "") {
+            writer.uint32(18).string(message.name);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetBucketByNameRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.name = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetBucketByNameRequestCustom({
+            $type: "nebius.storage.v1.GetBucketByNameRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            name: (0, index_js_1.isSet)(object.name ?? object.name)
+                ? String(object.name ?? object.name)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (message.name !== "") {
+            obj[pick("name", "name")] = message.name;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetBucketByNameRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetBucketByNameRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.name = (object.name !== undefined && object.name !== null)
+            ? object.name
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetBucketByNameRequest);
+function GetBucketByNameRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (this.name !== "")
+        parts.push("name" + "=" + (0, util_1.inspect)(this.name));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetBucketByNameRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (this.name !== "")
+        obj.name = (0, logging_js_1.inspectJson)(this.name);
+    return obj;
+}
+function applyGetBucketByNameRequestCustom(message) {
+    message[logging_js_1.custom] = GetBucketByNameRequestCustomInspect;
+    message[logging_js_1.customJson] = GetBucketByNameRequestCustomJson;
+    return message;
+}
+function createBaseGetBucketByNameRequest() {
+    const message = {
+        $type: "nebius.storage.v1.GetBucketByNameRequest",
+        parentId: "",
+        name: "",
+    };
+    return applyGetBucketByNameRequestCustom(message);
+}
+exports.CreateBucketRequest = {
+    $type: "nebius.storage.v1.CreateBucketRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.BucketSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateBucketRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.BucketSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateBucketRequestCustom({
+            $type: "nebius.storage.v1.CreateBucketRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.BucketSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.BucketSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateBucketRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateBucketRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.BucketSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateBucketRequest);
+function CreateBucketRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateBucketRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateBucketRequestCustom(message) {
+    message[logging_js_1.custom] = CreateBucketRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateBucketRequestCustomJson;
+    return message;
+}
+function createBaseCreateBucketRequest() {
+    const message = {
+        $type: "nebius.storage.v1.CreateBucketRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateBucketRequestCustom(message);
+}
+exports.UpdateBucketRequest = {
+    $type: "nebius.storage.v1.UpdateBucketRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.BucketSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateBucketRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.BucketSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateBucketRequestCustom({
+            $type: "nebius.storage.v1.UpdateBucketRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.BucketSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.BucketSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateBucketRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateBucketRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.BucketSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateBucketRequest);
+function UpdateBucketRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateBucketRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateBucketRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateBucketRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateBucketRequestCustomJson;
+    return message;
+}
+function createBaseUpdateBucketRequest() {
+    const message = {
+        $type: "nebius.storage.v1.UpdateBucketRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateBucketRequestCustom(message);
+}
+exports.DeleteBucketRequest = {
+    $type: "nebius.storage.v1.DeleteBucketRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.purge?.$case === undefined) { /* noop */ }
+        else if (message.purge?.$case === "purgeAt") {
+            const w = writer.uint32(26).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.purge.purgeAt);
+            w.join();
+        }
+        else if (message.purge?.$case === "ttl") {
+            const w = writer.uint32(34).fork();
+            index_js_1.wkt[".google.protobuf.Duration"].writeMessage(w, message.purge.ttl);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteBucketRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    const len = reader.uint32();
+                    message.purge = {
+                        $case: "purgeAt",
+                        purgeAt: index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len)
+                    };
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    const len = reader.uint32();
+                    message.purge = {
+                        $case: "ttl",
+                        ttl: index_js_1.wkt[".google.protobuf.Duration"].readMessage(reader, len)
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteBucketRequestCustom({
+            $type: "nebius.storage.v1.DeleteBucketRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            purge: (() => {
+                if ((0, index_js_1.isSet)(object.purgeAt) || (0, index_js_1.isSet)(object.purge_at)) {
+                    return {
+                        $case: "purgeAt",
+                        purgeAt: index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.purgeAt ?? object.purge_at)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.ttl) || (0, index_js_1.isSet)(object.ttl)) {
+                    return {
+                        $case: "ttl",
+                        ttl: index_js_1.wkt[".google.protobuf.Duration"].fromJSON(object.ttl ?? object.ttl)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        switch (message.purge?.$case) {
+            case "purgeAt": {
+                obj[pick("purgeAt", "purge_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.purge.purgeAt, use);
+                break;
+            }
+            case "ttl": {
+                obj[pick("ttl", "ttl")] = index_js_1.wkt[".google.protobuf.Duration"].toJSON(message.purge.ttl, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteBucketRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteBucketRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        switch (object.purge?.$case) {
+            case "purgeAt": {
+                if (object.purge?.purgeAt !== undefined && object.purge?.purgeAt !== null) {
+                    message.purge = {
+                        $case: "purgeAt",
+                        purgeAt: index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.purge.purgeAt),
+                    };
+                }
+                break;
+            }
+            case "ttl": {
+                if (object.purge?.ttl !== undefined && object.purge?.ttl !== null) {
+                    message.purge = {
+                        $case: "ttl",
+                        ttl: index_js_1.wkt[".google.protobuf.Duration"].fromPartial(object.purge.ttl),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteBucketRequest);
+function DeleteBucketRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteBucketRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyDeleteBucketRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteBucketRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteBucketRequestCustomJson;
+    return message;
+}
+function createBaseDeleteBucketRequest() {
+    const message = {
+        $type: "nebius.storage.v1.DeleteBucketRequest",
+        id: "",
+        purge: undefined,
+    };
+    return applyDeleteBucketRequestCustom(message);
+}
+exports.PurgeBucketRequest = {
+    $type: "nebius.storage.v1.PurgeBucketRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBasePurgeBucketRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyPurgeBucketRequestCustom({
+            $type: "nebius.storage.v1.PurgeBucketRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.PurgeBucketRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBasePurgeBucketRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.PurgeBucketRequest);
+function PurgeBucketRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function PurgeBucketRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyPurgeBucketRequestCustom(message) {
+    message[logging_js_1.custom] = PurgeBucketRequestCustomInspect;
+    message[logging_js_1.customJson] = PurgeBucketRequestCustomJson;
+    return message;
+}
+function createBasePurgeBucketRequest() {
+    const message = {
+        $type: "nebius.storage.v1.PurgeBucketRequest",
+        id: "",
+    };
+    return applyPurgeBucketRequestCustom(message);
+}
+exports.UndeleteBucketRequest = {
+    $type: "nebius.storage.v1.UndeleteBucketRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUndeleteBucketRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUndeleteBucketRequestCustom({
+            $type: "nebius.storage.v1.UndeleteBucketRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UndeleteBucketRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUndeleteBucketRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UndeleteBucketRequest);
+function UndeleteBucketRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UndeleteBucketRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyUndeleteBucketRequestCustom(message) {
+    message[logging_js_1.custom] = UndeleteBucketRequestCustomInspect;
+    message[logging_js_1.customJson] = UndeleteBucketRequestCustomJson;
+    return message;
+}
+function createBaseUndeleteBucketRequest() {
+    const message = {
+        $type: "nebius.storage.v1.UndeleteBucketRequest",
+        id: "",
+    };
+    return applyUndeleteBucketRequestCustom(message);
+}
+exports.ListBucketsRequest = {
+    $type: "nebius.storage.v1.ListBucketsRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message.filter !== "") {
+            writer.uint32(34).string(message.filter);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListBucketsRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.filter = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListBucketsRequestCustom({
+            $type: "nebius.storage.v1.ListBucketsRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+            filter: (0, index_js_1.isSet)(object.filter ?? object.filter)
+                ? String(object.filter ?? object.filter)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        if (message.filter !== "") {
+            obj[pick("filter", "filter")] = message.filter;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListBucketsRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListBucketsRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        message.filter = (object.filter !== undefined && object.filter !== null)
+            ? object.filter
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListBucketsRequest);
+function ListBucketsRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    if (this.filter !== "")
+        parts.push("filter" + "=" + (0, util_1.inspect)(this.filter));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListBucketsRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    if (this.filter !== "")
+        obj.filter = (0, logging_js_1.inspectJson)(this.filter);
+    return obj;
+}
+function applyListBucketsRequestCustom(message) {
+    message[logging_js_1.custom] = ListBucketsRequestCustomInspect;
+    message[logging_js_1.customJson] = ListBucketsRequestCustomJson;
+    return message;
+}
+function createBaseListBucketsRequest() {
+    const message = {
+        $type: "nebius.storage.v1.ListBucketsRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+        filter: "",
+    };
+    return applyListBucketsRequestCustom(message);
+}
+exports.ListBucketsResponse = {
+    $type: "nebius.storage.v1.ListBucketsResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Bucket.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListBucketsResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Bucket.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListBucketsResponseCustom({
+            $type: "nebius.storage.v1.ListBucketsResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Bucket.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Bucket.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListBucketsResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListBucketsResponse();
+        message.items = object.items?.map((e) => exports.Bucket.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListBucketsResponse);
+function ListBucketsResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListBucketsResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListBucketsResponseCustom(message) {
+    message[logging_js_1.custom] = ListBucketsResponseCustomInspect;
+    message[logging_js_1.customJson] = ListBucketsResponseCustomJson;
+    return message;
+}
+function createBaseListBucketsResponse() {
+    const message = {
+        $type: "nebius.storage.v1.ListBucketsResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListBucketsResponseCustom(message);
+}
+exports.BucketServiceServiceDescription = {
+    get: {
+        path: "/nebius.storage.v1.BucketService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetBucketRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetBucketRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Bucket.encode(value).finish()),
+        responseDeserialize: (value) => exports.Bucket.decode(value),
+    },
+    getByName: {
+        path: "/nebius.storage.v1.BucketService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetBucketByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetBucketByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Bucket.encode(value).finish()),
+        responseDeserialize: (value) => exports.Bucket.decode(value),
+    },
+    list: {
+        path: "/nebius.storage.v1.BucketService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListBucketsRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListBucketsRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListBucketsResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListBucketsResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.storage.v1.BucketService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateBucketRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateBucketRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.storage.v1.BucketService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateBucketRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateBucketRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.storage.v1.BucketService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteBucketRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteBucketRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    purge: {
+        path: "/nebius.storage.v1.BucketService/Purge",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.PurgeBucketRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.PurgeBucketRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    undelete: {
+        path: "/nebius.storage.v1.BucketService/Undelete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UndeleteBucketRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.UndeleteBucketRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+};
+exports.BucketServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.BucketServiceServiceDescription, "nebius.storage.v1.BucketService");
+class BucketService {
+    sdk;
+    $type = "nebius.storage.v1.BucketService";
+    addr;
+    spec;
+    apiServiceName = "cpl.storage";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.BucketServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    purge(...args) {
+        const spec = this.spec.purge;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    undelete(...args) {
+        const spec = this.spec.undelete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.BucketService = BucketService;
+const BucketSpec_ObjectAuditLogging_VALUE_COMMENTS = {
+    NONE: " Logging is disabled.\n",
+    MUTATE_ONLY: " Logging enabled only for mutating requests.\n",
+    ALL: " Logging enabled for all requests.\n",
+};
+exports.BucketSpec_ObjectAuditLogging = (0, index_js_1.createEnum)("nebius.storage.v1.BucketSpec.ObjectAuditLogging", {
+    OBJECT_AUDIT_LOGGING_UNSPECIFIED: 0,
+    /**
+     *  Logging is disabled.
+     *
+     */
+    NONE: 1,
+    /**
+     *  Logging enabled only for mutating requests.
+     *
+     */
+    MUTATE_ONLY: 2,
+    /**
+     *  Logging enabled for all requests.
+     *
+     */
+    ALL: 3,
+}, BucketSpec_ObjectAuditLogging_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.BucketSpec_ObjectAuditLogging);
+const BucketStatus_State_VALUE_COMMENTS = {
+    CREATING: " Bucket is under creation and cannot be used yet.\n",
+    ACTIVE: " Bucket is active and ready for usage.\n",
+    UPDATING: " Bucket is being updated.\n It can be used, but some settings are being modified and you can observe their inconsistency.\n",
+    SCHEDULED_FOR_DELETION: " Bucket is scheduled for deletion.\n It cannot be used in s3 api anymore.\n",
+};
+exports.BucketStatus_State = (0, index_js_1.createEnum)("nebius.storage.v1.BucketStatus.State", {
+    STATE_UNSPECIFIED: 0,
+    /**
+     *  Bucket is under creation and cannot be used yet.
+     *
+     */
+    CREATING: 1,
+    /**
+     *  Bucket is active and ready for usage.
+     *
+     */
+    ACTIVE: 2,
+    /**
+     *  Bucket is being updated.
+     *  It can be used, but some settings are being modified and you can observe their inconsistency.
+     *
+     */
+    UPDATING: 3,
+    /**
+     *  Bucket is scheduled for deletion.
+     *  It cannot be used in s3 api anymore.
+     *
+     */
+    SCHEDULED_FOR_DELETION: 4,
+}, BucketStatus_State_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.BucketStatus_State);
+exports.BucketStatus_SuspensionState = (0, index_js_1.createEnum)("nebius.storage.v1.BucketStatus.SuspensionState", {
+    SUSPENSION_STATE_UNSPECIFIED: 0,
+    NOT_SUSPENDED: 1,
+    SUSPENDED: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.BucketStatus_SuspensionState);
+exports.Bucket = {
+    $type: "nebius.storage.v1.Bucket",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.BucketSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.BucketStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucket();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.BucketSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.BucketStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketCustom({
+            $type: "nebius.storage.v1.Bucket",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.BucketSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.BucketStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.BucketSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.BucketStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Bucket.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucket();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.BucketSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.BucketStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Bucket);
+function BucketCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyBucketCustom(message) {
+    message[logging_js_1.custom] = BucketCustomInspect;
+    message[logging_js_1.customJson] = BucketCustomJson;
+    return message;
+}
+function createBaseBucket() {
+    const message = {
+        $type: "nebius.storage.v1.Bucket",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyBucketCustom(message);
+}
+exports.BucketSpec = {
+    $type: "nebius.storage.v1.BucketSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.versioningPolicy ?? exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED) !== exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED) {
+            exports.VersioningPolicy.encodeField(writer, 2, message.versioningPolicy);
+        }
+        if (message.maxSizeBytes !== undefined && !message.maxSizeBytes.isZero?.()) {
+            writer.uint32(32).int64(message.maxSizeBytes.toString());
+        }
+        if (message.lifecycleConfiguration !== undefined) {
+            const w = writer.uint32(42).fork();
+            exports.LifecycleConfiguration.encode(message.lifecycleConfiguration, w);
+            w.join();
+        }
+        if (message.cors !== undefined) {
+            const w = writer.uint32(66).fork();
+            exports.CORSConfiguration.encode(message.cors, w);
+            w.join();
+        }
+        if ((message.defaultStorageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            exports.StorageClass.encodeField(writer, 9, message.defaultStorageClass);
+        }
+        if (message.forceStorageClass === true) {
+            writer.uint32(88).bool(message.forceStorageClass);
+        }
+        if ((message.objectAuditLogging ?? exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED) !== exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED) {
+            exports.BucketSpec_ObjectAuditLogging.encodeField(writer, 12, message.objectAuditLogging);
+        }
+        if (message.bucketPolicy !== undefined) {
+            const w = writer.uint32(106).fork();
+            exports.BucketPolicy.encode(message.bucketPolicy, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucketSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.versioningPolicy = exports.VersioningPolicy.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.maxSizeBytes = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.lifecycleConfiguration = exports.LifecycleConfiguration.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 8: {
+                    if (tag !== 66)
+                        break;
+                    message.cors = exports.CORSConfiguration.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 9: {
+                    if (tag !== 72)
+                        break;
+                    message.defaultStorageClass = exports.StorageClass.fromNumber(reader.int32());
+                    continue;
+                }
+                case 11: {
+                    if (tag !== 88)
+                        break;
+                    message.forceStorageClass = reader.bool();
+                    continue;
+                }
+                case 12: {
+                    if (tag !== 96)
+                        break;
+                    message.objectAuditLogging = exports.BucketSpec_ObjectAuditLogging.fromNumber(reader.int32());
+                    continue;
+                }
+                case 13: {
+                    if (tag !== 106)
+                        break;
+                    message.bucketPolicy = exports.BucketPolicy.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketSpecCustom({
+            $type: "nebius.storage.v1.BucketSpec",
+            versioningPolicy: (0, index_js_1.isSet)(object.versioningPolicy ?? object.versioning_policy)
+                ? exports.VersioningPolicy.fromJSON(object.versioningPolicy ?? object.versioning_policy)
+                : exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED,
+            maxSizeBytes: (0, index_js_1.isSet)(object.maxSizeBytes ?? object.max_size_bytes)
+                ? index_js_1.Long.fromValue(object.maxSizeBytes ?? object.max_size_bytes)
+                : index_js_1.Long.ZERO,
+            lifecycleConfiguration: (0, index_js_1.isSet)(object.lifecycleConfiguration ?? object.lifecycle_configuration)
+                ? exports.LifecycleConfiguration.fromJSON(object.lifecycleConfiguration ?? object.lifecycle_configuration)
+                : undefined,
+            cors: (0, index_js_1.isSet)(object.cors ?? object.cors)
+                ? exports.CORSConfiguration.fromJSON(object.cors ?? object.cors)
+                : undefined,
+            defaultStorageClass: (0, index_js_1.isSet)(object.defaultStorageClass ?? object.default_storage_class)
+                ? exports.StorageClass.fromJSON(object.defaultStorageClass ?? object.default_storage_class)
+                : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+            forceStorageClass: (0, index_js_1.isSet)(object.forceStorageClass ?? object.force_storage_class)
+                ? Boolean(object.forceStorageClass ?? object.force_storage_class)
+                : false,
+            objectAuditLogging: (0, index_js_1.isSet)(object.objectAuditLogging ?? object.object_audit_logging)
+                ? exports.BucketSpec_ObjectAuditLogging.fromJSON(object.objectAuditLogging ?? object.object_audit_logging)
+                : exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED,
+            bucketPolicy: (0, index_js_1.isSet)(object.bucketPolicy ?? object.bucket_policy)
+                ? exports.BucketPolicy.fromJSON(object.bucketPolicy ?? object.bucket_policy)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.versioningPolicy ?? exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED) !== exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED) {
+            obj[pick("versioningPolicy", "versioning_policy")] = exports.VersioningPolicy.toJSON(message.versioningPolicy);
+        }
+        if (!message.maxSizeBytes?.isZero?.()) {
+            obj[pick("maxSizeBytes", "max_size_bytes")] = (message.maxSizeBytes || index_js_1.Long.ZERO).toString();
+        }
+        if (message.lifecycleConfiguration !== undefined) {
+            obj[pick("lifecycleConfiguration", "lifecycle_configuration")] = message.lifecycleConfiguration
+                ? exports.LifecycleConfiguration.toJSON(message.lifecycleConfiguration, use)
+                : undefined;
+        }
+        if (message.cors !== undefined) {
+            obj[pick("cors", "cors")] = message.cors
+                ? exports.CORSConfiguration.toJSON(message.cors, use)
+                : undefined;
+        }
+        if ((message.defaultStorageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            obj[pick("defaultStorageClass", "default_storage_class")] = exports.StorageClass.toJSON(message.defaultStorageClass);
+        }
+        if (message.forceStorageClass === true) {
+            obj[pick("forceStorageClass", "force_storage_class")] = message.forceStorageClass;
+        }
+        if ((message.objectAuditLogging ?? exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED) !== exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED) {
+            obj[pick("objectAuditLogging", "object_audit_logging")] = exports.BucketSpec_ObjectAuditLogging.toJSON(message.objectAuditLogging);
+        }
+        if (message.bucketPolicy !== undefined) {
+            obj[pick("bucketPolicy", "bucket_policy")] = message.bucketPolicy
+                ? exports.BucketPolicy.toJSON(message.bucketPolicy, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.BucketSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucketSpec();
+        message.versioningPolicy = (object.versioningPolicy !== undefined && object.versioningPolicy !== null)
+            ? exports.VersioningPolicy.fromJSON(object.versioningPolicy.name)
+            : exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED;
+        message.maxSizeBytes = (object.maxSizeBytes !== undefined && object.maxSizeBytes !== null)
+            ? index_js_1.Long.fromValue(object.maxSizeBytes)
+            : index_js_1.Long.ZERO;
+        message.lifecycleConfiguration = (object.lifecycleConfiguration !== undefined && object.lifecycleConfiguration !== null)
+            ? exports.LifecycleConfiguration.fromPartial(object.lifecycleConfiguration)
+            : undefined;
+        message.cors = (object.cors !== undefined && object.cors !== null)
+            ? exports.CORSConfiguration.fromPartial(object.cors)
+            : undefined;
+        message.defaultStorageClass = (object.defaultStorageClass !== undefined && object.defaultStorageClass !== null)
+            ? exports.StorageClass.fromJSON(object.defaultStorageClass.name)
+            : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED;
+        message.forceStorageClass = (object.forceStorageClass !== undefined && object.forceStorageClass !== null)
+            ? object.forceStorageClass
+            : false;
+        message.objectAuditLogging = (object.objectAuditLogging !== undefined && object.objectAuditLogging !== null)
+            ? exports.BucketSpec_ObjectAuditLogging.fromJSON(object.objectAuditLogging.name)
+            : exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED;
+        message.bucketPolicy = (object.bucketPolicy !== undefined && object.bucketPolicy !== null)
+            ? exports.BucketPolicy.fromPartial(object.bucketPolicy)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.BucketSpec);
+function BucketSpecCustomInspect() {
+    const parts = [];
+    if (this.versioningPolicy !== undefined)
+        parts.push("versioningPolicy" + "=" + (0, util_1.inspect)(this.versioningPolicy));
+    if (!this.maxSizeBytes?.isZero?.())
+        parts.push("maxSizeBytes" + "=" + (0, util_1.inspect)(this.maxSizeBytes));
+    if (this.lifecycleConfiguration !== undefined)
+        parts.push("lifecycleConfiguration" + "=" + (0, util_1.inspect)(this.lifecycleConfiguration));
+    if (this.cors !== undefined)
+        parts.push("cors" + "=" + (0, util_1.inspect)(this.cors));
+    if (this.defaultStorageClass !== undefined)
+        parts.push("defaultStorageClass" + "=" + (0, util_1.inspect)(this.defaultStorageClass));
+    if (this.forceStorageClass === true)
+        parts.push("forceStorageClass" + "=" + (0, util_1.inspect)(this.forceStorageClass));
+    if (this.objectAuditLogging !== undefined)
+        parts.push("objectAuditLogging" + "=" + (0, util_1.inspect)(this.objectAuditLogging));
+    if (this.bucketPolicy !== undefined)
+        parts.push("bucketPolicy" + "=" + (0, util_1.inspect)(this.bucketPolicy));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.versioningPolicy !== undefined)
+        obj.versioningPolicy = (0, logging_js_1.inspectJson)(this.versioningPolicy);
+    if (!this.maxSizeBytes?.isZero?.())
+        obj.maxSizeBytes = (0, logging_js_1.inspectJson)(this.maxSizeBytes);
+    if (this.lifecycleConfiguration !== undefined)
+        obj.lifecycleConfiguration = (0, logging_js_1.inspectJson)(this.lifecycleConfiguration);
+    if (this.cors !== undefined)
+        obj.cors = (0, logging_js_1.inspectJson)(this.cors);
+    if (this.defaultStorageClass !== undefined)
+        obj.defaultStorageClass = (0, logging_js_1.inspectJson)(this.defaultStorageClass);
+    if (this.forceStorageClass === true)
+        obj.forceStorageClass = (0, logging_js_1.inspectJson)(this.forceStorageClass);
+    if (this.objectAuditLogging !== undefined)
+        obj.objectAuditLogging = (0, logging_js_1.inspectJson)(this.objectAuditLogging);
+    if (this.bucketPolicy !== undefined)
+        obj.bucketPolicy = (0, logging_js_1.inspectJson)(this.bucketPolicy);
+    return obj;
+}
+function applyBucketSpecCustom(message) {
+    message[logging_js_1.custom] = BucketSpecCustomInspect;
+    message[logging_js_1.customJson] = BucketSpecCustomJson;
+    return message;
+}
+function createBaseBucketSpec() {
+    const message = {
+        $type: "nebius.storage.v1.BucketSpec",
+        versioningPolicy: exports.VersioningPolicy.VERSIONING_POLICY_UNSPECIFIED,
+        maxSizeBytes: index_js_1.Long.ZERO,
+        lifecycleConfiguration: undefined,
+        cors: undefined,
+        defaultStorageClass: exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+        forceStorageClass: false,
+        objectAuditLogging: exports.BucketSpec_ObjectAuditLogging.OBJECT_AUDIT_LOGGING_UNSPECIFIED,
+        bucketPolicy: undefined,
+    };
+    return applyBucketSpecCustom(message);
+}
+exports.BucketStatus = {
+    $type: "nebius.storage.v1.BucketStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.counters ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.BucketCounters.encode(v, w);
+            w.join();
+        }
+        if ((message.state ?? exports.BucketStatus_State.STATE_UNSPECIFIED) !== exports.BucketStatus_State.STATE_UNSPECIFIED) {
+            exports.BucketStatus_State.encodeField(writer, 2, message.state);
+        }
+        if ((message.suspensionState ?? exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) !== exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) {
+            exports.BucketStatus_SuspensionState.encodeField(writer, 3, message.suspensionState);
+        }
+        if (message.deletedAt !== undefined) {
+            const w = writer.uint32(34).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.deletedAt);
+            w.join();
+        }
+        if (message.purgeAt !== undefined) {
+            const w = writer.uint32(42).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.purgeAt);
+            w.join();
+        }
+        if (message.domainName !== "") {
+            writer.uint32(50).string(message.domainName);
+        }
+        if (message.region !== "") {
+            writer.uint32(66).string(message.region);
+        }
+        if (message.anonymousAccessEnabled === true) {
+            writer.uint32(72).bool(message.anonymousAccessEnabled);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseBucketStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.counters.push(exports.BucketCounters.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.state = exports.BucketStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.suspensionState = exports.BucketStatus_SuspensionState.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    const len = reader.uint32();
+                    message.deletedAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    const len = reader.uint32();
+                    message.purgeAt = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 50)
+                        break;
+                    message.domainName = reader.string();
+                    continue;
+                }
+                case 8: {
+                    if (tag !== 66)
+                        break;
+                    message.region = reader.string();
+                    continue;
+                }
+                case 9: {
+                    if (tag !== 72)
+                        break;
+                    message.anonymousAccessEnabled = reader.bool();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyBucketStatusCustom({
+            $type: "nebius.storage.v1.BucketStatus",
+            counters: globalThis.Array.isArray(object?.counters ?? object?.counters)
+                ? (object.counters ?? object.counters).map((e) => exports.BucketCounters.fromJSON(e))
+                : [],
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.BucketStatus_State.fromJSON(object.state ?? object.state)
+                : exports.BucketStatus_State.STATE_UNSPECIFIED,
+            suspensionState: (0, index_js_1.isSet)(object.suspensionState ?? object.suspension_state)
+                ? exports.BucketStatus_SuspensionState.fromJSON(object.suspensionState ?? object.suspension_state)
+                : exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED,
+            deletedAt: (0, index_js_1.isSet)(object.deletedAt ?? object.deleted_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.deletedAt ?? object.deleted_at)
+                : undefined,
+            purgeAt: (0, index_js_1.isSet)(object.purgeAt ?? object.purge_at)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.purgeAt ?? object.purge_at)
+                : undefined,
+            domainName: (0, index_js_1.isSet)(object.domainName ?? object.domain_name)
+                ? String(object.domainName ?? object.domain_name)
+                : "",
+            region: (0, index_js_1.isSet)(object.region ?? object.region)
+                ? String(object.region ?? object.region)
+                : "",
+            anonymousAccessEnabled: (0, index_js_1.isSet)(object.anonymousAccessEnabled ?? object.anonymous_access_enabled)
+                ? Boolean(object.anonymousAccessEnabled ?? object.anonymous_access_enabled)
+                : false,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.counters?.length) {
+            obj[pick("counters", "counters")] = message.counters.map((e) => e ? exports.BucketCounters.toJSON(e, use) : undefined);
+        }
+        if ((message.state ?? exports.BucketStatus_State.STATE_UNSPECIFIED) !== exports.BucketStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.BucketStatus_State.toJSON(message.state);
+        }
+        if ((message.suspensionState ?? exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) !== exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) {
+            obj[pick("suspensionState", "suspension_state")] = exports.BucketStatus_SuspensionState.toJSON(message.suspensionState);
+        }
+        if (message.deletedAt !== undefined) {
+            obj[pick("deletedAt", "deleted_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.deletedAt, use);
+        }
+        if (message.purgeAt !== undefined) {
+            obj[pick("purgeAt", "purge_at")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.purgeAt, use);
+        }
+        if (message.domainName !== "") {
+            obj[pick("domainName", "domain_name")] = message.domainName;
+        }
+        if (message.region !== "") {
+            obj[pick("region", "region")] = message.region;
+        }
+        if (message.anonymousAccessEnabled === true) {
+            obj[pick("anonymousAccessEnabled", "anonymous_access_enabled")] = message.anonymousAccessEnabled;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.BucketStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseBucketStatus();
+        message.counters = object.counters?.map((e) => exports.BucketCounters.fromPartial(e)) || [];
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.BucketStatus_State.fromJSON(object.state.name)
+            : exports.BucketStatus_State.STATE_UNSPECIFIED;
+        message.suspensionState = (object.suspensionState !== undefined && object.suspensionState !== null)
+            ? exports.BucketStatus_SuspensionState.fromJSON(object.suspensionState.name)
+            : exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED;
+        message.deletedAt = (object.deletedAt !== undefined && object.deletedAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.deletedAt)
+            : undefined;
+        message.purgeAt = (object.purgeAt !== undefined && object.purgeAt !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.purgeAt)
+            : undefined;
+        message.domainName = (object.domainName !== undefined && object.domainName !== null)
+            ? object.domainName
+            : "";
+        message.region = (object.region !== undefined && object.region !== null)
+            ? object.region
+            : "";
+        message.anonymousAccessEnabled = (object.anonymousAccessEnabled !== undefined && object.anonymousAccessEnabled !== null)
+            ? object.anonymousAccessEnabled
+            : false;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.BucketStatus);
+function BucketStatusCustomInspect() {
+    const parts = [];
+    if ((this.counters?.length ?? 0) !== 0)
+        parts.push("counters" + "=" + (0, util_1.inspect)(this.counters));
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.suspensionState !== undefined)
+        parts.push("suspensionState" + "=" + (0, util_1.inspect)(this.suspensionState));
+    if (this.deletedAt !== undefined)
+        parts.push("deletedAt" + "=" + (0, util_1.inspect)(this.deletedAt));
+    if (this.purgeAt !== undefined)
+        parts.push("purgeAt" + "=" + (0, util_1.inspect)(this.purgeAt));
+    if (this.domainName !== "")
+        parts.push("domainName" + "=" + (0, util_1.inspect)(this.domainName));
+    if (this.region !== "")
+        parts.push("region" + "=" + (0, util_1.inspect)(this.region));
+    if (this.anonymousAccessEnabled === true)
+        parts.push("anonymousAccessEnabled" + "=" + (0, util_1.inspect)(this.anonymousAccessEnabled));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function BucketStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.counters?.length ?? 0) !== 0)
+        obj.counters = (0, logging_js_1.inspectJson)(this.counters);
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.suspensionState !== undefined)
+        obj.suspensionState = (0, logging_js_1.inspectJson)(this.suspensionState);
+    if (this.deletedAt !== undefined)
+        obj.deletedAt = (0, logging_js_1.inspectJson)(this.deletedAt);
+    if (this.purgeAt !== undefined)
+        obj.purgeAt = (0, logging_js_1.inspectJson)(this.purgeAt);
+    if (this.domainName !== "")
+        obj.domainName = (0, logging_js_1.inspectJson)(this.domainName);
+    if (this.region !== "")
+        obj.region = (0, logging_js_1.inspectJson)(this.region);
+    if (this.anonymousAccessEnabled === true)
+        obj.anonymousAccessEnabled = (0, logging_js_1.inspectJson)(this.anonymousAccessEnabled);
+    return obj;
+}
+function applyBucketStatusCustom(message) {
+    message[logging_js_1.custom] = BucketStatusCustomInspect;
+    message[logging_js_1.customJson] = BucketStatusCustomJson;
+    return message;
+}
+function createBaseBucketStatus() {
+    const message = {
+        $type: "nebius.storage.v1.BucketStatus",
+        counters: [],
+        state: exports.BucketStatus_State.STATE_UNSPECIFIED,
+        suspensionState: exports.BucketStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED,
+        deletedAt: undefined,
+        purgeAt: undefined,
+        domainName: "",
+        region: "",
+        anonymousAccessEnabled: false,
+    };
+    return applyBucketStatusCustom(message);
+}
+exports.CORSConfiguration = {
+    $type: "nebius.storage.v1.CORSConfiguration",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.rules ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.CORSRule.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCORSConfiguration();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.rules.push(exports.CORSRule.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCORSConfigurationCustom({
+            $type: "nebius.storage.v1.CORSConfiguration",
+            rules: globalThis.Array.isArray(object?.rules ?? object?.rules)
+                ? (object.rules ?? object.rules).map((e) => exports.CORSRule.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.rules?.length) {
+            obj[pick("rules", "rules")] = message.rules.map((e) => e ? exports.CORSRule.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CORSConfiguration.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCORSConfiguration();
+        message.rules = object.rules?.map((e) => exports.CORSRule.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CORSConfiguration);
+function CORSConfigurationCustomInspect() {
+    const parts = [];
+    if ((this.rules?.length ?? 0) !== 0)
+        parts.push("rules" + "=" + (0, util_1.inspect)(this.rules));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CORSConfigurationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.rules?.length ?? 0) !== 0)
+        obj.rules = (0, logging_js_1.inspectJson)(this.rules);
+    return obj;
+}
+function applyCORSConfigurationCustom(message) {
+    message[logging_js_1.custom] = CORSConfigurationCustomInspect;
+    message[logging_js_1.customJson] = CORSConfigurationCustomJson;
+    return message;
+}
+function createBaseCORSConfiguration() {
+    const message = {
+        $type: "nebius.storage.v1.CORSConfiguration",
+        rules: [],
+    };
+    return applyCORSConfigurationCustom(message);
+}
+exports.CORSRule = {
+    $type: "nebius.storage.v1.CORSRule",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== undefined) {
+            writer.uint32(10).string(message.id);
+        }
+        for (const v of (message.allowedHeaders ?? [])) {
+            writer.uint32(18).string(v);
+        }
+        for (const v of (message.allowedOrigins ?? [])) {
+            writer.uint32(26).string(v);
+        }
+        for (const v of (message.allowedMethods ?? [])) {
+            writer.uint32(34).string(v);
+        }
+        for (const v of (message.exposeHeaders ?? [])) {
+            writer.uint32(42).string(v);
+        }
+        if (message.maxAgeSeconds !== undefined) {
+            writer.uint32(48).int32(message.maxAgeSeconds);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCORSRule();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.allowedHeaders.push(reader.string());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.allowedOrigins.push(reader.string());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.allowedMethods.push(reader.string());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.exposeHeaders.push(reader.string());
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 48)
+                        break;
+                    message.maxAgeSeconds = reader.int32();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCORSRuleCustom({
+            $type: "nebius.storage.v1.CORSRule",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : undefined,
+            allowedHeaders: globalThis.Array.isArray(object?.allowedHeaders ?? object?.allowed_headers)
+                ? (object.allowedHeaders ?? object.allowed_headers).map((e) => String(e))
+                : [],
+            allowedOrigins: globalThis.Array.isArray(object?.allowedOrigins ?? object?.allowed_origins)
+                ? (object.allowedOrigins ?? object.allowed_origins).map((e) => String(e))
+                : [],
+            allowedMethods: globalThis.Array.isArray(object?.allowedMethods ?? object?.allowed_methods)
+                ? (object.allowedMethods ?? object.allowed_methods).map((e) => String(e))
+                : [],
+            exposeHeaders: globalThis.Array.isArray(object?.exposeHeaders ?? object?.expose_headers)
+                ? (object.exposeHeaders ?? object.expose_headers).map((e) => String(e))
+                : [],
+            maxAgeSeconds: (0, index_js_1.isSet)(object.maxAgeSeconds ?? object.max_age_seconds)
+                ? Number(object.maxAgeSeconds ?? object.max_age_seconds)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== undefined) {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (message.allowedHeaders?.length) {
+            obj[pick("allowedHeaders", "allowed_headers")] = message.allowedHeaders.map((e) => e);
+        }
+        if (message.allowedOrigins?.length) {
+            obj[pick("allowedOrigins", "allowed_origins")] = message.allowedOrigins.map((e) => e);
+        }
+        if (message.allowedMethods?.length) {
+            obj[pick("allowedMethods", "allowed_methods")] = message.allowedMethods.map((e) => e);
+        }
+        if (message.exposeHeaders?.length) {
+            obj[pick("exposeHeaders", "expose_headers")] = message.exposeHeaders.map((e) => e);
+        }
+        if (message.maxAgeSeconds !== undefined) {
+            obj[pick("maxAgeSeconds", "max_age_seconds")] = message.maxAgeSeconds;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CORSRule.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCORSRule();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : undefined;
+        message.allowedHeaders = object.allowedHeaders?.map((e) => e) || [];
+        message.allowedOrigins = object.allowedOrigins?.map((e) => e) || [];
+        message.allowedMethods = object.allowedMethods?.map((e) => e) || [];
+        message.exposeHeaders = object.exposeHeaders?.map((e) => e) || [];
+        message.maxAgeSeconds = (object.maxAgeSeconds !== undefined && object.maxAgeSeconds !== null)
+            ? object.maxAgeSeconds
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CORSRule);
+function CORSRuleCustomInspect() {
+    const parts = [];
+    if (this.id !== undefined)
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if ((this.allowedHeaders?.length ?? 0) !== 0)
+        parts.push("allowedHeaders" + "=" + (0, util_1.inspect)(this.allowedHeaders));
+    if ((this.allowedOrigins?.length ?? 0) !== 0)
+        parts.push("allowedOrigins" + "=" + (0, util_1.inspect)(this.allowedOrigins));
+    if ((this.allowedMethods?.length ?? 0) !== 0)
+        parts.push("allowedMethods" + "=" + (0, util_1.inspect)(this.allowedMethods));
+    if ((this.exposeHeaders?.length ?? 0) !== 0)
+        parts.push("exposeHeaders" + "=" + (0, util_1.inspect)(this.exposeHeaders));
+    if (this.maxAgeSeconds !== undefined)
+        parts.push("maxAgeSeconds" + "=" + (0, util_1.inspect)(this.maxAgeSeconds));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CORSRuleCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== undefined)
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if ((this.allowedHeaders?.length ?? 0) !== 0)
+        obj.allowedHeaders = (0, logging_js_1.inspectJson)(this.allowedHeaders);
+    if ((this.allowedOrigins?.length ?? 0) !== 0)
+        obj.allowedOrigins = (0, logging_js_1.inspectJson)(this.allowedOrigins);
+    if ((this.allowedMethods?.length ?? 0) !== 0)
+        obj.allowedMethods = (0, logging_js_1.inspectJson)(this.allowedMethods);
+    if ((this.exposeHeaders?.length ?? 0) !== 0)
+        obj.exposeHeaders = (0, logging_js_1.inspectJson)(this.exposeHeaders);
+    if (this.maxAgeSeconds !== undefined)
+        obj.maxAgeSeconds = (0, logging_js_1.inspectJson)(this.maxAgeSeconds);
+    return obj;
+}
+function applyCORSRuleCustom(message) {
+    message[logging_js_1.custom] = CORSRuleCustomInspect;
+    message[logging_js_1.customJson] = CORSRuleCustomJson;
+    return message;
+}
+function createBaseCORSRule() {
+    const message = {
+        $type: "nebius.storage.v1.CORSRule",
+        id: undefined,
+        allowedHeaders: [],
+        allowedOrigins: [],
+        allowedMethods: [],
+        exposeHeaders: [],
+        maxAgeSeconds: undefined,
+    };
+    return applyCORSRuleCustom(message);
+}
+exports.LifecycleRule_Status = (0, index_js_1.createEnum)("nebius.storage.v1.LifecycleRule.Status", {
+    STATUS_UNSPECIFIED: 0,
+    ENABLED: 1,
+    DISABLED: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.LifecycleRule_Status);
+const LifecycleAccessFilter_Condition_Type_VALUE_COMMENTS = {
+    INCLUDE: " If an include type condition is the first condition that the request match, the request will be included in\n `days_since_last_access` calculation.\n",
+    EXCLUDE: " If an exclude type condition is the first condition that the request match, the request will be ignored in `days_since_last_access`\n calculation.\n",
+};
+exports.LifecycleAccessFilter_Condition_Type = (0, index_js_1.createEnum)("nebius.storage.v1.LifecycleAccessFilter.Condition.Type", {
+    TYPE_UNSPECIFIED: 0,
+    /**
+     *  If an include type condition is the first condition that the request match, the request will be included in
+     *  `days_since_last_access` calculation.
+     *
+     */
+    INCLUDE: 1,
+    /**
+     *  If an exclude type condition is the first condition that the request match, the request will be ignored in `days_since_last_access`
+     *  calculation.
+     *
+     */
+    EXCLUDE: 2,
+}, LifecycleAccessFilter_Condition_Type_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.LifecycleAccessFilter_Condition_Type);
+const LifecycleAccessFilter_Condition_Method_VALUE_COMMENTS = {
+    COPY_OBJECT: " Copy object method reads the source object.\n We account for those operations as source object accesses when calculating `days_since_last_access` for source object.\n",
+    UPLOAD_PART_COPY: " Upload part copy method reads the source object.\n We account for those operations as source object accesses when calculating `days_since_last_access` for source object.\n",
+};
+exports.LifecycleAccessFilter_Condition_Method = (0, index_js_1.createEnum)("nebius.storage.v1.LifecycleAccessFilter.Condition.Method", {
+    METHOD_UNSPECIFIED: 0,
+    GET_OBJECT: 1,
+    HEAD_OBJECT: 2,
+    GET_OBJECT_TAGGING: 3,
+    /**
+     *  Copy object method reads the source object.
+     *  We account for those operations as source object accesses when calculating `days_since_last_access` for source object.
+     *
+     */
+    COPY_OBJECT: 4,
+    /**
+     *  Upload part copy method reads the source object.
+     *  We account for those operations as source object accesses when calculating `days_since_last_access` for source object.
+     *
+     */
+    UPLOAD_PART_COPY: 5,
+}, LifecycleAccessFilter_Condition_Method_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.LifecycleAccessFilter_Condition_Method);
+exports.LifecycleConfiguration = {
+    $type: "nebius.storage.v1.LifecycleConfiguration",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.rules ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.LifecycleRule.encode(v, w);
+            w.join();
+        }
+        if (message.lastAccessFilter !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.LifecycleAccessFilter.encode(message.lastAccessFilter, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleConfiguration();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.rules.push(exports.LifecycleRule.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.lastAccessFilter = exports.LifecycleAccessFilter.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleConfigurationCustom({
+            $type: "nebius.storage.v1.LifecycleConfiguration",
+            rules: globalThis.Array.isArray(object?.rules ?? object?.rules)
+                ? (object.rules ?? object.rules).map((e) => exports.LifecycleRule.fromJSON(e))
+                : [],
+            lastAccessFilter: (0, index_js_1.isSet)(object.lastAccessFilter ?? object.last_access_filter)
+                ? exports.LifecycleAccessFilter.fromJSON(object.lastAccessFilter ?? object.last_access_filter)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.rules?.length) {
+            obj[pick("rules", "rules")] = message.rules.map((e) => e ? exports.LifecycleRule.toJSON(e, use) : undefined);
+        }
+        if (message.lastAccessFilter !== undefined) {
+            obj[pick("lastAccessFilter", "last_access_filter")] = message.lastAccessFilter
+                ? exports.LifecycleAccessFilter.toJSON(message.lastAccessFilter, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleConfiguration.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleConfiguration();
+        message.rules = object.rules?.map((e) => exports.LifecycleRule.fromPartial(e)) || [];
+        message.lastAccessFilter = (object.lastAccessFilter !== undefined && object.lastAccessFilter !== null)
+            ? exports.LifecycleAccessFilter.fromPartial(object.lastAccessFilter)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleConfiguration);
+function LifecycleConfigurationCustomInspect() {
+    const parts = [];
+    if ((this.rules?.length ?? 0) !== 0)
+        parts.push("rules" + "=" + (0, util_1.inspect)(this.rules));
+    if (this.lastAccessFilter !== undefined)
+        parts.push("lastAccessFilter" + "=" + (0, util_1.inspect)(this.lastAccessFilter));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleConfigurationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.rules?.length ?? 0) !== 0)
+        obj.rules = (0, logging_js_1.inspectJson)(this.rules);
+    if (this.lastAccessFilter !== undefined)
+        obj.lastAccessFilter = (0, logging_js_1.inspectJson)(this.lastAccessFilter);
+    return obj;
+}
+function applyLifecycleConfigurationCustom(message) {
+    message[logging_js_1.custom] = LifecycleConfigurationCustomInspect;
+    message[logging_js_1.customJson] = LifecycleConfigurationCustomJson;
+    return message;
+}
+function createBaseLifecycleConfiguration() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleConfiguration",
+        rules: [],
+        lastAccessFilter: undefined,
+    };
+    return applyLifecycleConfigurationCustom(message);
+}
+exports.LifecycleRule = {
+    $type: "nebius.storage.v1.LifecycleRule",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if ((message.status ?? exports.LifecycleRule_Status.STATUS_UNSPECIFIED) !== exports.LifecycleRule_Status.STATUS_UNSPECIFIED) {
+            exports.LifecycleRule_Status.encodeField(writer, 2, message.status);
+        }
+        if (message.filter !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.LifecycleFilter.encode(message.filter, w);
+            w.join();
+        }
+        if (message.expiration !== undefined) {
+            const w = writer.uint32(34).fork();
+            exports.LifecycleExpiration.encode(message.expiration, w);
+            w.join();
+        }
+        if (message.noncurrentVersionExpiration !== undefined) {
+            const w = writer.uint32(42).fork();
+            exports.LifecycleNoncurrentVersionExpiration.encode(message.noncurrentVersionExpiration, w);
+            w.join();
+        }
+        if (message.abortIncompleteMultipartUpload !== undefined) {
+            const w = writer.uint32(50).fork();
+            exports.LifecycleAbortIncompleteMultipartUpload.encode(message.abortIncompleteMultipartUpload, w);
+            w.join();
+        }
+        if (message.transition !== undefined) {
+            const w = writer.uint32(58).fork();
+            exports.LifecycleTransition.encode(message.transition, w);
+            w.join();
+        }
+        if (message.noncurrentVersionTransition !== undefined) {
+            const w = writer.uint32(66).fork();
+            exports.LifecycleNoncurrentVersionTransition.encode(message.noncurrentVersionTransition, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleRule();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.status = exports.LifecycleRule_Status.fromNumber(reader.int32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.filter = exports.LifecycleFilter.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.expiration = exports.LifecycleExpiration.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.noncurrentVersionExpiration = exports.LifecycleNoncurrentVersionExpiration.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 50)
+                        break;
+                    message.abortIncompleteMultipartUpload = exports.LifecycleAbortIncompleteMultipartUpload.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 7: {
+                    if (tag !== 58)
+                        break;
+                    message.transition = exports.LifecycleTransition.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 8: {
+                    if (tag !== 66)
+                        break;
+                    message.noncurrentVersionTransition = exports.LifecycleNoncurrentVersionTransition.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleRuleCustom({
+            $type: "nebius.storage.v1.LifecycleRule",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.LifecycleRule_Status.fromJSON(object.status ?? object.status)
+                : exports.LifecycleRule_Status.STATUS_UNSPECIFIED,
+            filter: (0, index_js_1.isSet)(object.filter ?? object.filter)
+                ? exports.LifecycleFilter.fromJSON(object.filter ?? object.filter)
+                : undefined,
+            expiration: (0, index_js_1.isSet)(object.expiration ?? object.expiration)
+                ? exports.LifecycleExpiration.fromJSON(object.expiration ?? object.expiration)
+                : undefined,
+            noncurrentVersionExpiration: (0, index_js_1.isSet)(object.noncurrentVersionExpiration ?? object.noncurrent_version_expiration)
+                ? exports.LifecycleNoncurrentVersionExpiration.fromJSON(object.noncurrentVersionExpiration ?? object.noncurrent_version_expiration)
+                : undefined,
+            abortIncompleteMultipartUpload: (0, index_js_1.isSet)(object.abortIncompleteMultipartUpload ?? object.abort_incomplete_multipart_upload)
+                ? exports.LifecycleAbortIncompleteMultipartUpload.fromJSON(object.abortIncompleteMultipartUpload ?? object.abort_incomplete_multipart_upload)
+                : undefined,
+            transition: (0, index_js_1.isSet)(object.transition ?? object.transition)
+                ? exports.LifecycleTransition.fromJSON(object.transition ?? object.transition)
+                : undefined,
+            noncurrentVersionTransition: (0, index_js_1.isSet)(object.noncurrentVersionTransition ?? object.noncurrent_version_transition)
+                ? exports.LifecycleNoncurrentVersionTransition.fromJSON(object.noncurrentVersionTransition ?? object.noncurrent_version_transition)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if ((message.status ?? exports.LifecycleRule_Status.STATUS_UNSPECIFIED) !== exports.LifecycleRule_Status.STATUS_UNSPECIFIED) {
+            obj[pick("status", "status")] = exports.LifecycleRule_Status.toJSON(message.status);
+        }
+        if (message.filter !== undefined) {
+            obj[pick("filter", "filter")] = message.filter
+                ? exports.LifecycleFilter.toJSON(message.filter, use)
+                : undefined;
+        }
+        if (message.expiration !== undefined) {
+            obj[pick("expiration", "expiration")] = message.expiration
+                ? exports.LifecycleExpiration.toJSON(message.expiration, use)
+                : undefined;
+        }
+        if (message.noncurrentVersionExpiration !== undefined) {
+            obj[pick("noncurrentVersionExpiration", "noncurrent_version_expiration")] = message.noncurrentVersionExpiration
+                ? exports.LifecycleNoncurrentVersionExpiration.toJSON(message.noncurrentVersionExpiration, use)
+                : undefined;
+        }
+        if (message.abortIncompleteMultipartUpload !== undefined) {
+            obj[pick("abortIncompleteMultipartUpload", "abort_incomplete_multipart_upload")] = message.abortIncompleteMultipartUpload
+                ? exports.LifecycleAbortIncompleteMultipartUpload.toJSON(message.abortIncompleteMultipartUpload, use)
+                : undefined;
+        }
+        if (message.transition !== undefined) {
+            obj[pick("transition", "transition")] = message.transition
+                ? exports.LifecycleTransition.toJSON(message.transition, use)
+                : undefined;
+        }
+        if (message.noncurrentVersionTransition !== undefined) {
+            obj[pick("noncurrentVersionTransition", "noncurrent_version_transition")] = message.noncurrentVersionTransition
+                ? exports.LifecycleNoncurrentVersionTransition.toJSON(message.noncurrentVersionTransition, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleRule.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleRule();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.LifecycleRule_Status.fromJSON(object.status.name)
+            : exports.LifecycleRule_Status.STATUS_UNSPECIFIED;
+        message.filter = (object.filter !== undefined && object.filter !== null)
+            ? exports.LifecycleFilter.fromPartial(object.filter)
+            : undefined;
+        message.expiration = (object.expiration !== undefined && object.expiration !== null)
+            ? exports.LifecycleExpiration.fromPartial(object.expiration)
+            : undefined;
+        message.noncurrentVersionExpiration = (object.noncurrentVersionExpiration !== undefined && object.noncurrentVersionExpiration !== null)
+            ? exports.LifecycleNoncurrentVersionExpiration.fromPartial(object.noncurrentVersionExpiration)
+            : undefined;
+        message.abortIncompleteMultipartUpload = (object.abortIncompleteMultipartUpload !== undefined && object.abortIncompleteMultipartUpload !== null)
+            ? exports.LifecycleAbortIncompleteMultipartUpload.fromPartial(object.abortIncompleteMultipartUpload)
+            : undefined;
+        message.transition = (object.transition !== undefined && object.transition !== null)
+            ? exports.LifecycleTransition.fromPartial(object.transition)
+            : undefined;
+        message.noncurrentVersionTransition = (object.noncurrentVersionTransition !== undefined && object.noncurrentVersionTransition !== null)
+            ? exports.LifecycleNoncurrentVersionTransition.fromPartial(object.noncurrentVersionTransition)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleRule);
+function LifecycleRuleCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    if (this.filter !== undefined)
+        parts.push("filter" + "=" + (0, util_1.inspect)(this.filter));
+    if (this.expiration !== undefined)
+        parts.push("expiration" + "=" + (0, util_1.inspect)(this.expiration));
+    if (this.noncurrentVersionExpiration !== undefined)
+        parts.push("noncurrentVersionExpiration" + "=" + (0, util_1.inspect)(this.noncurrentVersionExpiration));
+    if (this.abortIncompleteMultipartUpload !== undefined)
+        parts.push("abortIncompleteMultipartUpload" + "=" + (0, util_1.inspect)(this.abortIncompleteMultipartUpload));
+    if (this.transition !== undefined)
+        parts.push("transition" + "=" + (0, util_1.inspect)(this.transition));
+    if (this.noncurrentVersionTransition !== undefined)
+        parts.push("noncurrentVersionTransition" + "=" + (0, util_1.inspect)(this.noncurrentVersionTransition));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleRuleCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    if (this.filter !== undefined)
+        obj.filter = (0, logging_js_1.inspectJson)(this.filter);
+    if (this.expiration !== undefined)
+        obj.expiration = (0, logging_js_1.inspectJson)(this.expiration);
+    if (this.noncurrentVersionExpiration !== undefined)
+        obj.noncurrentVersionExpiration = (0, logging_js_1.inspectJson)(this.noncurrentVersionExpiration);
+    if (this.abortIncompleteMultipartUpload !== undefined)
+        obj.abortIncompleteMultipartUpload = (0, logging_js_1.inspectJson)(this.abortIncompleteMultipartUpload);
+    if (this.transition !== undefined)
+        obj.transition = (0, logging_js_1.inspectJson)(this.transition);
+    if (this.noncurrentVersionTransition !== undefined)
+        obj.noncurrentVersionTransition = (0, logging_js_1.inspectJson)(this.noncurrentVersionTransition);
+    return obj;
+}
+function applyLifecycleRuleCustom(message) {
+    message[logging_js_1.custom] = LifecycleRuleCustomInspect;
+    message[logging_js_1.customJson] = LifecycleRuleCustomJson;
+    return message;
+}
+function createBaseLifecycleRule() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleRule",
+        id: "",
+        status: exports.LifecycleRule_Status.STATUS_UNSPECIFIED,
+        filter: undefined,
+        expiration: undefined,
+        noncurrentVersionExpiration: undefined,
+        abortIncompleteMultipartUpload: undefined,
+        transition: undefined,
+        noncurrentVersionTransition: undefined,
+    };
+    return applyLifecycleRuleCustom(message);
+}
+exports.LifecycleFilter = {
+    $type: "nebius.storage.v1.LifecycleFilter",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.prefix !== "") {
+            writer.uint32(10).string(message.prefix);
+        }
+        if (message.objectSizeGreaterThanBytes !== undefined && !message.objectSizeGreaterThanBytes.isZero?.()) {
+            writer.uint32(16).int64(message.objectSizeGreaterThanBytes.toString());
+        }
+        if (message.objectSizeLessThanBytes !== undefined && !message.objectSizeLessThanBytes.isZero?.()) {
+            writer.uint32(24).int64(message.objectSizeLessThanBytes.toString());
+        }
+        for (const v of (message.tags ?? [])) {
+            const w = writer.uint32(34).fork();
+            exports.LifecycleFilter_Tag.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleFilter();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.prefix = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.objectSizeGreaterThanBytes = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.objectSizeLessThanBytes = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.tags.push(exports.LifecycleFilter_Tag.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleFilterCustom({
+            $type: "nebius.storage.v1.LifecycleFilter",
+            prefix: (0, index_js_1.isSet)(object.prefix ?? object.prefix)
+                ? String(object.prefix ?? object.prefix)
+                : "",
+            objectSizeGreaterThanBytes: (0, index_js_1.isSet)(object.objectSizeGreaterThanBytes ?? object.object_size_greater_than_bytes)
+                ? index_js_1.Long.fromValue(object.objectSizeGreaterThanBytes ?? object.object_size_greater_than_bytes)
+                : index_js_1.Long.ZERO,
+            objectSizeLessThanBytes: (0, index_js_1.isSet)(object.objectSizeLessThanBytes ?? object.object_size_less_than_bytes)
+                ? index_js_1.Long.fromValue(object.objectSizeLessThanBytes ?? object.object_size_less_than_bytes)
+                : index_js_1.Long.ZERO,
+            tags: globalThis.Array.isArray(object?.tags ?? object?.tags)
+                ? (object.tags ?? object.tags).map((e) => exports.LifecycleFilter_Tag.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.prefix !== "") {
+            obj[pick("prefix", "prefix")] = message.prefix;
+        }
+        if (!message.objectSizeGreaterThanBytes?.isZero?.()) {
+            obj[pick("objectSizeGreaterThanBytes", "object_size_greater_than_bytes")] = (message.objectSizeGreaterThanBytes || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.objectSizeLessThanBytes?.isZero?.()) {
+            obj[pick("objectSizeLessThanBytes", "object_size_less_than_bytes")] = (message.objectSizeLessThanBytes || index_js_1.Long.ZERO).toString();
+        }
+        if (message.tags?.length) {
+            obj[pick("tags", "tags")] = message.tags.map((e) => e ? exports.LifecycleFilter_Tag.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleFilter.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleFilter();
+        message.prefix = (object.prefix !== undefined && object.prefix !== null)
+            ? object.prefix
+            : "";
+        message.objectSizeGreaterThanBytes = (object.objectSizeGreaterThanBytes !== undefined && object.objectSizeGreaterThanBytes !== null)
+            ? index_js_1.Long.fromValue(object.objectSizeGreaterThanBytes)
+            : index_js_1.Long.ZERO;
+        message.objectSizeLessThanBytes = (object.objectSizeLessThanBytes !== undefined && object.objectSizeLessThanBytes !== null)
+            ? index_js_1.Long.fromValue(object.objectSizeLessThanBytes)
+            : index_js_1.Long.ZERO;
+        message.tags = object.tags?.map((e) => exports.LifecycleFilter_Tag.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleFilter);
+function LifecycleFilterCustomInspect() {
+    const parts = [];
+    if (this.prefix !== "")
+        parts.push("prefix" + "=" + (0, util_1.inspect)(this.prefix));
+    if (!this.objectSizeGreaterThanBytes?.isZero?.())
+        parts.push("objectSizeGreaterThanBytes" + "=" + (0, util_1.inspect)(this.objectSizeGreaterThanBytes));
+    if (!this.objectSizeLessThanBytes?.isZero?.())
+        parts.push("objectSizeLessThanBytes" + "=" + (0, util_1.inspect)(this.objectSizeLessThanBytes));
+    if ((this.tags?.length ?? 0) !== 0)
+        parts.push("tags" + "=" + (0, util_1.inspect)(this.tags));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleFilterCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.prefix !== "")
+        obj.prefix = (0, logging_js_1.inspectJson)(this.prefix);
+    if (!this.objectSizeGreaterThanBytes?.isZero?.())
+        obj.objectSizeGreaterThanBytes = (0, logging_js_1.inspectJson)(this.objectSizeGreaterThanBytes);
+    if (!this.objectSizeLessThanBytes?.isZero?.())
+        obj.objectSizeLessThanBytes = (0, logging_js_1.inspectJson)(this.objectSizeLessThanBytes);
+    if ((this.tags?.length ?? 0) !== 0)
+        obj.tags = (0, logging_js_1.inspectJson)(this.tags);
+    return obj;
+}
+function applyLifecycleFilterCustom(message) {
+    message[logging_js_1.custom] = LifecycleFilterCustomInspect;
+    message[logging_js_1.customJson] = LifecycleFilterCustomJson;
+    return message;
+}
+function createBaseLifecycleFilter() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleFilter",
+        prefix: "",
+        objectSizeGreaterThanBytes: index_js_1.Long.ZERO,
+        objectSizeLessThanBytes: index_js_1.Long.ZERO,
+        tags: [],
+    };
+    return applyLifecycleFilterCustom(message);
+}
+exports.LifecycleFilter_Tag = {
+    $type: "nebius.storage.v1.LifecycleFilter.Tag",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.key !== "") {
+            writer.uint32(10).string(message.key);
+        }
+        if (message.value !== "") {
+            writer.uint32(18).string(message.value);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleFilter_Tag();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.key = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.value = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleFilter_TagCustom({
+            $type: "nebius.storage.v1.LifecycleFilter.Tag",
+            key: (0, index_js_1.isSet)(object.key ?? object.key)
+                ? String(object.key ?? object.key)
+                : "",
+            value: (0, index_js_1.isSet)(object.value ?? object.value)
+                ? String(object.value ?? object.value)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.key !== "") {
+            obj[pick("key", "key")] = message.key;
+        }
+        if (message.value !== "") {
+            obj[pick("value", "value")] = message.value;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleFilter_Tag.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleFilter_Tag();
+        message.key = (object.key !== undefined && object.key !== null)
+            ? object.key
+            : "";
+        message.value = (object.value !== undefined && object.value !== null)
+            ? object.value
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleFilter_Tag);
+function LifecycleFilter_TagCustomInspect() {
+    const parts = [];
+    if (this.key !== "")
+        parts.push("key" + "=" + (0, util_1.inspect)(this.key));
+    if (this.value !== "")
+        parts.push("value" + "=" + (0, util_1.inspect)(this.value));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleFilter_TagCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.key !== "")
+        obj.key = (0, logging_js_1.inspectJson)(this.key);
+    if (this.value !== "")
+        obj.value = (0, logging_js_1.inspectJson)(this.value);
+    return obj;
+}
+function applyLifecycleFilter_TagCustom(message) {
+    message[logging_js_1.custom] = LifecycleFilter_TagCustomInspect;
+    message[logging_js_1.customJson] = LifecycleFilter_TagCustomJson;
+    return message;
+}
+function createBaseLifecycleFilter_Tag() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleFilter.Tag",
+        key: "",
+        value: "",
+    };
+    return applyLifecycleFilter_TagCustom(message);
+}
+exports.LifecycleAccessFilter = {
+    $type: "nebius.storage.v1.LifecycleAccessFilter",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.conditions ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.LifecycleAccessFilter_Condition.encode(v, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleAccessFilter();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.conditions.push(exports.LifecycleAccessFilter_Condition.decode(reader, reader.uint32()));
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleAccessFilterCustom({
+            $type: "nebius.storage.v1.LifecycleAccessFilter",
+            conditions: globalThis.Array.isArray(object?.conditions ?? object?.conditions)
+                ? (object.conditions ?? object.conditions).map((e) => exports.LifecycleAccessFilter_Condition.fromJSON(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.conditions?.length) {
+            obj[pick("conditions", "conditions")] = message.conditions.map((e) => e ? exports.LifecycleAccessFilter_Condition.toJSON(e, use) : undefined);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleAccessFilter.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleAccessFilter();
+        message.conditions = object.conditions?.map((e) => exports.LifecycleAccessFilter_Condition.fromPartial(e)) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleAccessFilter);
+function LifecycleAccessFilterCustomInspect() {
+    const parts = [];
+    if ((this.conditions?.length ?? 0) !== 0)
+        parts.push("conditions" + "=" + (0, util_1.inspect)(this.conditions));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleAccessFilterCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.conditions?.length ?? 0) !== 0)
+        obj.conditions = (0, logging_js_1.inspectJson)(this.conditions);
+    return obj;
+}
+function applyLifecycleAccessFilterCustom(message) {
+    message[logging_js_1.custom] = LifecycleAccessFilterCustomInspect;
+    message[logging_js_1.customJson] = LifecycleAccessFilterCustomJson;
+    return message;
+}
+function createBaseLifecycleAccessFilter() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleAccessFilter",
+        conditions: [],
+    };
+    return applyLifecycleAccessFilterCustom(message);
+}
+exports.LifecycleAccessFilter_Condition = {
+    $type: "nebius.storage.v1.LifecycleAccessFilter.Condition",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.type ?? exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED) !== exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED) {
+            exports.LifecycleAccessFilter_Condition_Type.encodeField(writer, 1, message.type);
+        }
+        if (message.methods?.length) {
+            const w = writer.uint32(18).fork();
+            for (const v of message.methods)
+                w.int32(v?.code | 0);
+            w.join();
+        }
+        for (const v of (message.userAgents ?? [])) {
+            writer.uint32(26).string(v);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleAccessFilter_Condition();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.type = exports.LifecycleAccessFilter_Condition_Type.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    // packed or unpacked repeated enum
+                    if ((tag & 7) === 2) {
+                        const end2 = reader.uint32() + reader.pos;
+                        while (reader.pos < end2) {
+                            message.methods.push(exports.LifecycleAccessFilter_Condition_Method.fromNumber(reader.int32()));
+                        }
+                        continue;
+                    }
+                    else if ((tag & 7) === 0) {
+                        message.methods.push(exports.LifecycleAccessFilter_Condition_Method.fromNumber(reader.int32()));
+                        continue;
+                    }
+                    break; // wrong wire type
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.userAgents.push(reader.string());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleAccessFilter_ConditionCustom({
+            $type: "nebius.storage.v1.LifecycleAccessFilter.Condition",
+            type: (0, index_js_1.isSet)(object.type ?? object.type)
+                ? exports.LifecycleAccessFilter_Condition_Type.fromJSON(object.type ?? object.type)
+                : exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED,
+            methods: globalThis.Array.isArray(object?.methods ?? object?.methods)
+                ? (object.methods ?? object.methods).map((e) => exports.LifecycleAccessFilter_Condition_Method.fromJSON(e))
+                : [],
+            userAgents: globalThis.Array.isArray(object?.userAgents ?? object?.user_agents)
+                ? (object.userAgents ?? object.user_agents).map((e) => String(e))
+                : [],
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.type ?? exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED) !== exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED) {
+            obj[pick("type", "type")] = exports.LifecycleAccessFilter_Condition_Type.toJSON(message.type);
+        }
+        if (message.methods?.length) {
+            obj[pick("methods", "methods")] = message.methods.map((e) => exports.LifecycleAccessFilter_Condition_Method.toJSON(e));
+        }
+        if (message.userAgents?.length) {
+            obj[pick("userAgents", "user_agents")] = message.userAgents.map((e) => e);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleAccessFilter_Condition.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleAccessFilter_Condition();
+        message.type = (object.type !== undefined && object.type !== null)
+            ? exports.LifecycleAccessFilter_Condition_Type.fromJSON(object.type.name)
+            : exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED;
+        message.methods = object.methods?.map((e) => exports.LifecycleAccessFilter_Condition_Method.fromJSON(e.name)) || [];
+        message.userAgents = object.userAgents?.map((e) => e) || [];
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleAccessFilter_Condition);
+function LifecycleAccessFilter_ConditionCustomInspect() {
+    const parts = [];
+    if (this.type !== undefined)
+        parts.push("type" + "=" + (0, util_1.inspect)(this.type));
+    if ((this.methods?.length ?? 0) !== 0)
+        parts.push("methods" + "=" + (0, util_1.inspect)(this.methods));
+    if ((this.userAgents?.length ?? 0) !== 0)
+        parts.push("userAgents" + "=" + (0, util_1.inspect)(this.userAgents));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleAccessFilter_ConditionCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.type !== undefined)
+        obj.type = (0, logging_js_1.inspectJson)(this.type);
+    if ((this.methods?.length ?? 0) !== 0)
+        obj.methods = (0, logging_js_1.inspectJson)(this.methods);
+    if ((this.userAgents?.length ?? 0) !== 0)
+        obj.userAgents = (0, logging_js_1.inspectJson)(this.userAgents);
+    return obj;
+}
+function applyLifecycleAccessFilter_ConditionCustom(message) {
+    message[logging_js_1.custom] = LifecycleAccessFilter_ConditionCustomInspect;
+    message[logging_js_1.customJson] = LifecycleAccessFilter_ConditionCustomJson;
+    return message;
+}
+function createBaseLifecycleAccessFilter_Condition() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleAccessFilter.Condition",
+        type: exports.LifecycleAccessFilter_Condition_Type.TYPE_UNSPECIFIED,
+        methods: [],
+        userAgents: [],
+    };
+    return applyLifecycleAccessFilter_ConditionCustom(message);
+}
+exports.LifecycleExpiration = {
+    $type: "nebius.storage.v1.LifecycleExpiration",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.expiredObjectDeleteMarker === true) {
+            writer.uint32(24).bool(message.expiredObjectDeleteMarker);
+        }
+        if (message.expiredWith?.$case === undefined) { /* noop */ }
+        else if (message.expiredWith?.$case === "date") {
+            const w = writer.uint32(10).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.expiredWith.date);
+            w.join();
+        }
+        else if (message.expiredWith?.$case === "days") {
+            writer.uint32(16).int32(message.expiredWith.days);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleExpiration();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.expiredObjectDeleteMarker = reader.bool();
+                    continue;
+                }
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    const len = reader.uint32();
+                    message.expiredWith = {
+                        $case: "date",
+                        date: index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len)
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.expiredWith = {
+                        $case: "days",
+                        days: reader.int32()
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleExpirationCustom({
+            $type: "nebius.storage.v1.LifecycleExpiration",
+            expiredObjectDeleteMarker: (0, index_js_1.isSet)(object.expiredObjectDeleteMarker ?? object.expired_object_delete_marker)
+                ? Boolean(object.expiredObjectDeleteMarker ?? object.expired_object_delete_marker)
+                : false,
+            expiredWith: (() => {
+                if ((0, index_js_1.isSet)(object.date) || (0, index_js_1.isSet)(object.date)) {
+                    return {
+                        $case: "date",
+                        date: index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.date ?? object.date)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.days) || (0, index_js_1.isSet)(object.days)) {
+                    return {
+                        $case: "days",
+                        days: Number(object.days ?? object.days)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.expiredObjectDeleteMarker === true) {
+            obj[pick("expiredObjectDeleteMarker", "expired_object_delete_marker")] = message.expiredObjectDeleteMarker;
+        }
+        switch (message.expiredWith?.$case) {
+            case "date": {
+                obj[pick("date", "date")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.expiredWith.date, use);
+                break;
+            }
+            case "days": {
+                obj[pick("days", "days")] = message.expiredWith.days;
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleExpiration.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleExpiration();
+        message.expiredObjectDeleteMarker = (object.expiredObjectDeleteMarker !== undefined && object.expiredObjectDeleteMarker !== null)
+            ? object.expiredObjectDeleteMarker
+            : false;
+        switch (object.expiredWith?.$case) {
+            case "date": {
+                if (object.expiredWith?.date !== undefined && object.expiredWith?.date !== null) {
+                    message.expiredWith = {
+                        $case: "date",
+                        date: index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.expiredWith.date),
+                    };
+                }
+                break;
+            }
+            case "days": {
+                if (object.expiredWith?.days !== undefined && object.expiredWith?.days !== null) {
+                    message.expiredWith = {
+                        $case: "days",
+                        days: object.expiredWith.days,
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleExpiration);
+function LifecycleExpirationCustomInspect() {
+    const parts = [];
+    if (this.expiredObjectDeleteMarker === true)
+        parts.push("expiredObjectDeleteMarker" + "=" + (0, util_1.inspect)(this.expiredObjectDeleteMarker));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleExpirationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.expiredObjectDeleteMarker === true)
+        obj.expiredObjectDeleteMarker = (0, logging_js_1.inspectJson)(this.expiredObjectDeleteMarker);
+    return obj;
+}
+function applyLifecycleExpirationCustom(message) {
+    message[logging_js_1.custom] = LifecycleExpirationCustomInspect;
+    message[logging_js_1.customJson] = LifecycleExpirationCustomJson;
+    return message;
+}
+function createBaseLifecycleExpiration() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleExpiration",
+        expiredObjectDeleteMarker: false,
+        expiredWith: undefined,
+    };
+    return applyLifecycleExpirationCustom(message);
+}
+exports.LifecycleNoncurrentVersionExpiration = {
+    $type: "nebius.storage.v1.LifecycleNoncurrentVersionExpiration",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.newerNoncurrentVersions !== undefined) {
+            writer.uint32(8).int32(message.newerNoncurrentVersions);
+        }
+        if ((message.noncurrentDays ?? 0) !== 0) {
+            writer.uint32(16).int32(message.noncurrentDays);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleNoncurrentVersionExpiration();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.newerNoncurrentVersions = reader.int32();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.noncurrentDays = reader.int32();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleNoncurrentVersionExpirationCustom({
+            $type: "nebius.storage.v1.LifecycleNoncurrentVersionExpiration",
+            newerNoncurrentVersions: (0, index_js_1.isSet)(object.newerNoncurrentVersions ?? object.newer_noncurrent_versions)
+                ? Number(object.newerNoncurrentVersions ?? object.newer_noncurrent_versions)
+                : undefined,
+            noncurrentDays: (0, index_js_1.isSet)(object.noncurrentDays ?? object.noncurrent_days)
+                ? Number(object.noncurrentDays ?? object.noncurrent_days)
+                : 0,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.newerNoncurrentVersions !== undefined) {
+            obj[pick("newerNoncurrentVersions", "newer_noncurrent_versions")] = message.newerNoncurrentVersions;
+        }
+        if ((message.noncurrentDays ?? 0) !== 0) {
+            obj[pick("noncurrentDays", "noncurrent_days")] = message.noncurrentDays;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleNoncurrentVersionExpiration.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleNoncurrentVersionExpiration();
+        message.newerNoncurrentVersions = (object.newerNoncurrentVersions !== undefined && object.newerNoncurrentVersions !== null)
+            ? object.newerNoncurrentVersions
+            : undefined;
+        message.noncurrentDays = (object.noncurrentDays !== undefined && object.noncurrentDays !== null)
+            ? object.noncurrentDays
+            : 0;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleNoncurrentVersionExpiration);
+function LifecycleNoncurrentVersionExpirationCustomInspect() {
+    const parts = [];
+    if (this.newerNoncurrentVersions !== undefined)
+        parts.push("newerNoncurrentVersions" + "=" + (0, util_1.inspect)(this.newerNoncurrentVersions));
+    if ((this.noncurrentDays ?? 0) !== 0)
+        parts.push("noncurrentDays" + "=" + (0, util_1.inspect)(this.noncurrentDays));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleNoncurrentVersionExpirationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.newerNoncurrentVersions !== undefined)
+        obj.newerNoncurrentVersions = (0, logging_js_1.inspectJson)(this.newerNoncurrentVersions);
+    if ((this.noncurrentDays ?? 0) !== 0)
+        obj.noncurrentDays = (0, logging_js_1.inspectJson)(this.noncurrentDays);
+    return obj;
+}
+function applyLifecycleNoncurrentVersionExpirationCustom(message) {
+    message[logging_js_1.custom] = LifecycleNoncurrentVersionExpirationCustomInspect;
+    message[logging_js_1.customJson] = LifecycleNoncurrentVersionExpirationCustomJson;
+    return message;
+}
+function createBaseLifecycleNoncurrentVersionExpiration() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleNoncurrentVersionExpiration",
+        newerNoncurrentVersions: undefined,
+        noncurrentDays: 0,
+    };
+    return applyLifecycleNoncurrentVersionExpirationCustom(message);
+}
+exports.LifecycleAbortIncompleteMultipartUpload = {
+    $type: "nebius.storage.v1.LifecycleAbortIncompleteMultipartUpload",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.daysAfterInitiation ?? 0) !== 0) {
+            writer.uint32(8).int32(message.daysAfterInitiation);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleAbortIncompleteMultipartUpload();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.daysAfterInitiation = reader.int32();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleAbortIncompleteMultipartUploadCustom({
+            $type: "nebius.storage.v1.LifecycleAbortIncompleteMultipartUpload",
+            daysAfterInitiation: (0, index_js_1.isSet)(object.daysAfterInitiation ?? object.days_after_initiation)
+                ? Number(object.daysAfterInitiation ?? object.days_after_initiation)
+                : 0,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.daysAfterInitiation ?? 0) !== 0) {
+            obj[pick("daysAfterInitiation", "days_after_initiation")] = message.daysAfterInitiation;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleAbortIncompleteMultipartUpload.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleAbortIncompleteMultipartUpload();
+        message.daysAfterInitiation = (object.daysAfterInitiation !== undefined && object.daysAfterInitiation !== null)
+            ? object.daysAfterInitiation
+            : 0;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleAbortIncompleteMultipartUpload);
+function LifecycleAbortIncompleteMultipartUploadCustomInspect() {
+    const parts = [];
+    if ((this.daysAfterInitiation ?? 0) !== 0)
+        parts.push("daysAfterInitiation" + "=" + (0, util_1.inspect)(this.daysAfterInitiation));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleAbortIncompleteMultipartUploadCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.daysAfterInitiation ?? 0) !== 0)
+        obj.daysAfterInitiation = (0, logging_js_1.inspectJson)(this.daysAfterInitiation);
+    return obj;
+}
+function applyLifecycleAbortIncompleteMultipartUploadCustom(message) {
+    message[logging_js_1.custom] = LifecycleAbortIncompleteMultipartUploadCustomInspect;
+    message[logging_js_1.customJson] = LifecycleAbortIncompleteMultipartUploadCustomJson;
+    return message;
+}
+function createBaseLifecycleAbortIncompleteMultipartUpload() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleAbortIncompleteMultipartUpload",
+        daysAfterInitiation: 0,
+    };
+    return applyLifecycleAbortIncompleteMultipartUploadCustom(message);
+}
+exports.LifecycleTransition = {
+    $type: "nebius.storage.v1.LifecycleTransition",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.storageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            exports.StorageClass.encodeField(writer, 3, message.storageClass);
+        }
+        if (message.transitedWith?.$case === undefined) { /* noop */ }
+        else if (message.transitedWith?.$case === "date") {
+            const w = writer.uint32(10).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.transitedWith.date);
+            w.join();
+        }
+        else if (message.transitedWith?.$case === "days") {
+            writer.uint32(16).int32(message.transitedWith.days);
+        }
+        else if (message.transitedWith?.$case === "daysSinceLastAccess") {
+            writer.uint32(32).int32(message.transitedWith.daysSinceLastAccess);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleTransition();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.storageClass = exports.StorageClass.fromNumber(reader.int32());
+                    continue;
+                }
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    const len = reader.uint32();
+                    message.transitedWith = {
+                        $case: "date",
+                        date: index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len)
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.transitedWith = {
+                        $case: "days",
+                        days: reader.int32()
+                    };
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 32)
+                        break;
+                    message.transitedWith = {
+                        $case: "daysSinceLastAccess",
+                        daysSinceLastAccess: reader.int32()
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleTransitionCustom({
+            $type: "nebius.storage.v1.LifecycleTransition",
+            storageClass: (0, index_js_1.isSet)(object.storageClass ?? object.storage_class)
+                ? exports.StorageClass.fromJSON(object.storageClass ?? object.storage_class)
+                : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+            transitedWith: (() => {
+                if ((0, index_js_1.isSet)(object.date) || (0, index_js_1.isSet)(object.date)) {
+                    return {
+                        $case: "date",
+                        date: index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.date ?? object.date)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.days) || (0, index_js_1.isSet)(object.days)) {
+                    return {
+                        $case: "days",
+                        days: Number(object.days ?? object.days)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.daysSinceLastAccess) || (0, index_js_1.isSet)(object.days_since_last_access)) {
+                    return {
+                        $case: "daysSinceLastAccess",
+                        daysSinceLastAccess: Number(object.daysSinceLastAccess ?? object.days_since_last_access)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.storageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            obj[pick("storageClass", "storage_class")] = exports.StorageClass.toJSON(message.storageClass);
+        }
+        switch (message.transitedWith?.$case) {
+            case "date": {
+                obj[pick("date", "date")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.transitedWith.date, use);
+                break;
+            }
+            case "days": {
+                obj[pick("days", "days")] = message.transitedWith.days;
+                break;
+            }
+            case "daysSinceLastAccess": {
+                obj[pick("daysSinceLastAccess", "days_since_last_access")] = message.transitedWith.daysSinceLastAccess;
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleTransition.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleTransition();
+        message.storageClass = (object.storageClass !== undefined && object.storageClass !== null)
+            ? exports.StorageClass.fromJSON(object.storageClass.name)
+            : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED;
+        switch (object.transitedWith?.$case) {
+            case "date": {
+                if (object.transitedWith?.date !== undefined && object.transitedWith?.date !== null) {
+                    message.transitedWith = {
+                        $case: "date",
+                        date: index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.transitedWith.date),
+                    };
+                }
+                break;
+            }
+            case "days": {
+                if (object.transitedWith?.days !== undefined && object.transitedWith?.days !== null) {
+                    message.transitedWith = {
+                        $case: "days",
+                        days: object.transitedWith.days,
+                    };
+                }
+                break;
+            }
+            case "daysSinceLastAccess": {
+                if (object.transitedWith?.daysSinceLastAccess !== undefined && object.transitedWith?.daysSinceLastAccess !== null) {
+                    message.transitedWith = {
+                        $case: "daysSinceLastAccess",
+                        daysSinceLastAccess: object.transitedWith.daysSinceLastAccess,
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleTransition);
+function LifecycleTransitionCustomInspect() {
+    const parts = [];
+    if (this.storageClass !== undefined)
+        parts.push("storageClass" + "=" + (0, util_1.inspect)(this.storageClass));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleTransitionCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.storageClass !== undefined)
+        obj.storageClass = (0, logging_js_1.inspectJson)(this.storageClass);
+    return obj;
+}
+function applyLifecycleTransitionCustom(message) {
+    message[logging_js_1.custom] = LifecycleTransitionCustomInspect;
+    message[logging_js_1.customJson] = LifecycleTransitionCustomJson;
+    return message;
+}
+function createBaseLifecycleTransition() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleTransition",
+        storageClass: exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+        transitedWith: undefined,
+    };
+    return applyLifecycleTransitionCustom(message);
+}
+exports.LifecycleNoncurrentVersionTransition = {
+    $type: "nebius.storage.v1.LifecycleNoncurrentVersionTransition",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.newerNoncurrentVersions !== undefined) {
+            writer.uint32(8).int32(message.newerNoncurrentVersions);
+        }
+        if ((message.noncurrentDays ?? 0) !== 0) {
+            writer.uint32(16).int32(message.noncurrentDays);
+        }
+        if ((message.storageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            exports.StorageClass.encodeField(writer, 3, message.storageClass);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseLifecycleNoncurrentVersionTransition();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.newerNoncurrentVersions = reader.int32();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.noncurrentDays = reader.int32();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.storageClass = exports.StorageClass.fromNumber(reader.int32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyLifecycleNoncurrentVersionTransitionCustom({
+            $type: "nebius.storage.v1.LifecycleNoncurrentVersionTransition",
+            newerNoncurrentVersions: (0, index_js_1.isSet)(object.newerNoncurrentVersions ?? object.newer_noncurrent_versions)
+                ? Number(object.newerNoncurrentVersions ?? object.newer_noncurrent_versions)
+                : undefined,
+            noncurrentDays: (0, index_js_1.isSet)(object.noncurrentDays ?? object.noncurrent_days)
+                ? Number(object.noncurrentDays ?? object.noncurrent_days)
+                : 0,
+            storageClass: (0, index_js_1.isSet)(object.storageClass ?? object.storage_class)
+                ? exports.StorageClass.fromJSON(object.storageClass ?? object.storage_class)
+                : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.newerNoncurrentVersions !== undefined) {
+            obj[pick("newerNoncurrentVersions", "newer_noncurrent_versions")] = message.newerNoncurrentVersions;
+        }
+        if ((message.noncurrentDays ?? 0) !== 0) {
+            obj[pick("noncurrentDays", "noncurrent_days")] = message.noncurrentDays;
+        }
+        if ((message.storageClass ?? exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) !== exports.StorageClass.STORAGE_CLASS_UNSPECIFIED) {
+            obj[pick("storageClass", "storage_class")] = exports.StorageClass.toJSON(message.storageClass);
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.LifecycleNoncurrentVersionTransition.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseLifecycleNoncurrentVersionTransition();
+        message.newerNoncurrentVersions = (object.newerNoncurrentVersions !== undefined && object.newerNoncurrentVersions !== null)
+            ? object.newerNoncurrentVersions
+            : undefined;
+        message.noncurrentDays = (object.noncurrentDays !== undefined && object.noncurrentDays !== null)
+            ? object.noncurrentDays
+            : 0;
+        message.storageClass = (object.storageClass !== undefined && object.storageClass !== null)
+            ? exports.StorageClass.fromJSON(object.storageClass.name)
+            : exports.StorageClass.STORAGE_CLASS_UNSPECIFIED;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.LifecycleNoncurrentVersionTransition);
+function LifecycleNoncurrentVersionTransitionCustomInspect() {
+    const parts = [];
+    if (this.newerNoncurrentVersions !== undefined)
+        parts.push("newerNoncurrentVersions" + "=" + (0, util_1.inspect)(this.newerNoncurrentVersions));
+    if ((this.noncurrentDays ?? 0) !== 0)
+        parts.push("noncurrentDays" + "=" + (0, util_1.inspect)(this.noncurrentDays));
+    if (this.storageClass !== undefined)
+        parts.push("storageClass" + "=" + (0, util_1.inspect)(this.storageClass));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function LifecycleNoncurrentVersionTransitionCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.newerNoncurrentVersions !== undefined)
+        obj.newerNoncurrentVersions = (0, logging_js_1.inspectJson)(this.newerNoncurrentVersions);
+    if ((this.noncurrentDays ?? 0) !== 0)
+        obj.noncurrentDays = (0, logging_js_1.inspectJson)(this.noncurrentDays);
+    if (this.storageClass !== undefined)
+        obj.storageClass = (0, logging_js_1.inspectJson)(this.storageClass);
+    return obj;
+}
+function applyLifecycleNoncurrentVersionTransitionCustom(message) {
+    message[logging_js_1.custom] = LifecycleNoncurrentVersionTransitionCustomInspect;
+    message[logging_js_1.customJson] = LifecycleNoncurrentVersionTransitionCustomJson;
+    return message;
+}
+function createBaseLifecycleNoncurrentVersionTransition() {
+    const message = {
+        $type: "nebius.storage.v1.LifecycleNoncurrentVersionTransition",
+        newerNoncurrentVersions: undefined,
+        noncurrentDays: 0,
+        storageClass: exports.StorageClass.STORAGE_CLASS_UNSPECIFIED,
+    };
+    return applyLifecycleNoncurrentVersionTransitionCustom(message);
+}
+exports.GetTransferRequest = {
+    $type: "nebius.storage.v1.GetTransferRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetTransferRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetTransferRequestCustom({
+            $type: "nebius.storage.v1.GetTransferRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetTransferRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetTransferRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetTransferRequest);
+function GetTransferRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetTransferRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyGetTransferRequestCustom(message) {
+    message[logging_js_1.custom] = GetTransferRequestCustomInspect;
+    message[logging_js_1.customJson] = GetTransferRequestCustomJson;
+    return message;
+}
+function createBaseGetTransferRequest() {
+    const message = {
+        $type: "nebius.storage.v1.GetTransferRequest",
+        id: "",
+    };
+    return applyGetTransferRequestCustom(message);
+}
+exports.ListTransfersRequest = {
+    $type: "nebius.storage.v1.ListTransfersRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.parentId !== "") {
+            writer.uint32(10).string(message.parentId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListTransfersRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.parentId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListTransfersRequestCustom({
+            $type: "nebius.storage.v1.ListTransfersRequest",
+            parentId: (0, index_js_1.isSet)(object.parentId ?? object.parent_id)
+                ? String(object.parentId ?? object.parent_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.parentId !== "") {
+            obj[pick("parentId", "parent_id")] = message.parentId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListTransfersRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListTransfersRequest();
+        message.parentId = (object.parentId !== undefined && object.parentId !== null)
+            ? object.parentId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListTransfersRequest);
+function ListTransfersRequestCustomInspect() {
+    const parts = [];
+    if (this.parentId !== "")
+        parts.push("parentId" + "=" + (0, util_1.inspect)(this.parentId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListTransfersRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.parentId !== "")
+        obj.parentId = (0, logging_js_1.inspectJson)(this.parentId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyListTransfersRequestCustom(message) {
+    message[logging_js_1.custom] = ListTransfersRequestCustomInspect;
+    message[logging_js_1.customJson] = ListTransfersRequestCustomJson;
+    return message;
+}
+function createBaseListTransfersRequest() {
+    const message = {
+        $type: "nebius.storage.v1.ListTransfersRequest",
+        parentId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyListTransfersRequestCustom(message);
+}
+exports.ListTransfersResponse = {
+    $type: "nebius.storage.v1.ListTransfersResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.items ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.Transfer.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseListTransfersResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.items.push(exports.Transfer.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyListTransfersResponseCustom({
+            $type: "nebius.storage.v1.ListTransfersResponse",
+            items: globalThis.Array.isArray(object?.items ?? object?.items)
+                ? (object.items ?? object.items).map((e) => exports.Transfer.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.items?.length) {
+            obj[pick("items", "items")] = message.items.map((e) => e ? exports.Transfer.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ListTransfersResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseListTransfersResponse();
+        message.items = object.items?.map((e) => exports.Transfer.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ListTransfersResponse);
+function ListTransfersResponseCustomInspect() {
+    const parts = [];
+    if ((this.items?.length ?? 0) !== 0)
+        parts.push("items" + "=" + (0, util_1.inspect)(this.items));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ListTransfersResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.items?.length ?? 0) !== 0)
+        obj.items = (0, logging_js_1.inspectJson)(this.items);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyListTransfersResponseCustom(message) {
+    message[logging_js_1.custom] = ListTransfersResponseCustomInspect;
+    message[logging_js_1.customJson] = ListTransfersResponseCustomJson;
+    return message;
+}
+function createBaseListTransfersResponse() {
+    const message = {
+        $type: "nebius.storage.v1.ListTransfersResponse",
+        items: [],
+        nextPageToken: "",
+    };
+    return applyListTransfersResponseCustom(message);
+}
+exports.CreateTransferRequest = {
+    $type: "nebius.storage.v1.CreateTransferRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TransferSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseCreateTransferRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TransferSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyCreateTransferRequestCustom({
+            $type: "nebius.storage.v1.CreateTransferRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TransferSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TransferSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.CreateTransferRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseCreateTransferRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TransferSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.CreateTransferRequest);
+function CreateTransferRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function CreateTransferRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyCreateTransferRequestCustom(message) {
+    message[logging_js_1.custom] = CreateTransferRequestCustomInspect;
+    message[logging_js_1.customJson] = CreateTransferRequestCustomJson;
+    return message;
+}
+function createBaseCreateTransferRequest() {
+    const message = {
+        $type: "nebius.storage.v1.CreateTransferRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyCreateTransferRequestCustom(message);
+}
+exports.UpdateTransferRequest = {
+    $type: "nebius.storage.v1.UpdateTransferRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TransferSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseUpdateTransferRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TransferSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyUpdateTransferRequestCustom({
+            $type: "nebius.storage.v1.UpdateTransferRequest",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TransferSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TransferSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.UpdateTransferRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseUpdateTransferRequest();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TransferSpec.fromPartial(object.spec)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.UpdateTransferRequest);
+function UpdateTransferRequestCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function UpdateTransferRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    return obj;
+}
+function applyUpdateTransferRequestCustom(message) {
+    message[logging_js_1.custom] = UpdateTransferRequestCustomInspect;
+    message[logging_js_1.customJson] = UpdateTransferRequestCustomJson;
+    return message;
+}
+function createBaseUpdateTransferRequest() {
+    const message = {
+        $type: "nebius.storage.v1.UpdateTransferRequest",
+        metadata: undefined,
+        spec: undefined,
+    };
+    return applyUpdateTransferRequestCustom(message);
+}
+exports.StopTransferRequest = {
+    $type: "nebius.storage.v1.StopTransferRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseStopTransferRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyStopTransferRequestCustom({
+            $type: "nebius.storage.v1.StopTransferRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.StopTransferRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseStopTransferRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.StopTransferRequest);
+function StopTransferRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function StopTransferRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyStopTransferRequestCustom(message) {
+    message[logging_js_1.custom] = StopTransferRequestCustomInspect;
+    message[logging_js_1.customJson] = StopTransferRequestCustomJson;
+    return message;
+}
+function createBaseStopTransferRequest() {
+    const message = {
+        $type: "nebius.storage.v1.StopTransferRequest",
+        id: "",
+    };
+    return applyStopTransferRequestCustom(message);
+}
+exports.ResumeTransferRequest = {
+    $type: "nebius.storage.v1.ResumeTransferRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseResumeTransferRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyResumeTransferRequestCustom({
+            $type: "nebius.storage.v1.ResumeTransferRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.ResumeTransferRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseResumeTransferRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.ResumeTransferRequest);
+function ResumeTransferRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function ResumeTransferRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    return obj;
+}
+function applyResumeTransferRequestCustom(message) {
+    message[logging_js_1.custom] = ResumeTransferRequestCustomInspect;
+    message[logging_js_1.customJson] = ResumeTransferRequestCustomJson;
+    return message;
+}
+function createBaseResumeTransferRequest() {
+    const message = {
+        $type: "nebius.storage.v1.ResumeTransferRequest",
+        id: "",
+    };
+    return applyResumeTransferRequestCustom(message);
+}
+exports.DeleteTransferRequest = {
+    $type: "nebius.storage.v1.DeleteTransferRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.id !== "") {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.resourceVersion !== undefined && !message.resourceVersion.isZero?.()) {
+            writer.uint32(16).int64(message.resourceVersion.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseDeleteTransferRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.id = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.resourceVersion = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyDeleteTransferRequestCustom({
+            $type: "nebius.storage.v1.DeleteTransferRequest",
+            id: (0, index_js_1.isSet)(object.id ?? object.id)
+                ? String(object.id ?? object.id)
+                : "",
+            resourceVersion: (0, index_js_1.isSet)(object.resourceVersion ?? object.resource_version)
+                ? index_js_1.Long.fromValue(object.resourceVersion ?? object.resource_version)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.id !== "") {
+            obj[pick("id", "id")] = message.id;
+        }
+        if (!message.resourceVersion?.isZero?.()) {
+            obj[pick("resourceVersion", "resource_version")] = (message.resourceVersion || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.DeleteTransferRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseDeleteTransferRequest();
+        message.id = (object.id !== undefined && object.id !== null)
+            ? object.id
+            : "";
+        message.resourceVersion = (object.resourceVersion !== undefined && object.resourceVersion !== null)
+            ? index_js_1.Long.fromValue(object.resourceVersion)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.DeleteTransferRequest);
+function DeleteTransferRequestCustomInspect() {
+    const parts = [];
+    if (this.id !== "")
+        parts.push("id" + "=" + (0, util_1.inspect)(this.id));
+    if (!this.resourceVersion?.isZero?.())
+        parts.push("resourceVersion" + "=" + (0, util_1.inspect)(this.resourceVersion));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function DeleteTransferRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.id !== "")
+        obj.id = (0, logging_js_1.inspectJson)(this.id);
+    if (!this.resourceVersion?.isZero?.())
+        obj.resourceVersion = (0, logging_js_1.inspectJson)(this.resourceVersion);
+    return obj;
+}
+function applyDeleteTransferRequestCustom(message) {
+    message[logging_js_1.custom] = DeleteTransferRequestCustomInspect;
+    message[logging_js_1.customJson] = DeleteTransferRequestCustomJson;
+    return message;
+}
+function createBaseDeleteTransferRequest() {
+    const message = {
+        $type: "nebius.storage.v1.DeleteTransferRequest",
+        id: "",
+        resourceVersion: index_js_1.Long.ZERO,
+    };
+    return applyDeleteTransferRequestCustom(message);
+}
+exports.GetIterationHistoryRequest = {
+    $type: "nebius.storage.v1.GetIterationHistoryRequest",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.transferId !== "") {
+            writer.uint32(10).string(message.transferId);
+        }
+        if (message.pageSize !== undefined && !message.pageSize.isZero?.()) {
+            writer.uint32(16).int64(message.pageSize.toString());
+        }
+        if (message.pageToken !== "") {
+            writer.uint32(26).string(message.pageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetIterationHistoryRequest();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.transferId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.pageSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.pageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetIterationHistoryRequestCustom({
+            $type: "nebius.storage.v1.GetIterationHistoryRequest",
+            transferId: (0, index_js_1.isSet)(object.transferId ?? object.transfer_id)
+                ? String(object.transferId ?? object.transfer_id)
+                : "",
+            pageSize: (0, index_js_1.isSet)(object.pageSize ?? object.page_size)
+                ? index_js_1.Long.fromValue(object.pageSize ?? object.page_size)
+                : index_js_1.Long.ZERO,
+            pageToken: (0, index_js_1.isSet)(object.pageToken ?? object.page_token)
+                ? String(object.pageToken ?? object.page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.transferId !== "") {
+            obj[pick("transferId", "transfer_id")] = message.transferId;
+        }
+        if (!message.pageSize?.isZero?.()) {
+            obj[pick("pageSize", "page_size")] = (message.pageSize || index_js_1.Long.ZERO).toString();
+        }
+        if (message.pageToken !== "") {
+            obj[pick("pageToken", "page_token")] = message.pageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetIterationHistoryRequest.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetIterationHistoryRequest();
+        message.transferId = (object.transferId !== undefined && object.transferId !== null)
+            ? object.transferId
+            : "";
+        message.pageSize = (object.pageSize !== undefined && object.pageSize !== null)
+            ? index_js_1.Long.fromValue(object.pageSize)
+            : index_js_1.Long.ZERO;
+        message.pageToken = (object.pageToken !== undefined && object.pageToken !== null)
+            ? object.pageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetIterationHistoryRequest);
+function GetIterationHistoryRequestCustomInspect() {
+    const parts = [];
+    if (this.transferId !== "")
+        parts.push("transferId" + "=" + (0, util_1.inspect)(this.transferId));
+    if (!this.pageSize?.isZero?.())
+        parts.push("pageSize" + "=" + (0, util_1.inspect)(this.pageSize));
+    if (this.pageToken !== "")
+        parts.push("pageToken" + "=" + (0, util_1.inspect)(this.pageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetIterationHistoryRequestCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.transferId !== "")
+        obj.transferId = (0, logging_js_1.inspectJson)(this.transferId);
+    if (!this.pageSize?.isZero?.())
+        obj.pageSize = (0, logging_js_1.inspectJson)(this.pageSize);
+    if (this.pageToken !== "")
+        obj.pageToken = (0, logging_js_1.inspectJson)(this.pageToken);
+    return obj;
+}
+function applyGetIterationHistoryRequestCustom(message) {
+    message[logging_js_1.custom] = GetIterationHistoryRequestCustomInspect;
+    message[logging_js_1.customJson] = GetIterationHistoryRequestCustomJson;
+    return message;
+}
+function createBaseGetIterationHistoryRequest() {
+    const message = {
+        $type: "nebius.storage.v1.GetIterationHistoryRequest",
+        transferId: "",
+        pageSize: index_js_1.Long.ZERO,
+        pageToken: "",
+    };
+    return applyGetIterationHistoryRequestCustom(message);
+}
+exports.GetIterationHistoryResponse = {
+    $type: "nebius.storage.v1.GetIterationHistoryResponse",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        for (const v of (message.iterations ?? [])) {
+            const w = writer.uint32(10).fork();
+            exports.TransferIteration.encode(v, w);
+            w.join();
+        }
+        if (message.nextPageToken !== "") {
+            writer.uint32(18).string(message.nextPageToken);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseGetIterationHistoryResponse();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.iterations.push(exports.TransferIteration.decode(reader, reader.uint32()));
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.nextPageToken = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyGetIterationHistoryResponseCustom({
+            $type: "nebius.storage.v1.GetIterationHistoryResponse",
+            iterations: globalThis.Array.isArray(object?.iterations ?? object?.iterations)
+                ? (object.iterations ?? object.iterations).map((e) => exports.TransferIteration.fromJSON(e))
+                : [],
+            nextPageToken: (0, index_js_1.isSet)(object.nextPageToken ?? object.next_page_token)
+                ? String(object.nextPageToken ?? object.next_page_token)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.iterations?.length) {
+            obj[pick("iterations", "iterations")] = message.iterations.map((e) => e ? exports.TransferIteration.toJSON(e, use) : undefined);
+        }
+        if (message.nextPageToken !== "") {
+            obj[pick("nextPageToken", "next_page_token")] = message.nextPageToken;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.GetIterationHistoryResponse.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseGetIterationHistoryResponse();
+        message.iterations = object.iterations?.map((e) => exports.TransferIteration.fromPartial(e)) || [];
+        message.nextPageToken = (object.nextPageToken !== undefined && object.nextPageToken !== null)
+            ? object.nextPageToken
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.GetIterationHistoryResponse);
+function GetIterationHistoryResponseCustomInspect() {
+    const parts = [];
+    if ((this.iterations?.length ?? 0) !== 0)
+        parts.push("iterations" + "=" + (0, util_1.inspect)(this.iterations));
+    if (this.nextPageToken !== "")
+        parts.push("nextPageToken" + "=" + (0, util_1.inspect)(this.nextPageToken));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function GetIterationHistoryResponseCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.iterations?.length ?? 0) !== 0)
+        obj.iterations = (0, logging_js_1.inspectJson)(this.iterations);
+    if (this.nextPageToken !== "")
+        obj.nextPageToken = (0, logging_js_1.inspectJson)(this.nextPageToken);
+    return obj;
+}
+function applyGetIterationHistoryResponseCustom(message) {
+    message[logging_js_1.custom] = GetIterationHistoryResponseCustomInspect;
+    message[logging_js_1.customJson] = GetIterationHistoryResponseCustomJson;
+    return message;
+}
+function createBaseGetIterationHistoryResponse() {
+    const message = {
+        $type: "nebius.storage.v1.GetIterationHistoryResponse",
+        iterations: [],
+        nextPageToken: "",
+    };
+    return applyGetIterationHistoryResponseCustom(message);
+}
+exports.TransferServiceServiceDescription = {
+    get: {
+        path: "/nebius.storage.v1.TransferService/Get",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetTransferRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetTransferRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Transfer.encode(value).finish()),
+        responseDeserialize: (value) => exports.Transfer.decode(value),
+    },
+    getByName: {
+        path: "/nebius.storage.v1.TransferService/GetByName",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(index_js_2.GetByNameRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => index_js_2.GetByNameRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.Transfer.encode(value).finish()),
+        responseDeserialize: (value) => exports.Transfer.decode(value),
+    },
+    list: {
+        path: "/nebius.storage.v1.TransferService/List",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ListTransfersRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ListTransfersRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.ListTransfersResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.ListTransfersResponse.decode(value),
+    },
+    create: {
+        path: "/nebius.storage.v1.TransferService/Create",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.CreateTransferRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.CreateTransferRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    update: {
+        path: "/nebius.storage.v1.TransferService/Update",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.UpdateTransferRequest.encode(value).finish()),
+        sendResetMask: true,
+        requestDeserialize: (value) => exports.UpdateTransferRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    stop: {
+        path: "/nebius.storage.v1.TransferService/Stop",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.StopTransferRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.StopTransferRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    resume: {
+        path: "/nebius.storage.v1.TransferService/Resume",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.ResumeTransferRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.ResumeTransferRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    delete: {
+        path: "/nebius.storage.v1.TransferService/Delete",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.DeleteTransferRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.DeleteTransferRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(index_js_2.Operation.encode(value).finish()),
+        responseDeserialize: (value) => index_js_2.Operation.decode(value),
+    },
+    getIterationHistory: {
+        path: "/nebius.storage.v1.TransferService/GetIterationHistory",
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (value) => Buffer.from(exports.GetIterationHistoryRequest.encode(value).finish()),
+        sendResetMask: false,
+        requestDeserialize: (value) => exports.GetIterationHistoryRequest.decode(value),
+        responseSerialize: (value) => Buffer.from(exports.GetIterationHistoryResponse.encode(value).finish()),
+        responseDeserialize: (value) => exports.GetIterationHistoryResponse.decode(value),
+    },
+};
+exports.TransferServiceBaseClient = (0, grpc_js_1.makeGenericClientConstructor)(exports.TransferServiceServiceDescription, "nebius.storage.v1.TransferService");
+class TransferService {
+    sdk;
+    $type = "nebius.storage.v1.TransferService";
+    addr;
+    spec;
+    apiServiceName = "transfer.storage";
+    constructor(sdk) {
+        this.sdk = sdk;
+        const addr = sdk.getAddressFromServiceName(this.$type, this.apiServiceName);
+        this.addr = addr;
+        this.spec = exports.TransferServiceServiceDescription;
+    }
+    getOperationService() {
+        return new index_js_2.OperationService(this.sdk, this.addr);
+    }
+    get(...args) {
+        const spec = this.spec.get;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getByName(...args) {
+        const spec = this.spec.getByName;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    list(...args) {
+        const spec = this.spec.list;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    create(...args) {
+        const spec = this.spec.create;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    update(...args) {
+        const spec = this.spec.update;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    stop(...args) {
+        const spec = this.spec.stop;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    resume(...args) {
+        const spec = this.spec.resume;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    delete(...args) {
+        const spec = this.spec.delete;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = (value) => {
+            const resp = spec.responseDeserialize(value);
+            return new operation_js_1.Operation(resp, this.getOperationService(), this.sdk.logger.child("operation"));
+        };
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+    getIterationHistory(...args) {
+        const spec = this.spec.getIterationHistory;
+        const request = args[0];
+        const metadata = (args.length > 1 ? args[1] : undefined);
+        const options = (args.length > 2 ? args[2] : undefined);
+        const deserialize = spec.responseDeserialize;
+        return new request_js_1.Request(this.sdk, spec, this.addr, deserialize, request, metadata, options);
+    }
+}
+exports.TransferService = TransferService;
+const TransferSpec_OverwriteStrategy_VALUE_COMMENTS = {
+    NEVER: " Never overwrite objects that exist in the destination.\n If object exists in destination bucket, skip it.\n Safest option to prevent any data loss.\n",
+    IF_NEWER: " Overwrite only if source object is newer than destination.\n Comparison based on Last-Modified timestamp.\n Recommended for incremental sync scenarios.\n If touch_unmanaged flag isn't set, we do not overwrite objects that haven't been created by Data Transfer service.\n",
+};
+exports.TransferSpec_OverwriteStrategy = (0, index_js_1.createEnum)("nebius.storage.v1.TransferSpec.OverwriteStrategy", {
+    OVERWRITE_STRATEGY_UNSPECIFIED: 0,
+    /**
+     *  Never overwrite objects that exist in the destination.
+     *  If object exists in destination bucket, skip it.
+     *  Safest option to prevent any data loss.
+     *
+     */
+    NEVER: 1,
+    /**
+     *  Overwrite only if source object is newer than destination.
+     *  Comparison based on Last-Modified timestamp.
+     *  Recommended for incremental sync scenarios.
+     *  If touch_unmanaged flag isn't set, we do not overwrite objects that haven't been created by Data Transfer service.
+     *
+     */
+    IF_NEWER: 2,
+}, TransferSpec_OverwriteStrategy_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.TransferSpec_OverwriteStrategy);
+exports.TransferStatus_State = (0, index_js_1.createEnum)("nebius.storage.v1.TransferStatus.State", {
+    STATE_UNSPECIFIED: 0,
+    ACTIVE: 1,
+    STOPPING: 2,
+    STOPPED: 3,
+    FAILING: 4,
+    FAILED: 5,
+    DELETING: 6,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.TransferStatus_State);
+exports.TransferStatus_SuspensionState = (0, index_js_1.createEnum)("nebius.storage.v1.TransferStatus.SuspensionState", {
+    SUSPENSION_STATE_UNSPECIFIED: 0,
+    NOT_SUSPENDED: 1,
+    SUSPENDED: 2,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.TransferStatus_SuspensionState);
+exports.TransferIteration_State = (0, index_js_1.createEnum)("nebius.storage.v1.TransferIteration.State", {
+    STATE_UNSPECIFIED: 0,
+    IN_PROGRESS: 1,
+    COMPLETED: 2,
+    INTERRUPTED: 3,
+    FAILED: 4,
+});
+protobuf_js_1.protoRegistry.registerEnum(exports.TransferIteration_State);
+const TransferError_Origin_VALUE_COMMENTS = {
+    SOURCE: " Error originated from the source.\n",
+    DESTINATION: " Error originated from the destination.\n",
+};
+exports.TransferError_Origin = (0, index_js_1.createEnum)("nebius.storage.v1.TransferError.Origin", {
+    ORIGIN_UNSPECIFIED: 0,
+    /**
+     *  Error originated from the source.
+     *
+     */
+    SOURCE: 1,
+    /**
+     *  Error originated from the destination.
+     *
+     */
+    DESTINATION: 2,
+}, TransferError_Origin_VALUE_COMMENTS);
+protobuf_js_1.protoRegistry.registerEnum(exports.TransferError_Origin);
+exports.Transfer = {
+    $type: "nebius.storage.v1.Transfer",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.metadata !== undefined) {
+            const w = writer.uint32(10).fork();
+            index_js_2.ResourceMetadata.encode(message.metadata, w);
+            w.join();
+        }
+        if (message.spec !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TransferSpec.encode(message.spec, w);
+            w.join();
+        }
+        if (message.status !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.TransferStatus.encode(message.status, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransfer();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.metadata = index_js_2.ResourceMetadata.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.spec = exports.TransferSpec.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.status = exports.TransferStatus.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferCustom({
+            $type: "nebius.storage.v1.Transfer",
+            metadata: (0, index_js_1.isSet)(object.metadata ?? object.metadata)
+                ? index_js_2.ResourceMetadata.fromJSON(object.metadata ?? object.metadata)
+                : undefined,
+            spec: (0, index_js_1.isSet)(object.spec ?? object.spec)
+                ? exports.TransferSpec.fromJSON(object.spec ?? object.spec)
+                : undefined,
+            status: (0, index_js_1.isSet)(object.status ?? object.status)
+                ? exports.TransferStatus.fromJSON(object.status ?? object.status)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.metadata !== undefined) {
+            obj[pick("metadata", "metadata")] = message.metadata
+                ? index_js_2.ResourceMetadata.toJSON(message.metadata, use)
+                : undefined;
+        }
+        if (message.spec !== undefined) {
+            obj[pick("spec", "spec")] = message.spec
+                ? exports.TransferSpec.toJSON(message.spec, use)
+                : undefined;
+        }
+        if (message.status !== undefined) {
+            obj[pick("status", "status")] = message.status
+                ? exports.TransferStatus.toJSON(message.status, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.Transfer.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransfer();
+        message.metadata = (object.metadata !== undefined && object.metadata !== null)
+            ? index_js_2.ResourceMetadata.fromPartial(object.metadata)
+            : undefined;
+        message.spec = (object.spec !== undefined && object.spec !== null)
+            ? exports.TransferSpec.fromPartial(object.spec)
+            : undefined;
+        message.status = (object.status !== undefined && object.status !== null)
+            ? exports.TransferStatus.fromPartial(object.status)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.Transfer);
+function TransferCustomInspect() {
+    const parts = [];
+    if (this.metadata !== undefined)
+        parts.push("metadata" + "=" + (0, util_1.inspect)(this.metadata));
+    if (this.spec !== undefined)
+        parts.push("spec" + "=" + (0, util_1.inspect)(this.spec));
+    if (this.status !== undefined)
+        parts.push("status" + "=" + (0, util_1.inspect)(this.status));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.metadata !== undefined)
+        obj.metadata = (0, logging_js_1.inspectJson)(this.metadata);
+    if (this.spec !== undefined)
+        obj.spec = (0, logging_js_1.inspectJson)(this.spec);
+    if (this.status !== undefined)
+        obj.status = (0, logging_js_1.inspectJson)(this.status);
+    return obj;
+}
+function applyTransferCustom(message) {
+    message[logging_js_1.custom] = TransferCustomInspect;
+    message[logging_js_1.customJson] = TransferCustomJson;
+    return message;
+}
+function createBaseTransfer() {
+    const message = {
+        $type: "nebius.storage.v1.Transfer",
+        metadata: undefined,
+        spec: undefined,
+        status: undefined,
+    };
+    return applyTransferCustom(message);
+}
+exports.TransferSpec = {
+    $type: "nebius.storage.v1.TransferSpec",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.source !== undefined) {
+            const w = writer.uint32(10).fork();
+            exports.TransferSource.encode(message.source, w);
+            w.join();
+        }
+        if (message.destination !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TransferDestination.encode(message.destination, w);
+            w.join();
+        }
+        if (message.limiters !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.TransferSpec_Limiters.encode(message.limiters, w);
+            w.join();
+        }
+        if (message.interIterationInterval !== undefined) {
+            const w = writer.uint32(58).fork();
+            index_js_1.wkt[".google.protobuf.Duration"].writeMessage(w, message.interIterationInterval);
+            w.join();
+        }
+        if ((message.overwriteStrategy ?? exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED) !== exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED) {
+            exports.TransferSpec_OverwriteStrategy.encodeField(writer, 8, message.overwriteStrategy);
+        }
+        if (message.enableDeletesInDestination === true) {
+            writer.uint32(72).bool(message.enableDeletesInDestination);
+        }
+        if (message.touchUnmanaged === true) {
+            writer.uint32(80).bool(message.touchUnmanaged);
+        }
+        if (message.stopCondition?.$case === undefined) { /* noop */ }
+        else if (message.stopCondition?.$case === "afterOneIteration") {
+            const w = writer.uint32(34).fork();
+            exports.TransferSpec_StopConditionAfterOneIteration.encode(message.stopCondition.afterOneIteration, w);
+            w.join();
+        }
+        else if (message.stopCondition?.$case === "afterNEmptyIterations") {
+            const w = writer.uint32(42).fork();
+            exports.TransferSpec_StopConditionAfterNEmptyIterations.encode(message.stopCondition.afterNEmptyIterations, w);
+            w.join();
+        }
+        else if (message.stopCondition?.$case === "infinite") {
+            const w = writer.uint32(50).fork();
+            exports.TransferSpec_StopConditionInfinite.encode(message.stopCondition.infinite, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSpec();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.source = exports.TransferSource.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.destination = exports.TransferDestination.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.limiters = exports.TransferSpec_Limiters.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 7: {
+                    if (tag !== 58)
+                        break;
+                    const len = reader.uint32();
+                    message.interIterationInterval = index_js_1.wkt[".google.protobuf.Duration"].readMessage(reader, len);
+                    continue;
+                }
+                case 8: {
+                    if (tag !== 64)
+                        break;
+                    message.overwriteStrategy = exports.TransferSpec_OverwriteStrategy.fromNumber(reader.int32());
+                    continue;
+                }
+                case 9: {
+                    if (tag !== 72)
+                        break;
+                    message.enableDeletesInDestination = reader.bool();
+                    continue;
+                }
+                case 10: {
+                    if (tag !== 80)
+                        break;
+                    message.touchUnmanaged = reader.bool();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.stopCondition = {
+                        $case: "afterOneIteration",
+                        afterOneIteration: exports.TransferSpec_StopConditionAfterOneIteration.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.stopCondition = {
+                        $case: "afterNEmptyIterations",
+                        afterNEmptyIterations: exports.TransferSpec_StopConditionAfterNEmptyIterations.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 50)
+                        break;
+                    message.stopCondition = {
+                        $case: "infinite",
+                        infinite: exports.TransferSpec_StopConditionInfinite.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSpecCustom({
+            $type: "nebius.storage.v1.TransferSpec",
+            source: (0, index_js_1.isSet)(object.source ?? object.source)
+                ? exports.TransferSource.fromJSON(object.source ?? object.source)
+                : undefined,
+            destination: (0, index_js_1.isSet)(object.destination ?? object.destination)
+                ? exports.TransferDestination.fromJSON(object.destination ?? object.destination)
+                : undefined,
+            limiters: (0, index_js_1.isSet)(object.limiters ?? object.limiters)
+                ? exports.TransferSpec_Limiters.fromJSON(object.limiters ?? object.limiters)
+                : undefined,
+            interIterationInterval: (0, index_js_1.isSet)(object.interIterationInterval ?? object.inter_iteration_interval)
+                ? index_js_1.wkt[".google.protobuf.Duration"].fromJSON(object.interIterationInterval ?? object.inter_iteration_interval)
+                : undefined,
+            overwriteStrategy: (0, index_js_1.isSet)(object.overwriteStrategy ?? object.overwrite_strategy)
+                ? exports.TransferSpec_OverwriteStrategy.fromJSON(object.overwriteStrategy ?? object.overwrite_strategy)
+                : exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED,
+            enableDeletesInDestination: (0, index_js_1.isSet)(object.enableDeletesInDestination ?? object.enable_deletes_in_destination)
+                ? Boolean(object.enableDeletesInDestination ?? object.enable_deletes_in_destination)
+                : false,
+            touchUnmanaged: (0, index_js_1.isSet)(object.touchUnmanaged ?? object.touch_unmanaged)
+                ? Boolean(object.touchUnmanaged ?? object.touch_unmanaged)
+                : false,
+            stopCondition: (() => {
+                if ((0, index_js_1.isSet)(object.afterOneIteration) || (0, index_js_1.isSet)(object.after_one_iteration)) {
+                    return {
+                        $case: "afterOneIteration",
+                        afterOneIteration: exports.TransferSpec_StopConditionAfterOneIteration.fromJSON(object.afterOneIteration ?? object.after_one_iteration)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.afterNEmptyIterations) || (0, index_js_1.isSet)(object.after_n_empty_iterations)) {
+                    return {
+                        $case: "afterNEmptyIterations",
+                        afterNEmptyIterations: exports.TransferSpec_StopConditionAfterNEmptyIterations.fromJSON(object.afterNEmptyIterations ?? object.after_n_empty_iterations)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.infinite) || (0, index_js_1.isSet)(object.infinite)) {
+                    return {
+                        $case: "infinite",
+                        infinite: exports.TransferSpec_StopConditionInfinite.fromJSON(object.infinite ?? object.infinite)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.source !== undefined) {
+            obj[pick("source", "source")] = message.source
+                ? exports.TransferSource.toJSON(message.source, use)
+                : undefined;
+        }
+        if (message.destination !== undefined) {
+            obj[pick("destination", "destination")] = message.destination
+                ? exports.TransferDestination.toJSON(message.destination, use)
+                : undefined;
+        }
+        if (message.limiters !== undefined) {
+            obj[pick("limiters", "limiters")] = message.limiters
+                ? exports.TransferSpec_Limiters.toJSON(message.limiters, use)
+                : undefined;
+        }
+        if (message.interIterationInterval !== undefined) {
+            obj[pick("interIterationInterval", "inter_iteration_interval")] = index_js_1.wkt[".google.protobuf.Duration"].toJSON(message.interIterationInterval, use);
+        }
+        if ((message.overwriteStrategy ?? exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED) !== exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED) {
+            obj[pick("overwriteStrategy", "overwrite_strategy")] = exports.TransferSpec_OverwriteStrategy.toJSON(message.overwriteStrategy);
+        }
+        if (message.enableDeletesInDestination === true) {
+            obj[pick("enableDeletesInDestination", "enable_deletes_in_destination")] = message.enableDeletesInDestination;
+        }
+        if (message.touchUnmanaged === true) {
+            obj[pick("touchUnmanaged", "touch_unmanaged")] = message.touchUnmanaged;
+        }
+        switch (message.stopCondition?.$case) {
+            case "afterOneIteration": {
+                obj[pick("afterOneIteration", "after_one_iteration")] = exports.TransferSpec_StopConditionAfterOneIteration.toJSON(message.stopCondition.afterOneIteration, use);
+                break;
+            }
+            case "afterNEmptyIterations": {
+                obj[pick("afterNEmptyIterations", "after_n_empty_iterations")] = exports.TransferSpec_StopConditionAfterNEmptyIterations.toJSON(message.stopCondition.afterNEmptyIterations, use);
+                break;
+            }
+            case "infinite": {
+                obj[pick("infinite", "infinite")] = exports.TransferSpec_StopConditionInfinite.toJSON(message.stopCondition.infinite, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSpec.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSpec();
+        message.source = (object.source !== undefined && object.source !== null)
+            ? exports.TransferSource.fromPartial(object.source)
+            : undefined;
+        message.destination = (object.destination !== undefined && object.destination !== null)
+            ? exports.TransferDestination.fromPartial(object.destination)
+            : undefined;
+        message.limiters = (object.limiters !== undefined && object.limiters !== null)
+            ? exports.TransferSpec_Limiters.fromPartial(object.limiters)
+            : undefined;
+        message.interIterationInterval = (object.interIterationInterval !== undefined && object.interIterationInterval !== null)
+            ? index_js_1.wkt[".google.protobuf.Duration"].fromPartial(object.interIterationInterval)
+            : undefined;
+        message.overwriteStrategy = (object.overwriteStrategy !== undefined && object.overwriteStrategy !== null)
+            ? exports.TransferSpec_OverwriteStrategy.fromJSON(object.overwriteStrategy.name)
+            : exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED;
+        message.enableDeletesInDestination = (object.enableDeletesInDestination !== undefined && object.enableDeletesInDestination !== null)
+            ? object.enableDeletesInDestination
+            : false;
+        message.touchUnmanaged = (object.touchUnmanaged !== undefined && object.touchUnmanaged !== null)
+            ? object.touchUnmanaged
+            : false;
+        switch (object.stopCondition?.$case) {
+            case "afterOneIteration": {
+                if (object.stopCondition.afterOneIteration !== undefined && object.stopCondition.afterOneIteration !== null) {
+                    message.stopCondition = {
+                        $case: "afterOneIteration",
+                        afterOneIteration: exports.TransferSpec_StopConditionAfterOneIteration.fromPartial(object.stopCondition.afterOneIteration),
+                    };
+                }
+                break;
+            }
+            case "afterNEmptyIterations": {
+                if (object.stopCondition.afterNEmptyIterations !== undefined && object.stopCondition.afterNEmptyIterations !== null) {
+                    message.stopCondition = {
+                        $case: "afterNEmptyIterations",
+                        afterNEmptyIterations: exports.TransferSpec_StopConditionAfterNEmptyIterations.fromPartial(object.stopCondition.afterNEmptyIterations),
+                    };
+                }
+                break;
+            }
+            case "infinite": {
+                if (object.stopCondition.infinite !== undefined && object.stopCondition.infinite !== null) {
+                    message.stopCondition = {
+                        $case: "infinite",
+                        infinite: exports.TransferSpec_StopConditionInfinite.fromPartial(object.stopCondition.infinite),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSpec);
+function TransferSpecCustomInspect() {
+    const parts = [];
+    if (this.source !== undefined)
+        parts.push("source" + "=" + (0, util_1.inspect)(this.source));
+    if (this.destination !== undefined)
+        parts.push("destination" + "=" + (0, util_1.inspect)(this.destination));
+    if (this.limiters !== undefined)
+        parts.push("limiters" + "=" + (0, util_1.inspect)(this.limiters));
+    if (this.interIterationInterval !== undefined)
+        parts.push("interIterationInterval" + "=" + (0, util_1.inspect)(this.interIterationInterval));
+    if (this.overwriteStrategy !== undefined)
+        parts.push("overwriteStrategy" + "=" + (0, util_1.inspect)(this.overwriteStrategy));
+    if (this.enableDeletesInDestination === true)
+        parts.push("enableDeletesInDestination" + "=" + (0, util_1.inspect)(this.enableDeletesInDestination));
+    if (this.touchUnmanaged === true)
+        parts.push("touchUnmanaged" + "=" + (0, util_1.inspect)(this.touchUnmanaged));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSpecCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.source !== undefined)
+        obj.source = (0, logging_js_1.inspectJson)(this.source);
+    if (this.destination !== undefined)
+        obj.destination = (0, logging_js_1.inspectJson)(this.destination);
+    if (this.limiters !== undefined)
+        obj.limiters = (0, logging_js_1.inspectJson)(this.limiters);
+    if (this.interIterationInterval !== undefined)
+        obj.interIterationInterval = (0, logging_js_1.inspectJson)(this.interIterationInterval);
+    if (this.overwriteStrategy !== undefined)
+        obj.overwriteStrategy = (0, logging_js_1.inspectJson)(this.overwriteStrategy);
+    if (this.enableDeletesInDestination === true)
+        obj.enableDeletesInDestination = (0, logging_js_1.inspectJson)(this.enableDeletesInDestination);
+    if (this.touchUnmanaged === true)
+        obj.touchUnmanaged = (0, logging_js_1.inspectJson)(this.touchUnmanaged);
+    return obj;
+}
+function applyTransferSpecCustom(message) {
+    message[logging_js_1.custom] = TransferSpecCustomInspect;
+    message[logging_js_1.customJson] = TransferSpecCustomJson;
+    return message;
+}
+function createBaseTransferSpec() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSpec",
+        source: undefined,
+        destination: undefined,
+        limiters: undefined,
+        interIterationInterval: undefined,
+        overwriteStrategy: exports.TransferSpec_OverwriteStrategy.OVERWRITE_STRATEGY_UNSPECIFIED,
+        enableDeletesInDestination: false,
+        touchUnmanaged: false,
+        stopCondition: undefined,
+    };
+    return applyTransferSpecCustom(message);
+}
+exports.TransferSpec_Limiters = {
+    $type: "nebius.storage.v1.TransferSpec.Limiters",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.bandwidthBytesPerSecond !== undefined && !message.bandwidthBytesPerSecond.isZero?.()) {
+            writer.uint32(8).uint64(message.bandwidthBytesPerSecond.toString());
+        }
+        if (message.requestsPerSecond !== undefined && !message.requestsPerSecond.isZero?.()) {
+            writer.uint32(16).uint64(message.requestsPerSecond.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSpec_Limiters();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.bandwidthBytesPerSecond = index_js_1.Long.fromValue(reader.uint64());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.requestsPerSecond = index_js_1.Long.fromValue(reader.uint64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSpec_LimitersCustom({
+            $type: "nebius.storage.v1.TransferSpec.Limiters",
+            bandwidthBytesPerSecond: (0, index_js_1.isSet)(object.bandwidthBytesPerSecond ?? object.bandwidth_bytes_per_second)
+                ? index_js_1.Long.fromValue(object.bandwidthBytesPerSecond ?? object.bandwidth_bytes_per_second)
+                : index_js_1.Long.ZERO,
+            requestsPerSecond: (0, index_js_1.isSet)(object.requestsPerSecond ?? object.requests_per_second)
+                ? index_js_1.Long.fromValue(object.requestsPerSecond ?? object.requests_per_second)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (!message.bandwidthBytesPerSecond?.isZero?.()) {
+            obj[pick("bandwidthBytesPerSecond", "bandwidth_bytes_per_second")] = (message.bandwidthBytesPerSecond || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.requestsPerSecond?.isZero?.()) {
+            obj[pick("requestsPerSecond", "requests_per_second")] = (message.requestsPerSecond || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSpec_Limiters.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSpec_Limiters();
+        message.bandwidthBytesPerSecond = (object.bandwidthBytesPerSecond !== undefined && object.bandwidthBytesPerSecond !== null)
+            ? index_js_1.Long.fromValue(object.bandwidthBytesPerSecond)
+            : index_js_1.Long.ZERO;
+        message.requestsPerSecond = (object.requestsPerSecond !== undefined && object.requestsPerSecond !== null)
+            ? index_js_1.Long.fromValue(object.requestsPerSecond)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSpec_Limiters);
+function TransferSpec_LimitersCustomInspect() {
+    const parts = [];
+    if (!this.bandwidthBytesPerSecond?.isZero?.())
+        parts.push("bandwidthBytesPerSecond" + "=" + (0, util_1.inspect)(this.bandwidthBytesPerSecond));
+    if (!this.requestsPerSecond?.isZero?.())
+        parts.push("requestsPerSecond" + "=" + (0, util_1.inspect)(this.requestsPerSecond));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSpec_LimitersCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (!this.bandwidthBytesPerSecond?.isZero?.())
+        obj.bandwidthBytesPerSecond = (0, logging_js_1.inspectJson)(this.bandwidthBytesPerSecond);
+    if (!this.requestsPerSecond?.isZero?.())
+        obj.requestsPerSecond = (0, logging_js_1.inspectJson)(this.requestsPerSecond);
+    return obj;
+}
+function applyTransferSpec_LimitersCustom(message) {
+    message[logging_js_1.custom] = TransferSpec_LimitersCustomInspect;
+    message[logging_js_1.customJson] = TransferSpec_LimitersCustomJson;
+    return message;
+}
+function createBaseTransferSpec_Limiters() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSpec.Limiters",
+        bandwidthBytesPerSecond: index_js_1.Long.ZERO,
+        requestsPerSecond: index_js_1.Long.ZERO,
+    };
+    return applyTransferSpec_LimitersCustom(message);
+}
+exports.TransferSpec_StopConditionAfterOneIteration = {
+    $type: "nebius.storage.v1.TransferSpec.StopConditionAfterOneIteration",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSpec_StopConditionAfterOneIteration();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSpec_StopConditionAfterOneIterationCustom({
+            $type: "nebius.storage.v1.TransferSpec.StopConditionAfterOneIteration",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSpec_StopConditionAfterOneIteration.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSpec_StopConditionAfterOneIteration();
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSpec_StopConditionAfterOneIteration);
+function TransferSpec_StopConditionAfterOneIterationCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSpec_StopConditionAfterOneIterationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyTransferSpec_StopConditionAfterOneIterationCustom(message) {
+    message[logging_js_1.custom] = TransferSpec_StopConditionAfterOneIterationCustomInspect;
+    message[logging_js_1.customJson] = TransferSpec_StopConditionAfterOneIterationCustomJson;
+    return message;
+}
+function createBaseTransferSpec_StopConditionAfterOneIteration() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSpec.StopConditionAfterOneIteration",
+    };
+    return applyTransferSpec_StopConditionAfterOneIterationCustom(message);
+}
+exports.TransferSpec_StopConditionAfterNEmptyIterations = {
+    $type: "nebius.storage.v1.TransferSpec.StopConditionAfterNEmptyIterations",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.emptyIterationsThreshold ?? 0) !== 0) {
+            writer.uint32(8).uint32(message.emptyIterationsThreshold);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSpec_StopConditionAfterNEmptyIterations();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.emptyIterationsThreshold = reader.uint32();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSpec_StopConditionAfterNEmptyIterationsCustom({
+            $type: "nebius.storage.v1.TransferSpec.StopConditionAfterNEmptyIterations",
+            emptyIterationsThreshold: (0, index_js_1.isSet)(object.emptyIterationsThreshold ?? object.empty_iterations_threshold)
+                ? Number(object.emptyIterationsThreshold ?? object.empty_iterations_threshold)
+                : 0,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.emptyIterationsThreshold ?? 0) !== 0) {
+            obj[pick("emptyIterationsThreshold", "empty_iterations_threshold")] = message.emptyIterationsThreshold;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSpec_StopConditionAfterNEmptyIterations.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSpec_StopConditionAfterNEmptyIterations();
+        message.emptyIterationsThreshold = (object.emptyIterationsThreshold !== undefined && object.emptyIterationsThreshold !== null)
+            ? object.emptyIterationsThreshold
+            : 0;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSpec_StopConditionAfterNEmptyIterations);
+function TransferSpec_StopConditionAfterNEmptyIterationsCustomInspect() {
+    const parts = [];
+    if ((this.emptyIterationsThreshold ?? 0) !== 0)
+        parts.push("emptyIterationsThreshold" + "=" + (0, util_1.inspect)(this.emptyIterationsThreshold));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSpec_StopConditionAfterNEmptyIterationsCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if ((this.emptyIterationsThreshold ?? 0) !== 0)
+        obj.emptyIterationsThreshold = (0, logging_js_1.inspectJson)(this.emptyIterationsThreshold);
+    return obj;
+}
+function applyTransferSpec_StopConditionAfterNEmptyIterationsCustom(message) {
+    message[logging_js_1.custom] = TransferSpec_StopConditionAfterNEmptyIterationsCustomInspect;
+    message[logging_js_1.customJson] = TransferSpec_StopConditionAfterNEmptyIterationsCustomJson;
+    return message;
+}
+function createBaseTransferSpec_StopConditionAfterNEmptyIterations() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSpec.StopConditionAfterNEmptyIterations",
+        emptyIterationsThreshold: 0,
+    };
+    return applyTransferSpec_StopConditionAfterNEmptyIterationsCustom(message);
+}
+exports.TransferSpec_StopConditionInfinite = {
+    $type: "nebius.storage.v1.TransferSpec.StopConditionInfinite",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSpec_StopConditionInfinite();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSpec_StopConditionInfiniteCustom({
+            $type: "nebius.storage.v1.TransferSpec.StopConditionInfinite",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSpec_StopConditionInfinite.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSpec_StopConditionInfinite();
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSpec_StopConditionInfinite);
+function TransferSpec_StopConditionInfiniteCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSpec_StopConditionInfiniteCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyTransferSpec_StopConditionInfiniteCustom(message) {
+    message[logging_js_1.custom] = TransferSpec_StopConditionInfiniteCustomInspect;
+    message[logging_js_1.customJson] = TransferSpec_StopConditionInfiniteCustomJson;
+    return message;
+}
+function createBaseTransferSpec_StopConditionInfinite() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSpec.StopConditionInfinite",
+    };
+    return applyTransferSpec_StopConditionInfiniteCustom(message);
+}
+exports.TransferSource = {
+    $type: "nebius.storage.v1.TransferSource",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.prefix !== "") {
+            writer.uint32(34).string(message.prefix);
+        }
+        if (message.provider?.$case === undefined) { /* noop */ }
+        else if (message.provider?.$case === "nebius") {
+            const w = writer.uint32(10).fork();
+            exports.TransferSource_NebiusProvider.encode(message.provider.nebius, w);
+            w.join();
+        }
+        else if (message.provider?.$case === "s3Compatible") {
+            const w = writer.uint32(18).fork();
+            exports.TransferSource_S3CompatibleProvider.encode(message.provider.s3Compatible, w);
+            w.join();
+        }
+        else if (message.provider?.$case === "azureBlobStorage") {
+            const w = writer.uint32(26).fork();
+            exports.TransferSource_AzureBlobStorageProvider.encode(message.provider.azureBlobStorage, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSource();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.prefix = reader.string();
+                    continue;
+                }
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.provider = {
+                        $case: "nebius",
+                        nebius: exports.TransferSource_NebiusProvider.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.provider = {
+                        $case: "s3Compatible",
+                        s3Compatible: exports.TransferSource_S3CompatibleProvider.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.provider = {
+                        $case: "azureBlobStorage",
+                        azureBlobStorage: exports.TransferSource_AzureBlobStorageProvider.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSourceCustom({
+            $type: "nebius.storage.v1.TransferSource",
+            prefix: (0, index_js_1.isSet)(object.prefix ?? object.prefix)
+                ? String(object.prefix ?? object.prefix)
+                : "",
+            provider: (() => {
+                if ((0, index_js_1.isSet)(object.nebius) || (0, index_js_1.isSet)(object.nebius)) {
+                    return {
+                        $case: "nebius",
+                        nebius: exports.TransferSource_NebiusProvider.fromJSON(object.nebius ?? object.nebius)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.s3Compatible) || (0, index_js_1.isSet)(object.s3_compatible)) {
+                    return {
+                        $case: "s3Compatible",
+                        s3Compatible: exports.TransferSource_S3CompatibleProvider.fromJSON(object.s3Compatible ?? object.s3_compatible)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.azureBlobStorage) || (0, index_js_1.isSet)(object.azure_blob_storage)) {
+                    return {
+                        $case: "azureBlobStorage",
+                        azureBlobStorage: exports.TransferSource_AzureBlobStorageProvider.fromJSON(object.azureBlobStorage ?? object.azure_blob_storage)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.prefix !== "") {
+            obj[pick("prefix", "prefix")] = message.prefix;
+        }
+        switch (message.provider?.$case) {
+            case "nebius": {
+                obj[pick("nebius", "nebius")] = exports.TransferSource_NebiusProvider.toJSON(message.provider.nebius, use);
+                break;
+            }
+            case "s3Compatible": {
+                obj[pick("s3Compatible", "s3_compatible")] = exports.TransferSource_S3CompatibleProvider.toJSON(message.provider.s3Compatible, use);
+                break;
+            }
+            case "azureBlobStorage": {
+                obj[pick("azureBlobStorage", "azure_blob_storage")] = exports.TransferSource_AzureBlobStorageProvider.toJSON(message.provider.azureBlobStorage, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSource.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSource();
+        message.prefix = (object.prefix !== undefined && object.prefix !== null)
+            ? object.prefix
+            : "";
+        switch (object.provider?.$case) {
+            case "nebius": {
+                if (object.provider.nebius !== undefined && object.provider.nebius !== null) {
+                    message.provider = {
+                        $case: "nebius",
+                        nebius: exports.TransferSource_NebiusProvider.fromPartial(object.provider.nebius),
+                    };
+                }
+                break;
+            }
+            case "s3Compatible": {
+                if (object.provider.s3Compatible !== undefined && object.provider.s3Compatible !== null) {
+                    message.provider = {
+                        $case: "s3Compatible",
+                        s3Compatible: exports.TransferSource_S3CompatibleProvider.fromPartial(object.provider.s3Compatible),
+                    };
+                }
+                break;
+            }
+            case "azureBlobStorage": {
+                if (object.provider.azureBlobStorage !== undefined && object.provider.azureBlobStorage !== null) {
+                    message.provider = {
+                        $case: "azureBlobStorage",
+                        azureBlobStorage: exports.TransferSource_AzureBlobStorageProvider.fromPartial(object.provider.azureBlobStorage),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSource);
+function TransferSourceCustomInspect() {
+    const parts = [];
+    if (this.prefix !== "")
+        parts.push("prefix" + "=" + (0, util_1.inspect)(this.prefix));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSourceCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.prefix !== "")
+        obj.prefix = (0, logging_js_1.inspectJson)(this.prefix);
+    return obj;
+}
+function applyTransferSourceCustom(message) {
+    message[logging_js_1.custom] = TransferSourceCustomInspect;
+    message[logging_js_1.customJson] = TransferSourceCustomJson;
+    return message;
+}
+function createBaseTransferSource() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSource",
+        prefix: "",
+        provider: undefined,
+    };
+    return applyTransferSourceCustom(message);
+}
+exports.TransferSource_NebiusProvider = {
+    $type: "nebius.storage.v1.TransferSource.NebiusProvider",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.region !== "") {
+            writer.uint32(10).string(message.region);
+        }
+        if (message.bucketName !== "") {
+            writer.uint32(18).string(message.bucketName);
+        }
+        if (message.credentials?.$case === undefined) { /* noop */ }
+        else if (message.credentials?.$case === "anonymous") {
+            const w = writer.uint32(26).fork();
+            exports.TransferCredentialsAnonymous.encode(message.credentials.anonymous, w);
+            w.join();
+        }
+        else if (message.credentials?.$case === "accessKey") {
+            const w = writer.uint32(34).fork();
+            exports.TransferCredentialsAccessKey.encode(message.credentials.accessKey, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSource_NebiusProvider();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.region = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.bucketName = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSource_NebiusProviderCustom({
+            $type: "nebius.storage.v1.TransferSource.NebiusProvider",
+            region: (0, index_js_1.isSet)(object.region ?? object.region)
+                ? String(object.region ?? object.region)
+                : "",
+            bucketName: (0, index_js_1.isSet)(object.bucketName ?? object.bucket_name)
+                ? String(object.bucketName ?? object.bucket_name)
+                : "",
+            credentials: (() => {
+                if ((0, index_js_1.isSet)(object.anonymous) || (0, index_js_1.isSet)(object.anonymous)) {
+                    return {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromJSON(object.anonymous ?? object.anonymous)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.accessKey) || (0, index_js_1.isSet)(object.access_key)) {
+                    return {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromJSON(object.accessKey ?? object.access_key)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.region !== "") {
+            obj[pick("region", "region")] = message.region;
+        }
+        if (message.bucketName !== "") {
+            obj[pick("bucketName", "bucket_name")] = message.bucketName;
+        }
+        switch (message.credentials?.$case) {
+            case "anonymous": {
+                obj[pick("anonymous", "anonymous")] = exports.TransferCredentialsAnonymous.toJSON(message.credentials.anonymous, use);
+                break;
+            }
+            case "accessKey": {
+                obj[pick("accessKey", "access_key")] = exports.TransferCredentialsAccessKey.toJSON(message.credentials.accessKey, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSource_NebiusProvider.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSource_NebiusProvider();
+        message.region = (object.region !== undefined && object.region !== null)
+            ? object.region
+            : "";
+        message.bucketName = (object.bucketName !== undefined && object.bucketName !== null)
+            ? object.bucketName
+            : "";
+        switch (object.credentials?.$case) {
+            case "anonymous": {
+                if (object.credentials.anonymous !== undefined && object.credentials.anonymous !== null) {
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromPartial(object.credentials.anonymous),
+                    };
+                }
+                break;
+            }
+            case "accessKey": {
+                if (object.credentials.accessKey !== undefined && object.credentials.accessKey !== null) {
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromPartial(object.credentials.accessKey),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSource_NebiusProvider);
+function TransferSource_NebiusProviderCustomInspect() {
+    const parts = [];
+    if (this.region !== "")
+        parts.push("region" + "=" + (0, util_1.inspect)(this.region));
+    if (this.bucketName !== "")
+        parts.push("bucketName" + "=" + (0, util_1.inspect)(this.bucketName));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSource_NebiusProviderCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.region !== "")
+        obj.region = (0, logging_js_1.inspectJson)(this.region);
+    if (this.bucketName !== "")
+        obj.bucketName = (0, logging_js_1.inspectJson)(this.bucketName);
+    return obj;
+}
+function applyTransferSource_NebiusProviderCustom(message) {
+    message[logging_js_1.custom] = TransferSource_NebiusProviderCustomInspect;
+    message[logging_js_1.customJson] = TransferSource_NebiusProviderCustomJson;
+    return message;
+}
+function createBaseTransferSource_NebiusProvider() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSource.NebiusProvider",
+        region: "",
+        bucketName: "",
+        credentials: undefined,
+    };
+    return applyTransferSource_NebiusProviderCustom(message);
+}
+exports.TransferSource_S3CompatibleProvider = {
+    $type: "nebius.storage.v1.TransferSource.S3CompatibleProvider",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.endpoint !== "") {
+            writer.uint32(10).string(message.endpoint);
+        }
+        if (message.region !== "") {
+            writer.uint32(18).string(message.region);
+        }
+        if (message.bucketName !== "") {
+            writer.uint32(26).string(message.bucketName);
+        }
+        if (message.credentials?.$case === undefined) { /* noop */ }
+        else if (message.credentials?.$case === "anonymous") {
+            const w = writer.uint32(34).fork();
+            exports.TransferCredentialsAnonymous.encode(message.credentials.anonymous, w);
+            w.join();
+        }
+        else if (message.credentials?.$case === "accessKey") {
+            const w = writer.uint32(42).fork();
+            exports.TransferCredentialsAccessKey.encode(message.credentials.accessKey, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSource_S3CompatibleProvider();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.endpoint = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.region = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.bucketName = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSource_S3CompatibleProviderCustom({
+            $type: "nebius.storage.v1.TransferSource.S3CompatibleProvider",
+            endpoint: (0, index_js_1.isSet)(object.endpoint ?? object.endpoint)
+                ? String(object.endpoint ?? object.endpoint)
+                : "",
+            region: (0, index_js_1.isSet)(object.region ?? object.region)
+                ? String(object.region ?? object.region)
+                : "",
+            bucketName: (0, index_js_1.isSet)(object.bucketName ?? object.bucket_name)
+                ? String(object.bucketName ?? object.bucket_name)
+                : "",
+            credentials: (() => {
+                if ((0, index_js_1.isSet)(object.anonymous) || (0, index_js_1.isSet)(object.anonymous)) {
+                    return {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromJSON(object.anonymous ?? object.anonymous)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.accessKey) || (0, index_js_1.isSet)(object.access_key)) {
+                    return {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromJSON(object.accessKey ?? object.access_key)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.endpoint !== "") {
+            obj[pick("endpoint", "endpoint")] = message.endpoint;
+        }
+        if (message.region !== "") {
+            obj[pick("region", "region")] = message.region;
+        }
+        if (message.bucketName !== "") {
+            obj[pick("bucketName", "bucket_name")] = message.bucketName;
+        }
+        switch (message.credentials?.$case) {
+            case "anonymous": {
+                obj[pick("anonymous", "anonymous")] = exports.TransferCredentialsAnonymous.toJSON(message.credentials.anonymous, use);
+                break;
+            }
+            case "accessKey": {
+                obj[pick("accessKey", "access_key")] = exports.TransferCredentialsAccessKey.toJSON(message.credentials.accessKey, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSource_S3CompatibleProvider.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSource_S3CompatibleProvider();
+        message.endpoint = (object.endpoint !== undefined && object.endpoint !== null)
+            ? object.endpoint
+            : "";
+        message.region = (object.region !== undefined && object.region !== null)
+            ? object.region
+            : "";
+        message.bucketName = (object.bucketName !== undefined && object.bucketName !== null)
+            ? object.bucketName
+            : "";
+        switch (object.credentials?.$case) {
+            case "anonymous": {
+                if (object.credentials.anonymous !== undefined && object.credentials.anonymous !== null) {
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromPartial(object.credentials.anonymous),
+                    };
+                }
+                break;
+            }
+            case "accessKey": {
+                if (object.credentials.accessKey !== undefined && object.credentials.accessKey !== null) {
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromPartial(object.credentials.accessKey),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSource_S3CompatibleProvider);
+function TransferSource_S3CompatibleProviderCustomInspect() {
+    const parts = [];
+    if (this.endpoint !== "")
+        parts.push("endpoint" + "=" + (0, util_1.inspect)(this.endpoint));
+    if (this.region !== "")
+        parts.push("region" + "=" + (0, util_1.inspect)(this.region));
+    if (this.bucketName !== "")
+        parts.push("bucketName" + "=" + (0, util_1.inspect)(this.bucketName));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSource_S3CompatibleProviderCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.endpoint !== "")
+        obj.endpoint = (0, logging_js_1.inspectJson)(this.endpoint);
+    if (this.region !== "")
+        obj.region = (0, logging_js_1.inspectJson)(this.region);
+    if (this.bucketName !== "")
+        obj.bucketName = (0, logging_js_1.inspectJson)(this.bucketName);
+    return obj;
+}
+function applyTransferSource_S3CompatibleProviderCustom(message) {
+    message[logging_js_1.custom] = TransferSource_S3CompatibleProviderCustomInspect;
+    message[logging_js_1.customJson] = TransferSource_S3CompatibleProviderCustomJson;
+    return message;
+}
+function createBaseTransferSource_S3CompatibleProvider() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSource.S3CompatibleProvider",
+        endpoint: "",
+        region: "",
+        bucketName: "",
+        credentials: undefined,
+    };
+    return applyTransferSource_S3CompatibleProviderCustom(message);
+}
+exports.TransferSource_AzureBlobStorageProvider = {
+    $type: "nebius.storage.v1.TransferSource.AzureBlobStorageProvider",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.endpoint !== "") {
+            writer.uint32(10).string(message.endpoint);
+        }
+        if (message.containerName !== "") {
+            writer.uint32(18).string(message.containerName);
+        }
+        if (message.credentials?.$case === undefined) { /* noop */ }
+        else if (message.credentials?.$case === "anonymous") {
+            const w = writer.uint32(26).fork();
+            exports.TransferCredentialsAnonymous.encode(message.credentials.anonymous, w);
+            w.join();
+        }
+        else if (message.credentials?.$case === "azureStorageAccount") {
+            const w = writer.uint32(34).fork();
+            exports.TransferCredentialsAzureStorageAccount.encode(message.credentials.azureStorageAccount, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferSource_AzureBlobStorageProvider();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.endpoint = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.containerName = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.credentials = {
+                        $case: "azureStorageAccount",
+                        azureStorageAccount: exports.TransferCredentialsAzureStorageAccount.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferSource_AzureBlobStorageProviderCustom({
+            $type: "nebius.storage.v1.TransferSource.AzureBlobStorageProvider",
+            endpoint: (0, index_js_1.isSet)(object.endpoint ?? object.endpoint)
+                ? String(object.endpoint ?? object.endpoint)
+                : "",
+            containerName: (0, index_js_1.isSet)(object.containerName ?? object.container_name)
+                ? String(object.containerName ?? object.container_name)
+                : "",
+            credentials: (() => {
+                if ((0, index_js_1.isSet)(object.anonymous) || (0, index_js_1.isSet)(object.anonymous)) {
+                    return {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromJSON(object.anonymous ?? object.anonymous)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.azureStorageAccount) || (0, index_js_1.isSet)(object.azure_storage_account)) {
+                    return {
+                        $case: "azureStorageAccount",
+                        azureStorageAccount: exports.TransferCredentialsAzureStorageAccount.fromJSON(object.azureStorageAccount ?? object.azure_storage_account)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.endpoint !== "") {
+            obj[pick("endpoint", "endpoint")] = message.endpoint;
+        }
+        if (message.containerName !== "") {
+            obj[pick("containerName", "container_name")] = message.containerName;
+        }
+        switch (message.credentials?.$case) {
+            case "anonymous": {
+                obj[pick("anonymous", "anonymous")] = exports.TransferCredentialsAnonymous.toJSON(message.credentials.anonymous, use);
+                break;
+            }
+            case "azureStorageAccount": {
+                obj[pick("azureStorageAccount", "azure_storage_account")] = exports.TransferCredentialsAzureStorageAccount.toJSON(message.credentials.azureStorageAccount, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferSource_AzureBlobStorageProvider.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferSource_AzureBlobStorageProvider();
+        message.endpoint = (object.endpoint !== undefined && object.endpoint !== null)
+            ? object.endpoint
+            : "";
+        message.containerName = (object.containerName !== undefined && object.containerName !== null)
+            ? object.containerName
+            : "";
+        switch (object.credentials?.$case) {
+            case "anonymous": {
+                if (object.credentials.anonymous !== undefined && object.credentials.anonymous !== null) {
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromPartial(object.credentials.anonymous),
+                    };
+                }
+                break;
+            }
+            case "azureStorageAccount": {
+                if (object.credentials.azureStorageAccount !== undefined && object.credentials.azureStorageAccount !== null) {
+                    message.credentials = {
+                        $case: "azureStorageAccount",
+                        azureStorageAccount: exports.TransferCredentialsAzureStorageAccount.fromPartial(object.credentials.azureStorageAccount),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferSource_AzureBlobStorageProvider);
+function TransferSource_AzureBlobStorageProviderCustomInspect() {
+    const parts = [];
+    if (this.endpoint !== "")
+        parts.push("endpoint" + "=" + (0, util_1.inspect)(this.endpoint));
+    if (this.containerName !== "")
+        parts.push("containerName" + "=" + (0, util_1.inspect)(this.containerName));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferSource_AzureBlobStorageProviderCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.endpoint !== "")
+        obj.endpoint = (0, logging_js_1.inspectJson)(this.endpoint);
+    if (this.containerName !== "")
+        obj.containerName = (0, logging_js_1.inspectJson)(this.containerName);
+    return obj;
+}
+function applyTransferSource_AzureBlobStorageProviderCustom(message) {
+    message[logging_js_1.custom] = TransferSource_AzureBlobStorageProviderCustomInspect;
+    message[logging_js_1.customJson] = TransferSource_AzureBlobStorageProviderCustomJson;
+    return message;
+}
+function createBaseTransferSource_AzureBlobStorageProvider() {
+    const message = {
+        $type: "nebius.storage.v1.TransferSource.AzureBlobStorageProvider",
+        endpoint: "",
+        containerName: "",
+        credentials: undefined,
+    };
+    return applyTransferSource_AzureBlobStorageProviderCustom(message);
+}
+exports.TransferDestination = {
+    $type: "nebius.storage.v1.TransferDestination",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.prefix !== "") {
+            writer.uint32(26).string(message.prefix);
+        }
+        if (message.provider?.$case === undefined) { /* noop */ }
+        else if (message.provider?.$case === "nebius") {
+            const w = writer.uint32(10).fork();
+            exports.TransferDestination_NebiusProvider.encode(message.provider.nebius, w);
+            w.join();
+        }
+        else if (message.provider?.$case === "s3Compatible") {
+            const w = writer.uint32(18).fork();
+            exports.TransferDestination_S3CompatibleProvider.encode(message.provider.s3Compatible, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferDestination();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.prefix = reader.string();
+                    continue;
+                }
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.provider = {
+                        $case: "nebius",
+                        nebius: exports.TransferDestination_NebiusProvider.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.provider = {
+                        $case: "s3Compatible",
+                        s3Compatible: exports.TransferDestination_S3CompatibleProvider.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferDestinationCustom({
+            $type: "nebius.storage.v1.TransferDestination",
+            prefix: (0, index_js_1.isSet)(object.prefix ?? object.prefix)
+                ? String(object.prefix ?? object.prefix)
+                : "",
+            provider: (() => {
+                if ((0, index_js_1.isSet)(object.nebius) || (0, index_js_1.isSet)(object.nebius)) {
+                    return {
+                        $case: "nebius",
+                        nebius: exports.TransferDestination_NebiusProvider.fromJSON(object.nebius ?? object.nebius)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.s3Compatible) || (0, index_js_1.isSet)(object.s3_compatible)) {
+                    return {
+                        $case: "s3Compatible",
+                        s3Compatible: exports.TransferDestination_S3CompatibleProvider.fromJSON(object.s3Compatible ?? object.s3_compatible)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.prefix !== "") {
+            obj[pick("prefix", "prefix")] = message.prefix;
+        }
+        switch (message.provider?.$case) {
+            case "nebius": {
+                obj[pick("nebius", "nebius")] = exports.TransferDestination_NebiusProvider.toJSON(message.provider.nebius, use);
+                break;
+            }
+            case "s3Compatible": {
+                obj[pick("s3Compatible", "s3_compatible")] = exports.TransferDestination_S3CompatibleProvider.toJSON(message.provider.s3Compatible, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferDestination.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferDestination();
+        message.prefix = (object.prefix !== undefined && object.prefix !== null)
+            ? object.prefix
+            : "";
+        switch (object.provider?.$case) {
+            case "nebius": {
+                if (object.provider.nebius !== undefined && object.provider.nebius !== null) {
+                    message.provider = {
+                        $case: "nebius",
+                        nebius: exports.TransferDestination_NebiusProvider.fromPartial(object.provider.nebius),
+                    };
+                }
+                break;
+            }
+            case "s3Compatible": {
+                if (object.provider.s3Compatible !== undefined && object.provider.s3Compatible !== null) {
+                    message.provider = {
+                        $case: "s3Compatible",
+                        s3Compatible: exports.TransferDestination_S3CompatibleProvider.fromPartial(object.provider.s3Compatible),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferDestination);
+function TransferDestinationCustomInspect() {
+    const parts = [];
+    if (this.prefix !== "")
+        parts.push("prefix" + "=" + (0, util_1.inspect)(this.prefix));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferDestinationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.prefix !== "")
+        obj.prefix = (0, logging_js_1.inspectJson)(this.prefix);
+    return obj;
+}
+function applyTransferDestinationCustom(message) {
+    message[logging_js_1.custom] = TransferDestinationCustomInspect;
+    message[logging_js_1.customJson] = TransferDestinationCustomJson;
+    return message;
+}
+function createBaseTransferDestination() {
+    const message = {
+        $type: "nebius.storage.v1.TransferDestination",
+        prefix: "",
+        provider: undefined,
+    };
+    return applyTransferDestinationCustom(message);
+}
+exports.TransferDestination_NebiusProvider = {
+    $type: "nebius.storage.v1.TransferDestination.NebiusProvider",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.region !== "") {
+            writer.uint32(10).string(message.region);
+        }
+        if (message.bucketName !== "") {
+            writer.uint32(18).string(message.bucketName);
+        }
+        if (message.credentials?.$case === undefined) { /* noop */ }
+        else if (message.credentials?.$case === "accessKey") {
+            const w = writer.uint32(26).fork();
+            exports.TransferCredentialsAccessKey.encode(message.credentials.accessKey, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferDestination_NebiusProvider();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.region = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.bucketName = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferDestination_NebiusProviderCustom({
+            $type: "nebius.storage.v1.TransferDestination.NebiusProvider",
+            region: (0, index_js_1.isSet)(object.region ?? object.region)
+                ? String(object.region ?? object.region)
+                : "",
+            bucketName: (0, index_js_1.isSet)(object.bucketName ?? object.bucket_name)
+                ? String(object.bucketName ?? object.bucket_name)
+                : "",
+            credentials: (() => {
+                if ((0, index_js_1.isSet)(object.accessKey) || (0, index_js_1.isSet)(object.access_key)) {
+                    return {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromJSON(object.accessKey ?? object.access_key)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.region !== "") {
+            obj[pick("region", "region")] = message.region;
+        }
+        if (message.bucketName !== "") {
+            obj[pick("bucketName", "bucket_name")] = message.bucketName;
+        }
+        switch (message.credentials?.$case) {
+            case "accessKey": {
+                obj[pick("accessKey", "access_key")] = exports.TransferCredentialsAccessKey.toJSON(message.credentials.accessKey, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferDestination_NebiusProvider.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferDestination_NebiusProvider();
+        message.region = (object.region !== undefined && object.region !== null)
+            ? object.region
+            : "";
+        message.bucketName = (object.bucketName !== undefined && object.bucketName !== null)
+            ? object.bucketName
+            : "";
+        switch (object.credentials?.$case) {
+            case "accessKey": {
+                if (object.credentials.accessKey !== undefined && object.credentials.accessKey !== null) {
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromPartial(object.credentials.accessKey),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferDestination_NebiusProvider);
+function TransferDestination_NebiusProviderCustomInspect() {
+    const parts = [];
+    if (this.region !== "")
+        parts.push("region" + "=" + (0, util_1.inspect)(this.region));
+    if (this.bucketName !== "")
+        parts.push("bucketName" + "=" + (0, util_1.inspect)(this.bucketName));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferDestination_NebiusProviderCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.region !== "")
+        obj.region = (0, logging_js_1.inspectJson)(this.region);
+    if (this.bucketName !== "")
+        obj.bucketName = (0, logging_js_1.inspectJson)(this.bucketName);
+    return obj;
+}
+function applyTransferDestination_NebiusProviderCustom(message) {
+    message[logging_js_1.custom] = TransferDestination_NebiusProviderCustomInspect;
+    message[logging_js_1.customJson] = TransferDestination_NebiusProviderCustomJson;
+    return message;
+}
+function createBaseTransferDestination_NebiusProvider() {
+    const message = {
+        $type: "nebius.storage.v1.TransferDestination.NebiusProvider",
+        region: "",
+        bucketName: "",
+        credentials: undefined,
+    };
+    return applyTransferDestination_NebiusProviderCustom(message);
+}
+exports.TransferDestination_S3CompatibleProvider = {
+    $type: "nebius.storage.v1.TransferDestination.S3CompatibleProvider",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.endpoint !== "") {
+            writer.uint32(10).string(message.endpoint);
+        }
+        if (message.region !== "") {
+            writer.uint32(18).string(message.region);
+        }
+        if (message.bucketName !== "") {
+            writer.uint32(26).string(message.bucketName);
+        }
+        if (message.credentials?.$case === undefined) { /* noop */ }
+        else if (message.credentials?.$case === "anonymous") {
+            const w = writer.uint32(34).fork();
+            exports.TransferCredentialsAnonymous.encode(message.credentials.anonymous, w);
+            w.join();
+        }
+        else if (message.credentials?.$case === "accessKey") {
+            const w = writer.uint32(42).fork();
+            exports.TransferCredentialsAccessKey.encode(message.credentials.accessKey, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferDestination_S3CompatibleProvider();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.endpoint = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.region = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.bucketName = reader.string();
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.decode(reader, reader.uint32())
+                    };
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferDestination_S3CompatibleProviderCustom({
+            $type: "nebius.storage.v1.TransferDestination.S3CompatibleProvider",
+            endpoint: (0, index_js_1.isSet)(object.endpoint ?? object.endpoint)
+                ? String(object.endpoint ?? object.endpoint)
+                : "",
+            region: (0, index_js_1.isSet)(object.region ?? object.region)
+                ? String(object.region ?? object.region)
+                : "",
+            bucketName: (0, index_js_1.isSet)(object.bucketName ?? object.bucket_name)
+                ? String(object.bucketName ?? object.bucket_name)
+                : "",
+            credentials: (() => {
+                if ((0, index_js_1.isSet)(object.anonymous) || (0, index_js_1.isSet)(object.anonymous)) {
+                    return {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromJSON(object.anonymous ?? object.anonymous)
+                    };
+                }
+                if ((0, index_js_1.isSet)(object.accessKey) || (0, index_js_1.isSet)(object.access_key)) {
+                    return {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromJSON(object.accessKey ?? object.access_key)
+                    };
+                }
+                return undefined;
+            })(),
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.endpoint !== "") {
+            obj[pick("endpoint", "endpoint")] = message.endpoint;
+        }
+        if (message.region !== "") {
+            obj[pick("region", "region")] = message.region;
+        }
+        if (message.bucketName !== "") {
+            obj[pick("bucketName", "bucket_name")] = message.bucketName;
+        }
+        switch (message.credentials?.$case) {
+            case "anonymous": {
+                obj[pick("anonymous", "anonymous")] = exports.TransferCredentialsAnonymous.toJSON(message.credentials.anonymous, use);
+                break;
+            }
+            case "accessKey": {
+                obj[pick("accessKey", "access_key")] = exports.TransferCredentialsAccessKey.toJSON(message.credentials.accessKey, use);
+                break;
+            }
+            default: break;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferDestination_S3CompatibleProvider.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferDestination_S3CompatibleProvider();
+        message.endpoint = (object.endpoint !== undefined && object.endpoint !== null)
+            ? object.endpoint
+            : "";
+        message.region = (object.region !== undefined && object.region !== null)
+            ? object.region
+            : "";
+        message.bucketName = (object.bucketName !== undefined && object.bucketName !== null)
+            ? object.bucketName
+            : "";
+        switch (object.credentials?.$case) {
+            case "anonymous": {
+                if (object.credentials.anonymous !== undefined && object.credentials.anonymous !== null) {
+                    message.credentials = {
+                        $case: "anonymous",
+                        anonymous: exports.TransferCredentialsAnonymous.fromPartial(object.credentials.anonymous),
+                    };
+                }
+                break;
+            }
+            case "accessKey": {
+                if (object.credentials.accessKey !== undefined && object.credentials.accessKey !== null) {
+                    message.credentials = {
+                        $case: "accessKey",
+                        accessKey: exports.TransferCredentialsAccessKey.fromPartial(object.credentials.accessKey),
+                    };
+                }
+                break;
+            }
+            default: break;
+        }
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferDestination_S3CompatibleProvider);
+function TransferDestination_S3CompatibleProviderCustomInspect() {
+    const parts = [];
+    if (this.endpoint !== "")
+        parts.push("endpoint" + "=" + (0, util_1.inspect)(this.endpoint));
+    if (this.region !== "")
+        parts.push("region" + "=" + (0, util_1.inspect)(this.region));
+    if (this.bucketName !== "")
+        parts.push("bucketName" + "=" + (0, util_1.inspect)(this.bucketName));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferDestination_S3CompatibleProviderCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.endpoint !== "")
+        obj.endpoint = (0, logging_js_1.inspectJson)(this.endpoint);
+    if (this.region !== "")
+        obj.region = (0, logging_js_1.inspectJson)(this.region);
+    if (this.bucketName !== "")
+        obj.bucketName = (0, logging_js_1.inspectJson)(this.bucketName);
+    return obj;
+}
+function applyTransferDestination_S3CompatibleProviderCustom(message) {
+    message[logging_js_1.custom] = TransferDestination_S3CompatibleProviderCustomInspect;
+    message[logging_js_1.customJson] = TransferDestination_S3CompatibleProviderCustomJson;
+    return message;
+}
+function createBaseTransferDestination_S3CompatibleProvider() {
+    const message = {
+        $type: "nebius.storage.v1.TransferDestination.S3CompatibleProvider",
+        endpoint: "",
+        region: "",
+        bucketName: "",
+        credentials: undefined,
+    };
+    return applyTransferDestination_S3CompatibleProviderCustom(message);
+}
+exports.TransferCredentialsAnonymous = {
+    $type: "nebius.storage.v1.TransferCredentialsAnonymous",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferCredentialsAnonymous();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferCredentialsAnonymousCustom({
+            $type: "nebius.storage.v1.TransferCredentialsAnonymous",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        return obj;
+    },
+    create(base) {
+        return exports.TransferCredentialsAnonymous.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferCredentialsAnonymous();
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferCredentialsAnonymous);
+function TransferCredentialsAnonymousCustomInspect() {
+    const parts = [];
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferCredentialsAnonymousCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    return obj;
+}
+function applyTransferCredentialsAnonymousCustom(message) {
+    message[logging_js_1.custom] = TransferCredentialsAnonymousCustomInspect;
+    message[logging_js_1.customJson] = TransferCredentialsAnonymousCustomJson;
+    return message;
+}
+function createBaseTransferCredentialsAnonymous() {
+    const message = {
+        $type: "nebius.storage.v1.TransferCredentialsAnonymous",
+    };
+    return applyTransferCredentialsAnonymousCustom(message);
+}
+exports.TransferCredentialsAccessKey = {
+    $type: "nebius.storage.v1.TransferCredentialsAccessKey",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.accessKeyId !== "") {
+            writer.uint32(10).string(message.accessKeyId);
+        }
+        if (message.secretAccessKey !== "") {
+            writer.uint32(18).string(message.secretAccessKey);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferCredentialsAccessKey();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.accessKeyId = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.secretAccessKey = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferCredentialsAccessKeyCustom({
+            $type: "nebius.storage.v1.TransferCredentialsAccessKey",
+            accessKeyId: (0, index_js_1.isSet)(object.accessKeyId ?? object.access_key_id)
+                ? String(object.accessKeyId ?? object.access_key_id)
+                : "",
+            secretAccessKey: (0, index_js_1.isSet)(object.secretAccessKey ?? object.secret_access_key)
+                ? String(object.secretAccessKey ?? object.secret_access_key)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.accessKeyId !== "") {
+            obj[pick("accessKeyId", "access_key_id")] = message.accessKeyId;
+        }
+        if (message.secretAccessKey !== "") {
+            obj[pick("secretAccessKey", "secret_access_key")] = message.secretAccessKey;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferCredentialsAccessKey.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferCredentialsAccessKey();
+        message.accessKeyId = (object.accessKeyId !== undefined && object.accessKeyId !== null)
+            ? object.accessKeyId
+            : "";
+        message.secretAccessKey = (object.secretAccessKey !== undefined && object.secretAccessKey !== null)
+            ? object.secretAccessKey
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferCredentialsAccessKey);
+function TransferCredentialsAccessKeyCustomInspect() {
+    const parts = [];
+    if (this.accessKeyId !== "")
+        parts.push("accessKeyId" + "=" + (0, util_1.inspect)(this.accessKeyId));
+    if (this.secretAccessKey !== "")
+        parts.push("secretAccessKey" + "=***");
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferCredentialsAccessKeyCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.accessKeyId !== "")
+        obj.accessKeyId = (0, logging_js_1.inspectJson)(this.accessKeyId);
+    if (this.secretAccessKey !== "")
+        obj.secretAccessKey = "***";
+    return obj;
+}
+function applyTransferCredentialsAccessKeyCustom(message) {
+    message[logging_js_1.custom] = TransferCredentialsAccessKeyCustomInspect;
+    message[logging_js_1.customJson] = TransferCredentialsAccessKeyCustomJson;
+    return message;
+}
+function createBaseTransferCredentialsAccessKey() {
+    const message = {
+        $type: "nebius.storage.v1.TransferCredentialsAccessKey",
+        accessKeyId: "",
+        secretAccessKey: "",
+    };
+    return applyTransferCredentialsAccessKeyCustom(message);
+}
+exports.TransferCredentialsAzureStorageAccount = {
+    $type: "nebius.storage.v1.TransferCredentialsAzureStorageAccount",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.accountName !== "") {
+            writer.uint32(10).string(message.accountName);
+        }
+        if (message.accessKey !== "") {
+            writer.uint32(18).string(message.accessKey);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferCredentialsAzureStorageAccount();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 10)
+                        break;
+                    message.accountName = reader.string();
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.accessKey = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferCredentialsAzureStorageAccountCustom({
+            $type: "nebius.storage.v1.TransferCredentialsAzureStorageAccount",
+            accountName: (0, index_js_1.isSet)(object.accountName ?? object.account_name)
+                ? String(object.accountName ?? object.account_name)
+                : "",
+            accessKey: (0, index_js_1.isSet)(object.accessKey ?? object.access_key)
+                ? String(object.accessKey ?? object.access_key)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (message.accountName !== "") {
+            obj[pick("accountName", "account_name")] = message.accountName;
+        }
+        if (message.accessKey !== "") {
+            obj[pick("accessKey", "access_key")] = message.accessKey;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferCredentialsAzureStorageAccount.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferCredentialsAzureStorageAccount();
+        message.accountName = (object.accountName !== undefined && object.accountName !== null)
+            ? object.accountName
+            : "";
+        message.accessKey = (object.accessKey !== undefined && object.accessKey !== null)
+            ? object.accessKey
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferCredentialsAzureStorageAccount);
+function TransferCredentialsAzureStorageAccountCustomInspect() {
+    const parts = [];
+    if (this.accountName !== "")
+        parts.push("accountName" + "=" + (0, util_1.inspect)(this.accountName));
+    if (this.accessKey !== "")
+        parts.push("accessKey" + "=***");
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferCredentialsAzureStorageAccountCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.accountName !== "")
+        obj.accountName = (0, logging_js_1.inspectJson)(this.accountName);
+    if (this.accessKey !== "")
+        obj.accessKey = "***";
+    return obj;
+}
+function applyTransferCredentialsAzureStorageAccountCustom(message) {
+    message[logging_js_1.custom] = TransferCredentialsAzureStorageAccountCustomInspect;
+    message[logging_js_1.customJson] = TransferCredentialsAzureStorageAccountCustomJson;
+    return message;
+}
+function createBaseTransferCredentialsAzureStorageAccount() {
+    const message = {
+        $type: "nebius.storage.v1.TransferCredentialsAzureStorageAccount",
+        accountName: "",
+        accessKey: "",
+    };
+    return applyTransferCredentialsAzureStorageAccountCustom(message);
+}
+exports.TransferStatus = {
+    $type: "nebius.storage.v1.TransferStatus",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.state ?? exports.TransferStatus_State.STATE_UNSPECIFIED) !== exports.TransferStatus_State.STATE_UNSPECIFIED) {
+            exports.TransferStatus_State.encodeField(writer, 1, message.state);
+        }
+        if (message.error !== undefined) {
+            const w = writer.uint32(18).fork();
+            exports.TransferError.encode(message.error, w);
+            w.join();
+        }
+        if ((message.suspensionState ?? exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) !== exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) {
+            exports.TransferStatus_SuspensionState.encodeField(writer, 3, message.suspensionState);
+        }
+        if (message.lastIteration !== undefined) {
+            const w = writer.uint32(34).fork();
+            exports.TransferIteration.encode(message.lastIteration, w);
+            w.join();
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferStatus();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.state = exports.TransferStatus_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.error = exports.TransferError.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 24)
+                        break;
+                    message.suspensionState = exports.TransferStatus_SuspensionState.fromNumber(reader.int32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    message.lastIteration = exports.TransferIteration.decode(reader, reader.uint32());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferStatusCustom({
+            $type: "nebius.storage.v1.TransferStatus",
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.TransferStatus_State.fromJSON(object.state ?? object.state)
+                : exports.TransferStatus_State.STATE_UNSPECIFIED,
+            error: (0, index_js_1.isSet)(object.error ?? object.error)
+                ? exports.TransferError.fromJSON(object.error ?? object.error)
+                : undefined,
+            suspensionState: (0, index_js_1.isSet)(object.suspensionState ?? object.suspension_state)
+                ? exports.TransferStatus_SuspensionState.fromJSON(object.suspensionState ?? object.suspension_state)
+                : exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED,
+            lastIteration: (0, index_js_1.isSet)(object.lastIteration ?? object.last_iteration)
+                ? exports.TransferIteration.fromJSON(object.lastIteration ?? object.last_iteration)
+                : undefined,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.state ?? exports.TransferStatus_State.STATE_UNSPECIFIED) !== exports.TransferStatus_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.TransferStatus_State.toJSON(message.state);
+        }
+        if (message.error !== undefined) {
+            obj[pick("error", "error")] = message.error
+                ? exports.TransferError.toJSON(message.error, use)
+                : undefined;
+        }
+        if ((message.suspensionState ?? exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) !== exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED) {
+            obj[pick("suspensionState", "suspension_state")] = exports.TransferStatus_SuspensionState.toJSON(message.suspensionState);
+        }
+        if (message.lastIteration !== undefined) {
+            obj[pick("lastIteration", "last_iteration")] = message.lastIteration
+                ? exports.TransferIteration.toJSON(message.lastIteration, use)
+                : undefined;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferStatus.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferStatus();
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.TransferStatus_State.fromJSON(object.state.name)
+            : exports.TransferStatus_State.STATE_UNSPECIFIED;
+        message.error = (object.error !== undefined && object.error !== null)
+            ? exports.TransferError.fromPartial(object.error)
+            : undefined;
+        message.suspensionState = (object.suspensionState !== undefined && object.suspensionState !== null)
+            ? exports.TransferStatus_SuspensionState.fromJSON(object.suspensionState.name)
+            : exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED;
+        message.lastIteration = (object.lastIteration !== undefined && object.lastIteration !== null)
+            ? exports.TransferIteration.fromPartial(object.lastIteration)
+            : undefined;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferStatus);
+function TransferStatusCustomInspect() {
+    const parts = [];
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.error !== undefined)
+        parts.push("error" + "=" + (0, util_1.inspect)(this.error));
+    if (this.suspensionState !== undefined)
+        parts.push("suspensionState" + "=" + (0, util_1.inspect)(this.suspensionState));
+    if (this.lastIteration !== undefined)
+        parts.push("lastIteration" + "=" + (0, util_1.inspect)(this.lastIteration));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferStatusCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.error !== undefined)
+        obj.error = (0, logging_js_1.inspectJson)(this.error);
+    if (this.suspensionState !== undefined)
+        obj.suspensionState = (0, logging_js_1.inspectJson)(this.suspensionState);
+    if (this.lastIteration !== undefined)
+        obj.lastIteration = (0, logging_js_1.inspectJson)(this.lastIteration);
+    return obj;
+}
+function applyTransferStatusCustom(message) {
+    message[logging_js_1.custom] = TransferStatusCustomInspect;
+    message[logging_js_1.customJson] = TransferStatusCustomJson;
+    return message;
+}
+function createBaseTransferStatus() {
+    const message = {
+        $type: "nebius.storage.v1.TransferStatus",
+        state: exports.TransferStatus_State.STATE_UNSPECIFIED,
+        error: undefined,
+        suspensionState: exports.TransferStatus_SuspensionState.SUSPENSION_STATE_UNSPECIFIED,
+        lastIteration: undefined,
+    };
+    return applyTransferStatusCustom(message);
+}
+exports.TransferIteration = {
+    $type: "nebius.storage.v1.TransferIteration",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if (message.sequenceNumber !== undefined && !message.sequenceNumber.isZero?.()) {
+            writer.uint32(8).int64(message.sequenceNumber.toString());
+        }
+        if ((message.state ?? exports.TransferIteration_State.STATE_UNSPECIFIED) !== exports.TransferIteration_State.STATE_UNSPECIFIED) {
+            exports.TransferIteration_State.encodeField(writer, 2, message.state);
+        }
+        if (message.error !== undefined) {
+            const w = writer.uint32(26).fork();
+            exports.TransferError.encode(message.error, w);
+            w.join();
+        }
+        if (message.startTime !== undefined) {
+            const w = writer.uint32(34).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.startTime);
+            w.join();
+        }
+        if (message.endTime !== undefined) {
+            const w = writer.uint32(42).fork();
+            index_js_1.wkt[".google.protobuf.Timestamp"].writeMessage(w, message.endTime);
+            w.join();
+        }
+        if (message.objectsTransferredCount !== undefined && !message.objectsTransferredCount.isZero?.()) {
+            writer.uint32(48).int64(message.objectsTransferredCount.toString());
+        }
+        if (message.objectsDeletedCount !== undefined && !message.objectsDeletedCount.isZero?.()) {
+            writer.uint32(56).int64(message.objectsDeletedCount.toString());
+        }
+        if (message.objectsTransferredSize !== undefined && !message.objectsTransferredSize.isZero?.()) {
+            writer.uint32(64).int64(message.objectsTransferredSize.toString());
+        }
+        if (message.averageThroughputBytes !== undefined && !message.averageThroughputBytes.isZero?.()) {
+            writer.uint32(72).int64(message.averageThroughputBytes.toString());
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferIteration();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.sequenceNumber = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 16)
+                        break;
+                    message.state = exports.TransferIteration_State.fromNumber(reader.int32());
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.error = exports.TransferError.decode(reader, reader.uint32());
+                    continue;
+                }
+                case 4: {
+                    if (tag !== 34)
+                        break;
+                    const len = reader.uint32();
+                    message.startTime = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 5: {
+                    if (tag !== 42)
+                        break;
+                    const len = reader.uint32();
+                    message.endTime = index_js_1.wkt[".google.protobuf.Timestamp"].readMessage(reader, len);
+                    continue;
+                }
+                case 6: {
+                    if (tag !== 48)
+                        break;
+                    message.objectsTransferredCount = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 7: {
+                    if (tag !== 56)
+                        break;
+                    message.objectsDeletedCount = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 8: {
+                    if (tag !== 64)
+                        break;
+                    message.objectsTransferredSize = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                case 9: {
+                    if (tag !== 72)
+                        break;
+                    message.averageThroughputBytes = index_js_1.Long.fromValue(reader.int64());
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferIterationCustom({
+            $type: "nebius.storage.v1.TransferIteration",
+            sequenceNumber: (0, index_js_1.isSet)(object.sequenceNumber ?? object.sequence_number)
+                ? index_js_1.Long.fromValue(object.sequenceNumber ?? object.sequence_number)
+                : index_js_1.Long.ZERO,
+            state: (0, index_js_1.isSet)(object.state ?? object.state)
+                ? exports.TransferIteration_State.fromJSON(object.state ?? object.state)
+                : exports.TransferIteration_State.STATE_UNSPECIFIED,
+            error: (0, index_js_1.isSet)(object.error ?? object.error)
+                ? exports.TransferError.fromJSON(object.error ?? object.error)
+                : undefined,
+            startTime: (0, index_js_1.isSet)(object.startTime ?? object.start_time)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.startTime ?? object.start_time)
+                : undefined,
+            endTime: (0, index_js_1.isSet)(object.endTime ?? object.end_time)
+                ? index_js_1.wkt[".google.protobuf.Timestamp"].fromJSON(object.endTime ?? object.end_time)
+                : undefined,
+            objectsTransferredCount: (0, index_js_1.isSet)(object.objectsTransferredCount ?? object.objects_transferred_count)
+                ? index_js_1.Long.fromValue(object.objectsTransferredCount ?? object.objects_transferred_count)
+                : index_js_1.Long.ZERO,
+            objectsDeletedCount: (0, index_js_1.isSet)(object.objectsDeletedCount ?? object.objects_deleted_count)
+                ? index_js_1.Long.fromValue(object.objectsDeletedCount ?? object.objects_deleted_count)
+                : index_js_1.Long.ZERO,
+            objectsTransferredSize: (0, index_js_1.isSet)(object.objectsTransferredSize ?? object.objects_transferred_size)
+                ? index_js_1.Long.fromValue(object.objectsTransferredSize ?? object.objects_transferred_size)
+                : index_js_1.Long.ZERO,
+            averageThroughputBytes: (0, index_js_1.isSet)(object.averageThroughputBytes ?? object.average_throughput_bytes)
+                ? index_js_1.Long.fromValue(object.averageThroughputBytes ?? object.average_throughput_bytes)
+                : index_js_1.Long.ZERO,
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if (!message.sequenceNumber?.isZero?.()) {
+            obj[pick("sequenceNumber", "sequence_number")] = (message.sequenceNumber || index_js_1.Long.ZERO).toString();
+        }
+        if ((message.state ?? exports.TransferIteration_State.STATE_UNSPECIFIED) !== exports.TransferIteration_State.STATE_UNSPECIFIED) {
+            obj[pick("state", "state")] = exports.TransferIteration_State.toJSON(message.state);
+        }
+        if (message.error !== undefined) {
+            obj[pick("error", "error")] = message.error
+                ? exports.TransferError.toJSON(message.error, use)
+                : undefined;
+        }
+        if (message.startTime !== undefined) {
+            obj[pick("startTime", "start_time")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.startTime, use);
+        }
+        if (message.endTime !== undefined) {
+            obj[pick("endTime", "end_time")] = index_js_1.wkt[".google.protobuf.Timestamp"].toJSON(message.endTime, use);
+        }
+        if (!message.objectsTransferredCount?.isZero?.()) {
+            obj[pick("objectsTransferredCount", "objects_transferred_count")] = (message.objectsTransferredCount || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.objectsDeletedCount?.isZero?.()) {
+            obj[pick("objectsDeletedCount", "objects_deleted_count")] = (message.objectsDeletedCount || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.objectsTransferredSize?.isZero?.()) {
+            obj[pick("objectsTransferredSize", "objects_transferred_size")] = (message.objectsTransferredSize || index_js_1.Long.ZERO).toString();
+        }
+        if (!message.averageThroughputBytes?.isZero?.()) {
+            obj[pick("averageThroughputBytes", "average_throughput_bytes")] = (message.averageThroughputBytes || index_js_1.Long.ZERO).toString();
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferIteration.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferIteration();
+        message.sequenceNumber = (object.sequenceNumber !== undefined && object.sequenceNumber !== null)
+            ? index_js_1.Long.fromValue(object.sequenceNumber)
+            : index_js_1.Long.ZERO;
+        message.state = (object.state !== undefined && object.state !== null)
+            ? exports.TransferIteration_State.fromJSON(object.state.name)
+            : exports.TransferIteration_State.STATE_UNSPECIFIED;
+        message.error = (object.error !== undefined && object.error !== null)
+            ? exports.TransferError.fromPartial(object.error)
+            : undefined;
+        message.startTime = (object.startTime !== undefined && object.startTime !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.startTime)
+            : undefined;
+        message.endTime = (object.endTime !== undefined && object.endTime !== null)
+            ? index_js_1.wkt[".google.protobuf.Timestamp"].fromPartial(object.endTime)
+            : undefined;
+        message.objectsTransferredCount = (object.objectsTransferredCount !== undefined && object.objectsTransferredCount !== null)
+            ? index_js_1.Long.fromValue(object.objectsTransferredCount)
+            : index_js_1.Long.ZERO;
+        message.objectsDeletedCount = (object.objectsDeletedCount !== undefined && object.objectsDeletedCount !== null)
+            ? index_js_1.Long.fromValue(object.objectsDeletedCount)
+            : index_js_1.Long.ZERO;
+        message.objectsTransferredSize = (object.objectsTransferredSize !== undefined && object.objectsTransferredSize !== null)
+            ? index_js_1.Long.fromValue(object.objectsTransferredSize)
+            : index_js_1.Long.ZERO;
+        message.averageThroughputBytes = (object.averageThroughputBytes !== undefined && object.averageThroughputBytes !== null)
+            ? index_js_1.Long.fromValue(object.averageThroughputBytes)
+            : index_js_1.Long.ZERO;
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferIteration);
+function TransferIterationCustomInspect() {
+    const parts = [];
+    if (!this.sequenceNumber?.isZero?.())
+        parts.push("sequenceNumber" + "=" + (0, util_1.inspect)(this.sequenceNumber));
+    if (this.state !== undefined)
+        parts.push("state" + "=" + (0, util_1.inspect)(this.state));
+    if (this.error !== undefined)
+        parts.push("error" + "=" + (0, util_1.inspect)(this.error));
+    if (this.startTime !== undefined)
+        parts.push("startTime" + "=" + (0, util_1.inspect)(this.startTime));
+    if (this.endTime !== undefined)
+        parts.push("endTime" + "=" + (0, util_1.inspect)(this.endTime));
+    if (!this.objectsTransferredCount?.isZero?.())
+        parts.push("objectsTransferredCount" + "=" + (0, util_1.inspect)(this.objectsTransferredCount));
+    if (!this.objectsDeletedCount?.isZero?.())
+        parts.push("objectsDeletedCount" + "=" + (0, util_1.inspect)(this.objectsDeletedCount));
+    if (!this.objectsTransferredSize?.isZero?.())
+        parts.push("objectsTransferredSize" + "=" + (0, util_1.inspect)(this.objectsTransferredSize));
+    if (!this.averageThroughputBytes?.isZero?.())
+        parts.push("averageThroughputBytes" + "=" + (0, util_1.inspect)(this.averageThroughputBytes));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferIterationCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (!this.sequenceNumber?.isZero?.())
+        obj.sequenceNumber = (0, logging_js_1.inspectJson)(this.sequenceNumber);
+    if (this.state !== undefined)
+        obj.state = (0, logging_js_1.inspectJson)(this.state);
+    if (this.error !== undefined)
+        obj.error = (0, logging_js_1.inspectJson)(this.error);
+    if (this.startTime !== undefined)
+        obj.startTime = (0, logging_js_1.inspectJson)(this.startTime);
+    if (this.endTime !== undefined)
+        obj.endTime = (0, logging_js_1.inspectJson)(this.endTime);
+    if (!this.objectsTransferredCount?.isZero?.())
+        obj.objectsTransferredCount = (0, logging_js_1.inspectJson)(this.objectsTransferredCount);
+    if (!this.objectsDeletedCount?.isZero?.())
+        obj.objectsDeletedCount = (0, logging_js_1.inspectJson)(this.objectsDeletedCount);
+    if (!this.objectsTransferredSize?.isZero?.())
+        obj.objectsTransferredSize = (0, logging_js_1.inspectJson)(this.objectsTransferredSize);
+    if (!this.averageThroughputBytes?.isZero?.())
+        obj.averageThroughputBytes = (0, logging_js_1.inspectJson)(this.averageThroughputBytes);
+    return obj;
+}
+function applyTransferIterationCustom(message) {
+    message[logging_js_1.custom] = TransferIterationCustomInspect;
+    message[logging_js_1.customJson] = TransferIterationCustomJson;
+    return message;
+}
+function createBaseTransferIteration() {
+    const message = {
+        $type: "nebius.storage.v1.TransferIteration",
+        sequenceNumber: index_js_1.Long.ZERO,
+        state: exports.TransferIteration_State.STATE_UNSPECIFIED,
+        error: undefined,
+        startTime: undefined,
+        endTime: undefined,
+        objectsTransferredCount: index_js_1.Long.ZERO,
+        objectsDeletedCount: index_js_1.Long.ZERO,
+        objectsTransferredSize: index_js_1.Long.ZERO,
+        averageThroughputBytes: index_js_1.Long.ZERO,
+    };
+    return applyTransferIterationCustom(message);
+}
+exports.TransferError = {
+    $type: "nebius.storage.v1.TransferError",
+    encode(message, writer = new index_js_1.BinaryWriter()) {
+        if ((message.origin ?? exports.TransferError_Origin.ORIGIN_UNSPECIFIED) !== exports.TransferError_Origin.ORIGIN_UNSPECIFIED) {
+            exports.TransferError_Origin.encodeField(writer, 1, message.origin);
+        }
+        if (message.code !== "") {
+            writer.uint32(18).string(message.code);
+        }
+        if (message.message !== "") {
+            writer.uint32(26).string(message.message);
+        }
+        if (message[index_js_1.unknownFieldsSymbol]) {
+            writer.raw(message[index_js_1.unknownFieldsSymbol]);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof index_js_1.BinaryReader ? input : new index_js_1.BinaryReader(input);
+        const end = length === undefined ? reader.len : reader.pos + length;
+        const message = createBaseTransferError();
+        let writer = undefined;
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1: {
+                    if (tag !== 8)
+                        break;
+                    message.origin = exports.TransferError_Origin.fromNumber(reader.int32());
+                    continue;
+                }
+                case 2: {
+                    if (tag !== 18)
+                        break;
+                    message.code = reader.string();
+                    continue;
+                }
+                case 3: {
+                    if (tag !== 26)
+                        break;
+                    message.message = reader.string();
+                    continue;
+                }
+                default:
+                    break;
+            }
+            if ((tag & 7) === 4 || tag === 0) {
+                break;
+            }
+            {
+                if (!writer)
+                    writer = new index_js_1.BinaryWriter();
+                const skipped = reader.skip(tag & 7, tag >>> 3);
+                writer.uint32(tag).raw(skipped);
+            }
+        }
+        if (writer) {
+            message[index_js_1.unknownFieldsSymbol] = writer.finish();
+        }
+        return message;
+    },
+    fromJSON(object) {
+        return applyTransferErrorCustom({
+            $type: "nebius.storage.v1.TransferError",
+            origin: (0, index_js_1.isSet)(object.origin ?? object.origin)
+                ? exports.TransferError_Origin.fromJSON(object.origin ?? object.origin)
+                : exports.TransferError_Origin.ORIGIN_UNSPECIFIED,
+            code: (0, index_js_1.isSet)(object.code ?? object.code)
+                ? String(object.code ?? object.code)
+                : "",
+            message: (0, index_js_1.isSet)(object.message ?? object.message)
+                ? String(object.message ?? object.message)
+                : "",
+        });
+    },
+    toJSON(message, use = "json") {
+        const obj = {};
+        const pick = (json, pb) => (use === "json" ? json : pb);
+        if ((message.origin ?? exports.TransferError_Origin.ORIGIN_UNSPECIFIED) !== exports.TransferError_Origin.ORIGIN_UNSPECIFIED) {
+            obj[pick("origin", "origin")] = exports.TransferError_Origin.toJSON(message.origin);
+        }
+        if (message.code !== "") {
+            obj[pick("code", "code")] = message.code;
+        }
+        if (message.message !== "") {
+            obj[pick("message", "message")] = message.message;
+        }
+        return obj;
+    },
+    create(base) {
+        return exports.TransferError.fromPartial(base ?? {});
+    },
+    fromPartial(object) {
+        const message = createBaseTransferError();
+        message.origin = (object.origin !== undefined && object.origin !== null)
+            ? exports.TransferError_Origin.fromJSON(object.origin.name)
+            : exports.TransferError_Origin.ORIGIN_UNSPECIFIED;
+        message.code = (object.code !== undefined && object.code !== null)
+            ? object.code
+            : "";
+        message.message = (object.message !== undefined && object.message !== null)
+            ? object.message
+            : "";
+        return message;
+    },
+};
+protobuf_js_1.protoRegistry.registerMessage(exports.TransferError);
+function TransferErrorCustomInspect() {
+    const parts = [];
+    if (this.origin !== undefined)
+        parts.push("origin" + "=" + (0, util_1.inspect)(this.origin));
+    if (this.code !== "")
+        parts.push("code" + "=" + (0, util_1.inspect)(this.code));
+    if (this.message !== "")
+        parts.push("message" + "=" + (0, util_1.inspect)(this.message));
+    return `${this.$type}(${parts.join(", ")})`;
+}
+function TransferErrorCustomJson() {
+    const obj = {
+        type: this.$type,
+    };
+    if (this.origin !== undefined)
+        obj.origin = (0, logging_js_1.inspectJson)(this.origin);
+    if (this.code !== "")
+        obj.code = (0, logging_js_1.inspectJson)(this.code);
+    if (this.message !== "")
+        obj.message = (0, logging_js_1.inspectJson)(this.message);
+    return obj;
+}
+function applyTransferErrorCustom(message) {
+    message[logging_js_1.custom] = TransferErrorCustomInspect;
+    message[logging_js_1.customJson] = TransferErrorCustomJson;
+    return message;
+}
+function createBaseTransferError() {
+    const message = {
+        $type: "nebius.storage.v1.TransferError",
+        origin: exports.TransferError_Origin.ORIGIN_UNSPECIFIED,
+        code: "",
+        message: "",
+    };
+    return applyTransferErrorCustom(message);
+}
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
 /***/ 34314:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -192170,25 +210617,31 @@ var exports = __webpack_exports__;
 /**
  * `delete-bucket` action entrypoint.
  *
- * Empties the bucket over S3 (so the CLI delete works even if it refuses
- * non-empty buckets), then deletes the bucket via the control-plane CLI.
+ * Empties the bucket over S3 (so the delete works even if the API refuses
+ * non-empty buckets), then deletes the bucket via the SDK `BucketService`.
+ * Requires the `auth` action to have exported NEBIUS_IAM_TOKEN.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(43483);
 const empty_1 = __nccwpck_require__(33556);
 const bucket_1 = __nccwpck_require__(39419);
 async function run() {
-    await (0, core_1.ensureCli)({ version: 'latest' });
     const bucketId = (0, core_1.getString)('bucket-id', { required: true });
     const spec = (0, empty_1.buildEmptySpecFromInputs)();
-    const deleted = await core_1.log.group('Delete bucket', async () => {
-        const n = await (0, empty_1.emptyBucket)(spec);
-        core_1.log.info(`Emptied ${n} object(s) from ${spec.bucket}.`);
-        await (0, bucket_1.deleteBucket)(bucketId);
-        core_1.log.info(`Deleted bucket ${bucketId}.`);
-        return n;
-    });
-    (0, core_1.setOutput)('deleted-count', deleted);
+    const sdk = (0, core_1.createSdk)();
+    try {
+        const deleted = await core_1.log.group('Delete bucket', async () => {
+            const n = await (0, empty_1.emptyBucket)((0, core_1.keyServices)(sdk), spec);
+            core_1.log.info(`Emptied ${n} object(s) from ${spec.bucket}.`);
+            await (0, bucket_1.deleteBucket)((0, core_1.bucketService)(sdk), bucketId);
+            core_1.log.info(`Deleted bucket ${bucketId}.`);
+            return n;
+        });
+        (0, core_1.setOutput)('deleted-count', deleted);
+    }
+    finally {
+        await sdk.close();
+    }
 }
 run().catch((err) => (0, core_1.fail)(err));
 

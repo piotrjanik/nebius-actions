@@ -1,17 +1,18 @@
 /** Public surface of the `jobs` module. */
 export {
-  getJob,
-  cancelJob,
   streamJobLogs,
+  maybeStreamJobLogs,
   isJobTerminal,
   isJobSuccess,
-  mapJobJson,
   type JobSpec,
   type Job,
 } from './jobs';
 export { buildJobSpecFromInputs } from './inputs';
 export {
   createJobViaSdk,
+  getJob,
+  cancelJob,
+  mapSdkJob,
   resolveSubnetId,
   buildCreateJobRequest,
   buildJobSpec,

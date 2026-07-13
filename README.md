@@ -14,7 +14,7 @@ These are small, composable building blocks (one job per resource), not a rigid 
 
 ## Quick start
 
-Every job runs `setup` + `auth` once, then any number of resource actions.
+Every job runs `auth` once, then any number of resource actions — they all talk to Nebius via the official [`@nebius/js-sdk`](https://www.npmjs.com/package/@nebius/js-sdk) (gRPC). Add `setup` (the `nebius` CLI) only if you want job log streaming or run your own `nebius` shell steps.
 
 **Train a model:**
 
@@ -27,7 +27,7 @@ jobs:
   train:
     runs-on: ubuntu-latest
     steps:
-      - uses: piotrjanik/nebius-actions/actions/setup@v0
+      - uses: piotrjanik/nebius-actions/actions/setup@v0   # optional: enables log streaming
       - uses: piotrjanik/nebius-actions/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
@@ -70,13 +70,13 @@ jobs:
 
 ## Actions reference
 
-All are referenced as `piotrjanik/nebius-actions/actions/<name>@v0`. Run **`setup` + `auth` once per job**; every other action reads the token from `NEBIUS_IAM_TOKEN`. In the tables, ✅ marks a required input.
+All are referenced as `piotrjanik/nebius-actions/actions/<name>@v0`. Run **`auth` once per job**; every resource action reads the token from `NEBIUS_IAM_TOKEN` and talks to Nebius via the SDK. `setup` is optional (CLI: log streaming + your own `nebius` steps). In the tables, ✅ marks a required input.
 
 ### 🔑 Setup & auth
 
 #### `setup`
 
-Install the `nebius` CLI onto the runner and put it on `PATH`. Pass the key inputs to also configure a key-based CLI profile. Job and storage actions use the CLI; endpoint actions don't need it.
+**Optional.** Install the `nebius` CLI onto the runner and put it on `PATH`, and export job-wide defaults (`NEBIUS_PROJECT_ID` / `NEBIUS_SERVICE_ACCOUNT_ID`). No resource action needs the CLI — it only enables `wait-for-job` log streaming and your own `nebius` shell steps. Pass the key inputs to also configure a key-based CLI profile.
 
 | Input | Req | Default | Description |
 | --- | --- | --- | --- |
@@ -162,7 +162,7 @@ Poll an existing Job until it finishes; optionally stream its logs. Fails the st
 | `job-id` | ✅ | — | Job to wait on |
 | `timeout` | | `3600` | Poll ceiling, **in seconds** |
 | `poll-interval` | | `10` | Seconds between polls |
-| `stream-logs` | | `true` | Stream the job's logs while polling |
+| `stream-logs` | | `true` | Stream the job's logs while polling (needs the CLI via `setup`; skipped otherwise) |
 
 **Outputs:** `status`, `exit-code`
 
@@ -334,6 +334,7 @@ Empty a bucket and delete it. Safe to run in `if: always()` cleanup.
 
 ## Good to know
 
+- **Everything runs on the SDK.** All resource actions use `@nebius/js-sdk` (gRPC) with the `NEBIUS_IAM_TOKEN` that `auth` exports — the `nebius` CLI is never required. The one CLI-only extra is job log streaming (`wait-for-job` with `stream-logs: true`), which needs `setup` and is otherwise skipped with a notice.
 - **`setup` exports project/SA ids.** When `setup` runs with `project-id`/`service-account-id`, later storage and job steps can omit them (pass on a step only to override).
 - **`env`** is multiline `KEY=VALUE` (one per line; blank lines and `#` comments ignored).
 - **`command` / `mounts`** are multiline lists, one entry per line. A mount is `<bucket-id>:/container/path:rw`.
@@ -370,8 +371,8 @@ nebius iam binding create --parent-id "$NEBIUS_PROJECT_ID" --subject-id "$SA_ID"
 
 Copy-pasteable workflows live under [`examples/`](./examples) — swap the image/preset for your own:
 
-- [`submit-and-wait.yml`](./examples/submit-and-wait.yml) — `setup` + `auth` + `submit-job` → `wait-for-job`, with `cancel-job` on cancellation.
-- [`deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `setup` + `auth` + `deploy-endpoint`, with teardown.
+- [`submit-and-wait.yml`](./examples/submit-and-wait.yml) — `auth` + `submit-job` → `wait-for-job`, with `cancel-job` on cancellation (optional `setup` for log streaming).
+- [`deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `auth` + `deploy-endpoint`, with teardown (no CLI needed).
 
 For a full **train-to-serve** pipeline, see [`.github/workflows/demo-run-job.yml`](./.github/workflows/demo-run-job.yml). It QLoRA-fine-tunes Qwen2.5-0.5B on a GPU, bakes the adapters into a vLLM image, deploys it, and smoke-tests it — split across five GitHub jobs:
 

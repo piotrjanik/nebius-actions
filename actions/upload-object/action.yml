@@ -1,8 +1,10 @@
 name: 'Nebius Upload Object'
 description: >-
   Upload a local file to a pre-existing Nebius Object Storage bucket using a
-  short-lived access key minted from the configured service account. Outputs the
-  object URI and a MysteryBox secret id for mounting the bucket in a Job.
+  short-lived access key minted from the service account via the SDK. Outputs
+  the object URI and a MysteryBox secret id for mounting the bucket in a Job.
+  Authenticates via the SDK — run the `auth` action first (exports
+  NEBIUS_IAM_TOKEN).
 author: 'Nebius Actions'
 branding:
   icon: 'upload-cloud'

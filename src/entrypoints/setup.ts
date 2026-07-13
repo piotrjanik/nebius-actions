@@ -1,13 +1,14 @@
 /**
  * `setup` action entrypoint.
  *
- * Installs + caches the `nebius` CLI and puts it on PATH. Run once per job
- * before any resource action.
+ * Installs + caches the `nebius` CLI and puts it on PATH, and exports job-wide
+ * defaults (NEBIUS_PROJECT_ID / NEBIUS_SERVICE_ACCOUNT_ID). OPTIONAL — the
+ * resource actions all talk to Nebius via the SDK (they read the token the
+ * `auth` action exports); the CLI is only used for job log streaming and for
+ * the caller's own `nebius` shell steps.
  *
  * Optionally also configures a key-based CLI profile (`~/.nebius/config.yaml`)
- * when a service-account key is supplied — jobs drive the CLI, which needs a
- * profile to authenticate. The SDK path (endpoints) instead reads the token the
- * `auth` action exports; the two are independent.
+ * when a service-account key is supplied, so those CLI uses can authenticate.
  */
 
 import {

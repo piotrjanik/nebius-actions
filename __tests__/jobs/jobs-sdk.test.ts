@@ -7,6 +7,9 @@ import {
   buildJobSpec,
   buildCreateJobRequest,
   createJobViaSdk,
+  mapSdkJob,
+  getJob,
+  cancelJob,
   resolveSubnetId,
   type JobServiceLike,
   type OperationLike,
@@ -116,6 +119,10 @@ describe('buildCreateJobRequest', () => {
   });
 });
 
+const notCalled = () => {
+  throw new Error('not expected in this test');
+};
+
 describe('createJobViaSdk', () => {
   it('returns the operation resource id and CREATING status', async () => {
     const op: OperationLike = { resourceId: () => 'job-xyz', raw: () => ({ op: true }) };
@@ -125,11 +132,88 @@ describe('createJobViaSdk', () => {
         received = req;
         return { result: Promise.resolve(op) };
       },
+      get: notCalled,
+      cancel: notCalled,
     };
     const job = await createJobViaSdk(fake, { image: 'img', name: 'j' });
     expect(job.id).toBe('job-xyz');
     expect(job.status).toBe('CREATING');
     expect(received).toBeDefined();
+  });
+});
+
+describe('mapSdkJob', () => {
+  it('reads id/name from metadata and the state enum name from status', () => {
+    const job = mapSdkJob({
+      metadata: { id: 'job-1', name: 'trainer' },
+      status: { state: { name: 'RUNNING' } },
+    });
+    expect(job).toMatchObject({ id: 'job-1', name: 'trainer', status: 'RUNNING' });
+  });
+
+  it('accepts a plain string state', () => {
+    expect(mapSdkJob({ metadata: { id: 'j' }, status: { state: 'COMPLETED' } }).status).toBe(
+      'COMPLETED',
+    );
+  });
+
+  it('defaults status to UNKNOWN and id to "" on an empty object', () => {
+    const job = mapSdkJob({});
+    expect(job.id).toBe('');
+    expect(job.status).toBe('UNKNOWN');
+    expect(job.name).toBeUndefined();
+    expect(job.exitCode).toBeUndefined();
+  });
+
+  it('tolerates null/undefined raw', () => {
+    expect(mapSdkJob(undefined).status).toBe('UNKNOWN');
+    expect(mapSdkJob(null).status).toBe('UNKNOWN');
+  });
+});
+
+describe('getJob / cancelJob', () => {
+  it('getJob fetches by id and maps the SDK job', async () => {
+    let gotReq: unknown;
+    const fake: JobServiceLike = {
+      create: notCalled,
+      get(req) {
+        gotReq = req;
+        return Promise.resolve({ metadata: { id: 'job-1' }, status: { state: { name: 'RUNNING' } } });
+      },
+      cancel: notCalled,
+    };
+    const job = await getJob(fake, 'job-1');
+    expect(job).toMatchObject({ id: 'job-1', status: 'RUNNING' });
+    expect((gotReq as { id: string }).id).toBe('job-1');
+  });
+
+  it('getJob throws on empty id without calling the service', async () => {
+    const fake: JobServiceLike = { create: notCalled, get: notCalled, cancel: notCalled };
+    await expect(getJob(fake, '')).rejects.toThrow(/id is required/);
+  });
+
+  it('cancelJob awaits the cancel operation and re-gets the job', async () => {
+    const calls: string[] = [];
+    const op: OperationLike = { resourceId: () => 'job-1' };
+    const fake: JobServiceLike = {
+      create: notCalled,
+      get() {
+        calls.push('get');
+        return Promise.resolve({ metadata: { id: 'job-1' }, status: { state: { name: 'CANCELLED' } } });
+      },
+      cancel() {
+        calls.push('cancel');
+        return { result: Promise.resolve(op) };
+      },
+    };
+    const job = await cancelJob(fake, 'job-1');
+    expect(calls).toEqual(['cancel', 'get']);
+    expect(job).toMatchObject({ id: 'job-1', status: 'CANCELLED' });
+  });
+
+  it('cancelJob throws on empty id without calling the service', async () => {
+    const fake: JobServiceLike = { create: notCalled, get: notCalled, cancel: notCalled };
+    await expect(cancelJob(fake, '')).rejects.toThrow(/id is required/);
   });
 });
 

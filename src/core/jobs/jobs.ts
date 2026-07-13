@@ -1,20 +1,16 @@
 /**
- * Job domain wrappers over the `nebius ai job` CLI group.
+ * Job domain: shared types, status helpers, and CLI-backed log streaming.
  *
- * CLI JSON is mapped into the typed `Job` shape via `mapJobJson`; status
- * helpers are case-insensitive to tolerate enum casing differences (see
- * constants VERIFY notes). Job creation goes through the SDK (see jobs-sdk.ts).
+ * The Job lifecycle (create/get/cancel) goes through the SDK `JobService` —
+ * see jobs-sdk.ts. The ONLY remaining CLI dependency is `streamJobLogs`:
+ * the AI service exposes no logs RPC, so log streaming shells out to
+ * `nebius ai job logs --follow` when the CLI is on PATH (i.e. the `setup`
+ * action ran) and is skipped with a notice otherwise.
  */
 
-import { runCli } from '../cli/exec';
+import { cliAvailable, runCli } from '../cli/exec';
 import { log } from '../io/log';
-import { readPath, firstString } from '../json';
-import {
-  CLI_JOB_GROUP,
-  JOB_TERMINAL_STATUSES,
-  JOB_SUCCESS_STATUSES,
-  JOB_EXIT_CODE_FIELDS,
-} from '../constants';
+import { CLI_JOB_GROUP, JOB_TERMINAL_STATUSES, JOB_SUCCESS_STATUSES } from '../constants';
 
 export interface JobSpec {
   name?: string;
@@ -42,80 +38,18 @@ export interface Job {
   id: string;
   name?: string;
   status: string;
+  /** Container exit code — not exposed by the SDK Job status; kept for shape stability. */
   exitCode?: number;
   raw: unknown;
 }
 
 const JOB = [...CLI_JOB_GROUP];
 
-/** Extract the container exit code from candidate JSON paths. */
-function extractExitCode(obj: Record<string, unknown>): number | undefined {
-  for (const path of JOB_EXIT_CODE_FIELDS) {
-    const v = readPath(obj, path);
-    if (typeof v === 'number' && Number.isFinite(v)) {
-      return v;
-    }
-    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) {
-      return Number(v);
-    }
-  }
-  return undefined;
-}
-
-/**
- * Map CLI JSON for a single job into the typed `Job`.
- * // VERIFY: exact field names (`metadata.id`, `status.state`, etc.). We probe
- * the most likely paths and keep the full payload in `raw`.
- */
-export function mapJobJson(raw: unknown): Job {
-  const obj = (raw ?? {}) as Record<string, unknown>;
-  const id =
-    firstString(obj, ['id', 'metadata.id', 'job_id', 'jobId', 'name', 'metadata.name']) ?? '';
-  const name = firstString(obj, ['name', 'metadata.name', 'spec.name']);
-  const status =
-    firstString(obj, ['status', 'state', 'status.state', 'status.phase', 'status.status']) ??
-    'UNKNOWN';
-  const exitCode = extractExitCode(obj);
-
-  const job: Job = { id, status, raw };
-  if (name !== undefined) {
-    job.name = name;
-  }
-  if (exitCode !== undefined) {
-    job.exitCode = exitCode;
-  }
-  return job;
-}
-
-/** Get a job by id. */
-export async function getJob(id: string): Promise<Job> {
-  if (!id) {
-    throw new Error('getJob: id is required.');
-  }
-  const res = await runCli([...JOB, 'get', '--id', id], { json: true });
-  return mapJobJson(res.data);
-}
-
-/** Cancel a job by id. */
-export async function cancelJob(id: string): Promise<Job> {
-  if (!id) {
-    throw new Error('cancelJob: id is required.');
-  }
-  const res = await runCli([...JOB, 'cancel', '--id', id], { json: true });
-  // Some verbs return an operation rather than the job; fall back to a fresh get.
-  const mapped = mapJobJson(res.data);
-  if (mapped.id) {
-    return mapped;
-  }
-  return getJob(id);
-}
-
 /**
  * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
- * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here (unlike
- * `get`/`cancel`, which take `--id`), and `--follow` streams in real time until
- * the job reaches a terminal state. Callers invoke this fire-and-forget
- * alongside the status poll loop.
+ * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here, and
+ * `--follow` streams in real time until the job reaches a terminal state.
+ * Callers invoke this fire-and-forget alongside the status poll loop.
  */
 export async function streamJobLogs(id: string): Promise<void> {
   if (!id) {
@@ -124,6 +58,26 @@ export async function streamJobLogs(id: string): Promise<void> {
   await log.group(`job ${id} logs`, async () => {
     await runCli([...JOB, 'logs', id, '--follow']);
   });
+}
+
+/**
+ * Best-effort log streaming for entrypoints: streams via the CLI when it is on
+ * PATH, otherwise logs a notice and returns (status polling still reports
+ * progress). Never throws — a log-stream hiccup must not fail the action.
+ */
+export async function maybeStreamJobLogs(id: string): Promise<void> {
+  if (!(await cliAvailable())) {
+    log.info(
+      'nebius CLI not found on PATH — skipping log streaming ' +
+        "(run the 'setup' action first to enable it).",
+    );
+    return;
+  }
+  try {
+    await streamJobLogs(id);
+  } catch (err) {
+    log.warn(`Log streaming stopped: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /** True when the status is terminal (case-insensitive). */

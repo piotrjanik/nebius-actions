@@ -1,9 +1,11 @@
 name: 'Nebius Setup'
 description: >-
-  Install + cache the nebius CLI and put it on PATH. Run once per job before any
-  resource action. Optionally configures a key-based CLI profile when a
-  service-account key is supplied (jobs use the CLI and need a profile); the SDK
-  token for endpoints is handled separately by the `auth` action.
+  Install + cache the nebius CLI and put it on PATH, and export job-wide
+  defaults (NEBIUS_PROJECT_ID / NEBIUS_SERVICE_ACCOUNT_ID). OPTIONAL — every
+  resource action talks to Nebius via the SDK and only needs the `auth` action;
+  the CLI is used solely for job log streaming (and your own `nebius` shell
+  steps). Optionally configures a key-based CLI profile when a service-account
+  key is supplied.
 author: 'Nebius Actions'
 branding:
   icon: 'download'

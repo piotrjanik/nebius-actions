@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mintEphemeralKey = vi.fn();
-const readAccessKeySecret = vi.fn();
+const mintS3Credentials = vi.fn();
 const listObjects = vi.fn();
 const deleteObjects = vi.fn();
 vi.mock('../../src/core/storage/keys', async () => {
@@ -10,8 +9,7 @@ vi.mock('../../src/core/storage/keys', async () => {
   );
   return {
     ...actual,
-    mintEphemeralKey: (...a: unknown[]) => mintEphemeralKey(...a),
-    readAccessKeySecret: (...a: unknown[]) => readAccessKeySecret(...a),
+    mintS3Credentials: (...a: unknown[]) => mintS3Credentials(...a),
   };
 });
 vi.mock('../../src/core/storage/s3', async () => {
@@ -20,22 +18,26 @@ vi.mock('../../src/core/storage/s3', async () => {
 });
 
 import { emptyBucket } from '../../src/core/storage/empty';
+import type { KeyServices } from '../../src/core/storage/keys';
+
+const services = { accessKeys: {}, payloads: {} } as unknown as KeyServices;
 
 beforeEach(() => {
-  mintEphemeralKey.mockReset();
-  readAccessKeySecret.mockReset();
+  mintS3Credentials.mockReset();
   listObjects.mockReset();
   deleteObjects.mockReset();
 });
 
 describe('emptyBucket', () => {
   it('lists then deletes every object and returns the count', async () => {
-    mintEphemeralKey.mockResolvedValueOnce({ accessKeyId: 'ak', awsAccessKeyId: 'AK', secretId: 'mbx' });
-    readAccessKeySecret.mockResolvedValueOnce('SK');
+    mintS3Credentials.mockResolvedValueOnce({
+      minted: { accessKeyId: 'ak', awsAccessKeyId: 'AK', secretId: 'mbx' },
+      secretAccessKey: 'SK',
+    });
     listObjects.mockResolvedValueOnce(['config.yaml', 'output/adapter_config.json']);
     deleteObjects.mockResolvedValueOnce(undefined);
 
-    const n = await emptyBucket({ bucket: 'b', serviceAccountId: 'sa', projectId: 'p', endpoint: 'https://s3.example', region: 'eu-north1' });
+    const n = await emptyBucket(services, { bucket: 'b', serviceAccountId: 'sa', projectId: 'p', endpoint: 'https://s3.example', region: 'eu-north1' });
 
     expect(n).toBe(2);
     const loc = { endpoint: 'https://s3.example', region: 'eu-north1', bucket: 'b' };
@@ -45,10 +47,12 @@ describe('emptyBucket', () => {
   });
 
   it('returns 0 and still calls deleteObjects (no-op) for an empty bucket', async () => {
-    mintEphemeralKey.mockResolvedValueOnce({ accessKeyId: 'ak', awsAccessKeyId: 'AK', secretId: 'mbx' });
-    readAccessKeySecret.mockResolvedValueOnce('SK');
+    mintS3Credentials.mockResolvedValueOnce({
+      minted: { accessKeyId: 'ak', awsAccessKeyId: 'AK', secretId: 'mbx' },
+      secretAccessKey: 'SK',
+    });
     listObjects.mockResolvedValueOnce([]);
     deleteObjects.mockResolvedValueOnce(undefined);
-    expect(await emptyBucket({ bucket: 'b', serviceAccountId: 'sa', projectId: 'p', endpoint: 'e', region: 'r' })).toBe(0);
+    expect(await emptyBucket(services, { bucket: 'b', serviceAccountId: 'sa', projectId: 'p', endpoint: 'e', region: 'r' })).toBe(0);
   });
 });

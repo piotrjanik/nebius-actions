@@ -1,7 +1,10 @@
 name: 'Nebius Wait For Job'
 description: >-
   Poll an existing Nebius Job until terminal (optionally streaming logs), and
-  fail on a non-success status or timeout.
+  fail on a non-success status or timeout. Authenticates via the SDK — run the
+  `auth` action first (exports NEBIUS_IAM_TOKEN). Log streaming additionally
+  needs the `nebius` CLI (run `setup` first); it is skipped with a notice
+  otherwise.
 author: 'Nebius Actions'
 branding:
   icon: 'clock'
@@ -20,7 +23,9 @@ inputs:
     required: false
     default: '10'
   stream-logs:
-    description: 'Stream the job logs while waiting.'
+    description: >-
+      Stream the job logs while waiting. Needs the `nebius` CLI on PATH (run
+      the `setup` action first); skipped with a notice otherwise.
     required: false
     default: 'true'
 
@@ -28,7 +33,7 @@ outputs:
   status:
     description: 'The final job status.'
   exit-code:
-    description: 'The container exit code (when reported).'
+    description: 'The container exit code (when reported; the Jobs API does not currently expose it).'
 
 runs:
   using: 'node24'

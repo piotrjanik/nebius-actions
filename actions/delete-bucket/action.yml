@@ -1,5 +1,7 @@
 name: 'Nebius Delete Bucket'
-description: 'Empty (S3) then delete a Nebius Object Storage bucket.'
+description: >-
+  Empty (S3) then delete a Nebius Object Storage bucket. Authenticates via the
+  SDK — run the `auth` action first (exports NEBIUS_IAM_TOKEN).
 author: 'Nebius Actions'
 branding:
   icon: 'trash-2'

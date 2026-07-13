@@ -6,15 +6,14 @@
  * assumptions" section. Keeping every such value here means verification is
  * a one-line change with no logic touched.
  *
- * Confirmation status (web-verified 2026-06-22):
+ * Confirmation status (web-verified 2026-06-22; SDK-verified 2026-07-13):
  *  - CONFIRMED: CLI binary name `nebius`; install via the curl script URL below;
- *    `nebius ai job {get,logs,cancel}` (the CLI verbs still used — job CREATE now
- *    goes through the SDK `JobService`, see `jobs/jobs-sdk.ts`); global
- *    `--format json`; IAM token env var `NEBIUS_IAM_TOKEN`; OIDC issuer +
- *    token-exchange URL.
- *  - VERIFY: exact job/endpoint status enum spellings; where the container exit
- *    code surfaces in CLI JSON; endpoint subcommand verbs + URL field; pinning a
- *    specific CLI version via the install script.
+ *    `nebius ai job logs` (the ONLY CLI verb still used — the whole resource
+ *    lifecycle goes through the SDK, see `jobs/jobs-sdk.ts`, `endpoints/`,
+ *    `storage/`); global `--format json`; IAM token env var `NEBIUS_IAM_TOKEN`;
+ *    OIDC issuer + token-exchange URL; job/endpoint status enum spellings
+ *    (from the SDK `JobStatus_State` / `EndpointStatus_State` enums).
+ *  - VERIFY: pinning a specific CLI version via the install script.
  */
 
 // ---------------------------------------------------------------------------
@@ -69,56 +68,49 @@ export const DEFAULT_REGION = 'eu';
 // CLI command groups / verbs
 // ---------------------------------------------------------------------------
 
-/** `nebius ai job ...` — CONFIRMED. */
+/** `nebius ai job ...` — CONFIRMED. Used only for `logs` (no SDK logs RPC). */
 export const CLI_JOB_GROUP = ['ai', 'job'] as const;
 
-// Endpoint operations no longer use the CLI — they go through the SDK
-// `EndpointService` (see `endpoints.ts`). The former CLI endpoint group/verbs and
-// URL-field probes were removed with that migration.
+// Resource operations (jobs, endpoints, buckets, access keys) no longer use the
+// CLI — they go through the SDK service clients (see `jobs/jobs-sdk.ts`,
+// `endpoints/endpoints.ts`, `storage/bucket.ts`, `storage/keys.ts`). The former
+// CLI groups/verbs and JSON-field probes were removed with that migration.
 
 // ---------------------------------------------------------------------------
 // Job status enum
 // ---------------------------------------------------------------------------
 
 /**
- * Job status spellings. // VERIFY: exact enum casing/values from CLI JSON.
- * COMPLETED/FAILED/CANCELLED are referenced in Nebius serverless docs; RUNNING,
- * QUEUED, PENDING are the most likely in-flight states. Comparisons are
- * case-insensitive (see jobs.ts) so casing differences are tolerated.
+ * Job status spellings, CONFIRMED against the SDK `JobStatus_State` enum
+ * (@nebius/js-sdk 0.2.27): PROVISIONING, STARTING, RUNNING, CANCELLING,
+ * DELETING, COMPLETED, FAILED, CANCELLED, ERROR. `creating` is a client-side
+ * placeholder returned right after `create` (before the first `get`).
+ * Comparisons are case-insensitive (see jobs.ts) so casing differences are
+ * tolerated.
  */
 export const JOB_STATUS = {
   creating: 'CREATING',
-  queued: 'QUEUED',
-  pending: 'PENDING',
+  provisioning: 'PROVISIONING',
   starting: 'STARTING',
   running: 'RUNNING',
+  cancelling: 'CANCELLING',
+  deleting: 'DELETING',
   completed: 'COMPLETED',
   failed: 'FAILED',
   cancelled: 'CANCELLED',
+  error: 'ERROR',
 } as const;
 
-/** Terminal job statuses (no further transition expected). VERIFY (see JOB_STATUS). */
+/** Terminal job statuses (no further transition expected). */
 export const JOB_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   JOB_STATUS.completed,
   JOB_STATUS.failed,
   JOB_STATUS.cancelled,
+  JOB_STATUS.error,
 ]);
 
-/** Job statuses considered a success. VERIFY (see JOB_STATUS). */
+/** Job statuses considered a success. */
 export const JOB_SUCCESS_STATUSES: ReadonlySet<string> = new Set([JOB_STATUS.completed]);
-
-/**
- * Candidate JSON paths (dot notation) where the container exit code surfaces.
- * // VERIFY: actual location in CLI JSON output.
- */
-export const JOB_EXIT_CODE_FIELDS = [
-  'exit_code',
-  'exitCode',
-  'status.exit_code',
-  'status.exitCode',
-  'result.exit_code',
-  'result.exitCode',
-] as const;
 
 // ---------------------------------------------------------------------------
 // Endpoint status enum
@@ -205,11 +197,3 @@ export const S3_ENDPOINT_DEFAULT = 'https://storage.eu-north1.nebius.cloud';
 /** Default S3 region for Nebius Object Storage. // VERIFY. */
 export const S3_REGION_DEFAULT = 'eu-north1';
 
-/** `nebius iam v2 access-key ...` — CONFIRMED group (live CLI). */
-export const CLI_ACCESS_KEY_GROUP = ['iam', 'v2', 'access-key'] as const;
-
-/** `nebius mysterybox payload ...` — CONFIRMED group (live CLI). */
-export const CLI_MYSTERYBOX_PAYLOAD_GROUP = ['mysterybox', 'payload'] as const;
-
-/** `nebius storage bucket ...` — CONFIRMED group (live CLI). */
-export const CLI_STORAGE_BUCKET_GROUP = ['storage', 'bucket'] as const;

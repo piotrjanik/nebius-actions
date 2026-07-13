@@ -1,5 +1,7 @@
 name: 'Nebius Create Bucket'
-description: 'Create a Nebius Object Storage bucket (control plane).'
+description: >-
+  Create a Nebius Object Storage bucket (control plane). Authenticates via the
+  SDK — run the `auth` action first (exports NEBIUS_IAM_TOKEN).
 author: 'Nebius Actions'
 branding:
   icon: 'database'

@@ -3,6 +3,11 @@
 # Splitting submit from wait is useful for matrix fan-out, manual gating between
 # submit and wait, or cancelling cleanly when the workflow run is cancelled.
 #
+# All three job actions talk to Nebius via the SDK and only need `auth`
+# (exports NEBIUS_IAM_TOKEN). `setup` (the `nebius` CLI) is OPTIONAL and only
+# enables wait-for-job's log streaming; without it streaming is skipped with a
+# notice.
+#
 # Replace OWNER/REPO with the repo hosting these actions, and the image/preset
 # with your own.
 name: submit-and-wait
@@ -21,7 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Nebius
+      # Optional: install the nebius CLI so wait-for-job can stream logs.
+      - name: Set up Nebius (optional; log streaming)
         uses: OWNER/REPO/actions/setup@v0
 
       - name: Authenticate to Nebius

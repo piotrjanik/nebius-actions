@@ -1,8 +1,12 @@
 # Migration plan: resource actions from `nebius` CLI → `@nebius/js-sdk`
 
-Status: **PLAN ONLY — not yet implemented.** Scope confirmed: migrate all resource
-actions (jobs + endpoints) to the SDK; **keep `setup`** as an optional CLI escape
-hatch (and as the host for log streaming — see §5).
+Status: **IMPLEMENTED (2026-07-13).** All resource actions — jobs (create/get/
+cancel), endpoints, buckets (create/delete), and the ephemeral S3 access-key
+minting (AccessKeyService + MysteryBox PayloadService) — now run on
+`@nebius/js-sdk`. `setup` is kept as an optional CLI install: the only CLI use
+left is `nebius ai job logs --follow` (log streaming), which is skipped with a
+notice when the CLI is absent, exactly as §3 proposed. The plan below is kept
+for historical context.
 
 ## 1. Goal & current state
 

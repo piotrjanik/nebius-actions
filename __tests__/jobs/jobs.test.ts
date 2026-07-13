@@ -1,16 +1,17 @@
 /**
- * Unit tests for the jobs domain wrappers (jobs/jobs.ts).
- *
- * `runCli` (cli/exec) and `log` (io/log) are mocked so no CLI runs. We assert
- * pure arg-building, JSON->Job mapping, the verbs each operation invokes, and
- * the status helpers.
+ * Unit tests for the jobs domain (jobs/jobs.ts): CLI-backed log streaming and
+ * the status helpers. `runCli`/`cliAvailable` (cli/exec) and `log` (io/log) are
+ * mocked so no CLI runs. The job lifecycle (create/get/cancel) is SDK-backed —
+ * see jobs-sdk.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const runCli = vi.fn();
+const cliAvailable = vi.fn();
 vi.mock('../../src/core/cli/exec', () => ({
   runCli: (...args: unknown[]) => runCli(...args),
+  cliAvailable: (...args: unknown[]) => cliAvailable(...args),
 }));
 
 // streamJobLogs runs inside log.group; make it pass-through.
@@ -25,91 +26,56 @@ vi.mock('../../src/core/io/log', () => ({
   mask: vi.fn(),
 }));
 
+import { log } from '../../src/core/io/log';
 import {
-  mapJobJson,
-  getJob,
-  cancelJob,
   streamJobLogs,
+  maybeStreamJobLogs,
   isJobTerminal,
   isJobSuccess,
 } from '../../src/core/jobs/jobs';
 
 beforeEach(() => {
   runCli.mockReset();
+  cliAvailable.mockReset();
+  vi.mocked(log.info).mockReset();
+  vi.mocked(log.warn).mockReset();
 });
 
-describe('mapJobJson', () => {
-  it('reads id/status from common top-level fields', () => {
-    const job = mapJobJson({ id: 'job-1', status: 'RUNNING' });
-    expect(job).toMatchObject({ id: 'job-1', status: 'RUNNING' });
-    expect(job.raw).toEqual({ id: 'job-1', status: 'RUNNING' });
-  });
-
-  it('falls back through nested metadata + status paths', () => {
-    const job = mapJobJson({
-      metadata: { id: 'm-1', name: 'nm' },
-      status: { state: 'COMPLETED', exit_code: 0 },
-    });
-    expect(job.id).toBe('m-1');
-    expect(job.name).toBe('nm');
-    expect(job.status).toBe('COMPLETED');
-    expect(job.exitCode).toBe(0);
-  });
-
-  it('extracts a numeric-string exit code', () => {
-    const job = mapJobJson({ id: 'j', status: 'FAILED', exitCode: '137' });
-    expect(job.exitCode).toBe(137);
-  });
-
-  it('defaults status to UNKNOWN and id to "" on an empty object', () => {
-    const job = mapJobJson({});
-    expect(job.id).toBe('');
-    expect(job.status).toBe('UNKNOWN');
-    expect(job.exitCode).toBeUndefined();
-  });
-
-  it('tolerates null/undefined raw', () => {
-    expect(mapJobJson(undefined).status).toBe('UNKNOWN');
-    expect(mapJobJson(null).status).toBe('UNKNOWN');
-  });
-});
-
-describe('getJob / cancelJob / streamJobLogs (verb building)', () => {
-  it('getJob runs `ai job get --id <id>` with json', async () => {
-    runCli.mockResolvedValue({ data: { id: 'job-1', status: 'RUNNING' } });
-    await getJob('job-1');
-    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'get', '--id', 'job-1']);
-    expect(runCli.mock.calls[0]![1]).toEqual({ json: true });
-  });
-
-  it('getJob throws on empty id without calling the CLI', async () => {
-    await expect(getJob('')).rejects.toThrow(/id is required/);
-    expect(runCli).not.toHaveBeenCalled();
-  });
-
-  it('cancelJob runs `ai job cancel --id <id>` and maps the returned job', async () => {
-    runCli.mockResolvedValue({ data: { id: 'job-1', status: 'CANCELLED' } });
-    const job = await cancelJob('job-1');
-    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'cancel', '--id', 'job-1']);
-    expect(job.status).toBe('CANCELLED');
-  });
-
-  it('cancelJob re-gets the job when cancel returns an operation (no id)', async () => {
-    runCli
-      .mockResolvedValueOnce({ data: { operationId: 'op-1' } }) // cancel -> operation, mapped id ""
-      .mockResolvedValueOnce({ data: { id: 'job-1', status: 'CANCELLED' } }); // fallback get
-    const job = await cancelJob('job-1');
-    expect(runCli).toHaveBeenCalledTimes(2);
-    expect(runCli.mock.calls[1]![0]).toEqual(['ai', 'job', 'get', '--id', 'job-1']);
-    expect(job).toMatchObject({ id: 'job-1', status: 'CANCELLED' });
-  });
-
-  it('streamJobLogs runs `ai job logs <id> --follow` (non-json)', async () => {
+describe('streamJobLogs', () => {
+  it('runs `ai job logs <id> --follow` (non-json)', async () => {
     runCli.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
     await streamJobLogs('job-1');
     expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'logs', 'job-1', '--follow']);
     // no json option -> raw stream
     expect(runCli.mock.calls[0]![1]).toBeUndefined();
+  });
+
+  it('throws on empty id without calling the CLI', async () => {
+    await expect(streamJobLogs('')).rejects.toThrow(/id is required/);
+    expect(runCli).not.toHaveBeenCalled();
+  });
+});
+
+describe('maybeStreamJobLogs', () => {
+  it('streams when the CLI is on PATH', async () => {
+    cliAvailable.mockResolvedValue(true);
+    runCli.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
+    await maybeStreamJobLogs('job-1');
+    expect(runCli).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips with a notice when the CLI is missing', async () => {
+    cliAvailable.mockResolvedValue(false);
+    await maybeStreamJobLogs('job-1');
+    expect(runCli).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('skipping log streaming'));
+  });
+
+  it('never throws when streaming fails (warns instead)', async () => {
+    cliAvailable.mockResolvedValue(true);
+    runCli.mockRejectedValue(new Error('boom'));
+    await expect(maybeStreamJobLogs('job-1')).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('boom'));
   });
 });
 
@@ -118,6 +84,7 @@ describe('status helpers', () => {
     ['COMPLETED', true],
     ['FAILED', true],
     ['CANCELLED', true],
+    ['ERROR', true],
     ['completed', true], // case-insensitive
     ' running ', // trimmed, non-terminal
   ] as Array<[string, boolean] | string>)('isJobTerminal handles %s', (entry) => {
@@ -129,7 +96,7 @@ describe('status helpers', () => {
   });
 
   it('isJobTerminal is false for in-flight states', () => {
-    for (const s of ['QUEUED', 'PENDING', 'STARTING', 'RUNNING', 'UNKNOWN']) {
+    for (const s of ['PROVISIONING', 'STARTING', 'RUNNING', 'CANCELLING', 'UNKNOWN']) {
       expect(isJobTerminal(s)).toBe(false);
     }
   });
@@ -137,7 +104,7 @@ describe('status helpers', () => {
   it('isJobSuccess is true only for COMPLETED (case-insensitive)', () => {
     expect(isJobSuccess('COMPLETED')).toBe(true);
     expect(isJobSuccess(' completed ')).toBe(true);
-    for (const s of ['FAILED', 'CANCELLED', 'RUNNING']) {
+    for (const s of ['FAILED', 'CANCELLED', 'RUNNING', 'ERROR']) {
       expect(isJobSuccess(s)).toBe(false);
     }
   });

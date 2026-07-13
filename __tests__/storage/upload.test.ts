@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mintEphemeralKey = vi.fn();
-const readAccessKeySecret = vi.fn();
+const mintS3Credentials = vi.fn();
 const putObject = vi.fn();
 vi.mock('../../src/core/storage/keys', async () => {
   const actual = await vi.importActual<typeof import('../../src/core/storage/keys')>(
@@ -9,8 +8,7 @@ vi.mock('../../src/core/storage/keys', async () => {
   );
   return {
     ...actual,
-    mintEphemeralKey: (...a: unknown[]) => mintEphemeralKey(...a),
-    readAccessKeySecret: (...a: unknown[]) => readAccessKeySecret(...a),
+    mintS3Credentials: (...a: unknown[]) => mintS3Credentials(...a),
   };
 });
 vi.mock('../../src/core/storage/s3', async () => {
@@ -22,26 +20,34 @@ vi.mock('../../src/core/storage/s3', async () => {
 vi.mock('node:fs', () => ({ readFileSync: () => Buffer.from('config: yaml\n') }));
 
 import { uploadObject } from '../../src/core/storage/upload';
+import type { KeyServices } from '../../src/core/storage/keys';
+
+const services = { accessKeys: {}, payloads: {} } as unknown as KeyServices;
 
 beforeEach(() => {
-  mintEphemeralKey.mockReset();
-  readAccessKeySecret.mockReset();
+  mintS3Credentials.mockReset();
   putObject.mockReset();
 });
 
 describe('uploadObject', () => {
   it('mints a key, uploads, and returns uri + secret id', async () => {
-    mintEphemeralKey.mockResolvedValueOnce({ accessKeyId: 'ak', awsAccessKeyId: 'AK', secretId: 'mbx-1' });
-    readAccessKeySecret.mockResolvedValueOnce('SK');
+    mintS3Credentials.mockResolvedValueOnce({
+      minted: { accessKeyId: 'ak', awsAccessKeyId: 'AK', secretId: 'mbx-1' },
+      secretAccessKey: 'SK',
+    });
     putObject.mockResolvedValueOnce(undefined);
 
-    const res = await uploadObject({
+    const res = await uploadObject(services, {
       source: '/tmp/config.yaml', bucket: 'b', key: 'cfg/config.yaml',
       serviceAccountId: 'sa', projectId: 'proj',
       endpoint: 'https://s3.example', region: 'eu-north1',
     });
 
     expect(res).toEqual({ objectUri: 's3://b/cfg/config.yaml', secretId: 'mbx-1' });
+    expect(mintS3Credentials).toHaveBeenCalledWith(
+      services,
+      expect.objectContaining({ projectId: 'proj', serviceAccountId: 'sa' }),
+    );
     expect(putObject).toHaveBeenCalledWith(
       { endpoint: 'https://s3.example', region: 'eu-north1', bucket: 'b', key: 'cfg/config.yaml' },
       { accessKeyId: 'AK', secretAccessKey: 'SK' },

@@ -3,6 +3,9 @@
 # `deploy-endpoint` applies the Endpoint (updates if it exists, otherwise
 # creates) and waits until it is serving, exposing the public HTTPS URL.
 #
+# The endpoint actions talk to Nebius via the SDK and only need `auth`
+# (exports NEBIUS_IAM_TOKEN) — no `setup`/CLI step is required.
+#
 # Replace OWNER/REPO with the repo hosting these actions, and the image/preset
 # with your own.
 name: deploy-endpoint
@@ -29,9 +32,6 @@ jobs:
       endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Nebius
-        uses: OWNER/REPO/actions/setup@v0
 
       - name: Authenticate to Nebius
         uses: OWNER/REPO/actions/auth@v0
@@ -83,8 +83,6 @@ jobs:
     # Gate destructive ops behind an environment that requires approval.
     environment: teardown
     steps:
-      - uses: OWNER/REPO/actions/setup@v0
-
       - uses: OWNER/REPO/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}

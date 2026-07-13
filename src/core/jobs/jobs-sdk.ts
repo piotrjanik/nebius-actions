@@ -1,13 +1,13 @@
 /**
- * Job creation over the `@nebius/js-sdk` `JobService` gRPC API (`nebius.ai.v1`).
+ * Job lifecycle over the `@nebius/js-sdk` `JobService` gRPC API (`nebius.ai.v1`).
  *
  * Mirrors the endpoints domain: pure builders map the domain `JobSpec` onto the
- * SDK `JobSpec`, and the single I/O function takes an injected `JobServiceLike`
- * so it is unit-testable with a fake (no SDK construction, no network).
+ * SDK `JobSpec`, and the I/O functions take an injected `JobServiceLike` so they
+ * are unit-testable with a fake (no SDK construction, no network).
  *
- * `create` returns a long-running Operation, not the Job — the new job id is
- * `op.resourceId()`. We return it with an initial `CREATING` status; the real
- * state is polled later by `wait-for-job` (still CLI-backed).
+ * `create`/`cancel` return a long-running Operation, not the Job — the new job
+ * id is `op.resourceId()`. Create returns immediately with an initial
+ * `CREATING` placeholder status; the real state is polled via `getJob`.
  *
  * Notes (verified against @nebius/js-sdk 0.2.27):
  *   - Proto `.create()` factories accept `DeepPartial`; a `Long` field accepts a
@@ -15,10 +15,14 @@
  *   - `timeout` is a dayjs `Duration` (`dayjs.duration(ms)`).
  *   - Enum fields take SDK enum members (`JobSpec_VolumeMount_Mode.*`,
  *     `DiskSpec_DiskType.*`), not raw strings.
+ *   - The Job status carries no container exit code, so `Job.exitCode` stays
+ *     unset on the SDK path.
  */
 
 import {
+  CancelJobRequest,
   CreateJobRequest,
+  GetJobRequest,
   JobSpec as SdkJobSpec,
   JobSpec_VolumeMount_Mode,
 } from '@nebius/js-sdk/api/nebius/ai/v1/index';
@@ -27,6 +31,7 @@ import { ListSubnetsRequest } from '@nebius/js-sdk/api/nebius/vpc/v1/index';
 import { dayjs } from '@nebius/js-sdk/runtime/protos/index';
 import { parseDurationMs } from '../time';
 import { resolveDiskType } from '../sdk/disk';
+import { readState } from '../sdk/state';
 import { JOB_STATUS } from '../constants';
 import type { Job, JobSpec } from './jobs';
 
@@ -39,6 +44,8 @@ export interface OperationLike {
 /** Minimal Job service surface (satisfied by the SDK's `JobService`). */
 export interface JobServiceLike {
   create(req: CreateJobRequest): { result: Promise<OperationLike> };
+  get(req: GetJobRequest): PromiseLike<unknown>;
+  cancel(req: CancelJobRequest): { result: Promise<OperationLike> };
 }
 
 /** Minimal Subnet service surface (satisfied by the SDK's `SubnetService`). */
@@ -161,4 +168,43 @@ export function buildCreateJobRequest(s: JobSpec): CreateJobRequest {
 export async function createJobViaSdk(service: JobServiceLike, s: JobSpec): Promise<Job> {
   const op = await service.create(buildCreateJobRequest(s)).result;
   return { id: op.resourceId(), status: JOB_STATUS.creating, raw: op.raw?.() ?? op };
+}
+
+/**
+ * Map an SDK `Job` (or a plain object in tests) into the domain `Job`.
+ * Reads id/name from `metadata` and the status string from `status.state`
+ * (enum `.name`).
+ */
+export function mapSdkJob(raw: unknown): Job {
+  const j = (raw ?? {}) as { metadata?: { id?: string; name?: string } };
+  const id = j.metadata?.id ?? '';
+  const name = j.metadata?.name;
+  const status = readState((j as { status?: unknown }).status);
+
+  const job: Job = { id, status, raw };
+  if (name !== undefined && name !== '') {
+    job.name = name;
+  }
+  return job;
+}
+
+/** Get a job by id. */
+export async function getJob(service: JobServiceLike, id: string): Promise<Job> {
+  if (!id) {
+    throw new Error('getJob: id is required.');
+  }
+  const job = await service.get(GetJobRequest.create({ id }));
+  return mapSdkJob(job);
+}
+
+/**
+ * Cancel a job by id. Cancel returns an Operation (not the Job), so the job is
+ * re-fetched afterwards to report its current status.
+ */
+export async function cancelJob(service: JobServiceLike, id: string): Promise<Job> {
+  if (!id) {
+    throw new Error('cancelJob: id is required.');
+  }
+  await service.cancel(CancelJobRequest.create({ id })).result;
+  return getJob(service, id);
 }

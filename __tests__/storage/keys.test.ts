@@ -1,51 +1,84 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * Unit tests for the ephemeral access-key domain (storage/keys.ts).
+ *
+ * The SDK `AccessKeyService` / MysteryBox `PayloadService` are replaced with
+ * tiny fakes (no network, no SDK construction). We assert the pure request
+ * builder, the mint flow (create -> wait -> get), and the payload read.
+ */
 
-const runCli = vi.fn();
-vi.mock('../../src/core/cli/exec', () => ({ runCli: (...a: unknown[]) => runCli(...a) }));
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SecretDeliveryMode } from '@nebius/js-sdk/api/nebius/iam/v2/index';
+
 vi.mock('../../src/core/io/log', () => ({ mask: vi.fn(), log: { info: vi.fn() } }));
 
 import { mask } from '../../src/core/io/log';
 import {
-  buildMintKeyArgs,
+  buildCreateAccessKeyRequest,
   ephemeralKeyName,
   mintEphemeralKey,
+  mintS3Credentials,
   readAccessKeySecret,
+  type AccessKeyServiceLike,
+  type PayloadServiceLike,
 } from '../../src/core/storage/keys';
 
 beforeEach(() => {
-  runCli.mockReset();
   vi.mocked(mask).mockReset();
 });
 
-describe('buildMintKeyArgs', () => {
-  it('builds the access-key create command with required flags', () => {
-    expect(
-      buildMintKeyArgs({ projectId: 'proj-1', serviceAccountId: 'sa-1', name: 'k', expiresAt: '2026-06-30T00:00:00Z' }),
-    ).toEqual([
-      'iam', 'v2', 'access-key', 'create',
-      '--parent-id', 'proj-1',
-      '--account-service-account-id', 'sa-1',
-      '--secret-delivery-mode', 'mystery_box',
-      '--name', 'k',
-      '--expires-at', '2026-06-30T00:00:00Z',
-    ]);
+const keyOp = (id: string) => ({ resourceId: () => id, wait: vi.fn(async () => {}) });
+
+function fakeAccessKeys(opts: {
+  id?: string;
+  status?: { awsAccessKeyId?: string; secretReferenceId?: string };
+}): AccessKeyServiceLike & { create: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> } {
+  const create = vi.fn(() => ({ result: Promise.resolve(keyOp(opts.id ?? 'ak-1')) }));
+  const get = vi.fn(() => Promise.resolve({ status: opts.status }));
+  return { create, get } as unknown as AccessKeyServiceLike & {
+    create: ReturnType<typeof vi.fn>;
+    get: ReturnType<typeof vi.fn>;
+  };
+}
+
+function fakePayloads(data: unknown): PayloadServiceLike & { get: ReturnType<typeof vi.fn> } {
+  const get = vi.fn(() => Promise.resolve({ data }));
+  return { get } as unknown as PayloadServiceLike & { get: ReturnType<typeof vi.fn> };
+}
+
+describe('buildCreateAccessKeyRequest', () => {
+  it('builds the request with parent, SA account, and MysteryBox delivery', () => {
+    const req = buildCreateAccessKeyRequest({
+      projectId: 'proj-1',
+      serviceAccountId: 'sa-1',
+      name: 'k',
+      expiresAt: '2026-06-30T00:00:00Z',
+    });
+    expect(req.metadata?.parentId).toBe('proj-1');
+    expect(req.metadata?.name).toBe('k');
+    expect(req.spec?.secretDeliveryMode).toBe(SecretDeliveryMode.MYSTERY_BOX);
+    expect(req.spec?.account?.type).toEqual({
+      $case: 'serviceAccount',
+      serviceAccount: expect.objectContaining({ id: 'sa-1' }),
+    });
+    expect(req.spec?.expiresAt?.toISOString()).toBe('2026-06-30T00:00:00.000Z');
   });
 
-  it('omits optional flags when absent', () => {
-    expect(buildMintKeyArgs({ projectId: 'p', serviceAccountId: 's' })).toEqual([
-      'iam', 'v2', 'access-key', 'create',
-      '--parent-id', 'p',
-      '--account-service-account-id', 's',
-      '--secret-delivery-mode', 'mystery_box',
-    ]);
+  it('omits the name and expiry when absent', () => {
+    const req = buildCreateAccessKeyRequest({ projectId: 'p', serviceAccountId: 's' });
+    expect(req.metadata?.name).toBe('');
+    expect(req.spec?.expiresAt).toBeUndefined();
   });
 
   it('throws when projectId is missing', () => {
-    expect(() => buildMintKeyArgs({ projectId: '', serviceAccountId: 's' })).toThrow(/projectId/);
+    expect(() => buildCreateAccessKeyRequest({ projectId: '', serviceAccountId: 's' })).toThrow(
+      /projectId/,
+    );
   });
 
   it('throws when serviceAccountId is missing', () => {
-    expect(() => buildMintKeyArgs({ projectId: 'p', serviceAccountId: '' })).toThrow(/serviceAccountId/);
+    expect(() => buildCreateAccessKeyRequest({ projectId: 'p', serviceAccountId: '' })).toThrow(
+      /serviceAccountId/,
+    );
   });
 });
 
@@ -70,66 +103,71 @@ describe('ephemeralKeyName', () => {
 });
 
 describe('mintEphemeralKey', () => {
-  it('parses ids from the create JSON (tolerant field probing)', async () => {
-    runCli.mockResolvedValueOnce({
-      exitCode: 0,
-      stdout: '',
-      stderr: '',
-      data: {
-        metadata: { id: 'ak-123' },
-        status: { aws_access_key_id: 'AKIA...', secret_reference_id: 'mbsec-9' },
-      },
+  it('creates the key, waits for the operation, and reads ids from the get', async () => {
+    const service = fakeAccessKeys({
+      id: 'ak-123',
+      status: { awsAccessKeyId: 'AKIA...', secretReferenceId: 'mbsec-9' },
     });
-    const m = await mintEphemeralKey({ projectId: 'p', serviceAccountId: 's' });
+    const m = await mintEphemeralKey(service, { projectId: 'p', serviceAccountId: 's' });
     expect(m).toEqual({ accessKeyId: 'ak-123', awsAccessKeyId: 'AKIA...', secretId: 'mbsec-9' });
-    expect(runCli).toHaveBeenCalledWith(expect.arrayContaining(['access-key', 'create']), { json: true, silent: true });
+    expect(service.create).toHaveBeenCalledTimes(1);
+    expect(service.get).toHaveBeenCalledTimes(1);
   });
 
-  it('passes silent:true to runCli to avoid echoing the create response', async () => {
-    runCli.mockResolvedValueOnce({
-      exitCode: 0, stdout: '', stderr: '',
-      data: {
-        metadata: { id: 'ak-999' },
-        status: { aws_access_key_id: 'AKIA...', secret_reference_id: 'mbsec-1' },
-      },
-    });
-    await mintEphemeralKey({ projectId: 'p', serviceAccountId: 's' });
-    expect(runCli).toHaveBeenCalledWith(expect.arrayContaining(['access-key', 'create']), { json: true, silent: true });
+  it('throws when the aws access key id is missing on the created key', async () => {
+    const service = fakeAccessKeys({ status: { secretReferenceId: 'mbsec-9' } });
+    await expect(mintEphemeralKey(service, { projectId: 'p', serviceAccountId: 's' })).rejects.toThrow(
+      /aws access key/i,
+    );
   });
 
-  it('throws when the access key id is missing', async () => {
-    runCli.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '', data: {} });
-    await expect(mintEphemeralKey({ projectId: 'p', serviceAccountId: 's' })).rejects.toThrow(/access key/i);
+  it('throws when the MysteryBox secret id is missing on the created key', async () => {
+    const service = fakeAccessKeys({ status: { awsAccessKeyId: 'AKIA...' } });
+    await expect(mintEphemeralKey(service, { projectId: 'p', serviceAccountId: 's' })).rejects.toThrow(
+      /MysteryBox secret id/i,
+    );
   });
 });
 
 describe('readAccessKeySecret', () => {
-  it('reads the plaintext from the MysteryBox payload by secret reference id', async () => {
-    runCli.mockResolvedValueOnce({
-      exitCode: 0, stdout: '', stderr: '',
-      data: {
-        version_id: 'mbsecver-1',
-        data: [{ key: 'secret', string_value: 'SECRET-XYZ' }],
-      },
-    });
-    const s = await readAccessKeySecret('mbsec-9');
+  it('reads and masks the plaintext from the MysteryBox payload', async () => {
+    const payloads = fakePayloads([
+      { key: 'secret', payload: { $case: 'stringValue', stringValue: 'SECRET-XYZ' } },
+    ]);
+    const s = await readAccessKeySecret(payloads, 'mbsec-9');
     expect(s).toBe('SECRET-XYZ');
-    expect(runCli).toHaveBeenCalledWith(
-      ['mysterybox', 'payload', 'get', '--secret-id', 'mbsec-9'],
-      { json: true, silent: true },
-    );
+    expect(payloads.get).toHaveBeenCalledTimes(1);
     expect(mask).toHaveBeenCalledWith('SECRET-XYZ');
   });
 
   it('throws when the secret reference id is missing', async () => {
-    await expect(readAccessKeySecret('')).rejects.toThrow(/secretReferenceId/);
+    await expect(readAccessKeySecret(fakePayloads([]), '')).rejects.toThrow(/secretReferenceId/);
   });
 
   it('throws when the payload has no secret entry', async () => {
-    runCli.mockResolvedValueOnce({
-      exitCode: 0, stdout: '', stderr: '',
-      data: { data: [{ key: 'other', string_value: 'x' }] },
+    const payloads = fakePayloads([
+      { key: 'other', payload: { $case: 'stringValue', stringValue: 'x' } },
+    ]);
+    await expect(readAccessKeySecret(payloads, 'mbsec-9')).rejects.toThrow(
+      /not found in MysteryBox payload/,
+    );
+  });
+});
+
+describe('mintS3Credentials', () => {
+  it('chains mint -> secret read into S3-ready credentials', async () => {
+    const accessKeys = fakeAccessKeys({
+      id: 'ak-1',
+      status: { awsAccessKeyId: 'AK', secretReferenceId: 'mbx-1' },
     });
-    await expect(readAccessKeySecret('mbsec-9')).rejects.toThrow(/not found in MysteryBox payload/);
+    const payloads = fakePayloads([
+      { key: 'secret', payload: { $case: 'stringValue', stringValue: 'SK' } },
+    ]);
+    const { minted, secretAccessKey } = await mintS3Credentials(
+      { accessKeys, payloads },
+      { projectId: 'p', serviceAccountId: 's' },
+    );
+    expect(minted).toEqual({ accessKeyId: 'ak-1', awsAccessKeyId: 'AK', secretId: 'mbx-1' });
+    expect(secretAccessKey).toBe('SK');
   });
 });

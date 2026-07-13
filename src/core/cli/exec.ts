@@ -7,7 +7,17 @@
  */
 
 import * as exec from '@actions/exec';
+import * as io from '@actions/io';
 import { CLI_BINARY_NAME, CLI_FORMAT_FLAG, CLI_FORMAT_JSON } from '../constants';
+
+/**
+ * Whether the `nebius` CLI is resolvable on PATH. Resource actions run on the
+ * SDK and do not need the CLI; callers use this to decide whether optional
+ * CLI-only extras (job log streaming) are available.
+ */
+export async function cliAvailable(): Promise<boolean> {
+  return (await io.which(CLI_BINARY_NAME, false)) !== '';
+}
 
 export interface CliRunOptions {
   json?: boolean;

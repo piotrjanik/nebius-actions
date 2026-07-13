@@ -1,7 +1,7 @@
 /**
  * Orchestrates a single-file upload to Nebius Object Storage:
- *   mint ephemeral key (secret -> MysteryBox) -> read plaintext secret ->
- *   S3 PutObject -> return { objectUri, secretId } for the job mount.
+ *   mint ephemeral key via the SDK (secret -> MysteryBox) -> read plaintext
+ *   secret -> S3 PutObject -> return { objectUri, secretId } for the job mount.
  */
 
 import { readFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ import {
   S3_REGION_DEFAULT,
   SERVICE_ACCOUNT_ID_ENV,
 } from '../constants';
-import { ephemeralKeyName, mintEphemeralKey, readAccessKeySecret } from './keys';
+import { ephemeralKeyName, mintS3Credentials, type KeyServices } from './keys';
 import { putObject, objectUri } from './s3';
 
 export interface UploadSpec {
@@ -51,19 +51,19 @@ export function buildUploadSpecFromInputs(): UploadSpec {
 
 /** Run the mint -> upload flow. */
 export async function uploadObject(
+  services: KeyServices,
   spec: UploadSpec,
   now: () => number = Date.now,
 ): Promise<UploadResult> {
   const ttlMs = parseDurationMs(spec.expiresIn) ?? DEFAULT_TTL_MS;
   const expiresAt = new Date(now() + ttlMs).toISOString();
 
-  const minted = await mintEphemeralKey({
+  const { minted, secretAccessKey } = await mintS3Credentials(services, {
     projectId: spec.projectId,
     serviceAccountId: spec.serviceAccountId,
     name: ephemeralKeyName('upload', spec.bucket),
     expiresAt,
   });
-  const secretAccessKey = await readAccessKeySecret(minted.secretId);
 
   const body = readFileSync(spec.source);
   await putObject(

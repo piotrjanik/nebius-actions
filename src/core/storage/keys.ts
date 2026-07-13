@@ -1,27 +1,31 @@
 /**
- * Ephemeral S3 access-key minting via `nebius iam v2 access-key`.
+ * Ephemeral S3 access-key minting via the `@nebius/js-sdk` `AccessKeyService`
+ * (`nebius.iam.v2`) + MysteryBox `PayloadService` (`nebius.mysterybox.v1`).
  *
  * Mints a short-lived access key FROM the already-configured service account so
  * the runner can drive the S3 data plane (SigV4 PutObject) for `upload-object` —
  * the SA bearer token does not work for S3. The secret is delivered into
- * MysteryBox (`--secret-delivery-mode mystery_box`); the create response carries
- * only the MysteryBox handle (`status.secret_reference_id`), and the runner
- * resolves the plaintext via `mysterybox payload get`.
+ * MysteryBox (`secretDeliveryMode: MYSTERY_BOX`); the created key carries only
+ * the MysteryBox handle (`status.secretReferenceId`), and the runner resolves
+ * the plaintext via the MysteryBox payload API. Keeping MysteryBox delivery
+ * (rather than INLINE/EXPLICIT) preserves the `secret-id` output jobs use for
+ * S3 secret mounts.
  *
  * NOTE: this key is for the runner's own upload, NOT for a job bucket mount —
  * jobs mount a bucket by id (`--volume <bucket-id>:/path:rw`) with no S3 creds.
  *
- * Arg-building is a pure function so it is unit-testable without the CLI.
- * CLI JSON field names were confirmed against the live CLI (0.12.x).
+ * The I/O functions take injected service fakes (mirroring endpoints/jobs); the
+ * request builder is pure and exported for direct testing.
  */
 
-import { runCli } from '../cli/exec';
+import {
+  CreateAccessKeyRequest,
+  GetAccessKeyRequest,
+  SecretDeliveryMode,
+} from '@nebius/js-sdk/api/nebius/iam/v2/index';
+import { GetPayloadRequest } from '@nebius/js-sdk/api/nebius/mysterybox/v1/index';
+import { dayjs } from '@nebius/js-sdk/runtime/protos/index';
 import { mask } from '../io/log';
-import { firstString } from '../json';
-import { CLI_ACCESS_KEY_GROUP, CLI_MYSTERYBOX_PAYLOAD_GROUP } from '../constants';
-
-const GROUP = [...CLI_ACCESS_KEY_GROUP];
-const MYSTERYBOX_PAYLOAD = [...CLI_MYSTERYBOX_PAYLOAD_GROUP];
 
 export interface EphemeralKeySpec {
   projectId: string;
@@ -38,6 +42,30 @@ export interface MintedKey {
   awsAccessKeyId: string;
   /** The MysteryBox secret id the job mount references. */
   secretId: string;
+}
+
+/** Minimal Operation surface used here (satisfied by the SDK's Operation). */
+export interface KeyOperationLike {
+  resourceId(): string;
+  /** Poll the operation to completion so the key's status fields are populated. */
+  wait(intervalSec?: number): Promise<void>;
+}
+
+/** Minimal AccessKey service surface (satisfied by the SDK's `AccessKeyService`). */
+export interface AccessKeyServiceLike {
+  create(req: CreateAccessKeyRequest): { result: Promise<KeyOperationLike> };
+  get(req: GetAccessKeyRequest): PromiseLike<unknown>;
+}
+
+/** Minimal MysteryBox payload service surface (satisfied by the SDK's `PayloadService`). */
+export interface PayloadServiceLike {
+  get(req: GetPayloadRequest): PromiseLike<unknown>;
+}
+
+/** The services key minting needs; built once per entrypoint from one SDK. */
+export interface KeyServices {
+  accessKeys: AccessKeyServiceLike;
+  payloads: PayloadServiceLike;
 }
 
 /** Max resource-name length accepted by the IAM API. */
@@ -57,74 +85,81 @@ export function ephemeralKeyName(verb: string, bucket: string): string {
   return `${base}-${suffix}`;
 }
 
-/** Build `nebius iam v2 access-key create ...` args (pure). */
-export function buildMintKeyArgs(s: EphemeralKeySpec): string[] {
+/** Build the SDK `CreateAccessKeyRequest` (pure). */
+export function buildCreateAccessKeyRequest(s: EphemeralKeySpec): CreateAccessKeyRequest {
   if (!s.projectId) throw new Error('EphemeralKeySpec.projectId is required.');
   if (!s.serviceAccountId) throw new Error('EphemeralKeySpec.serviceAccountId is required.');
-  const args = [
-    ...GROUP, 'create',
-    '--parent-id', s.projectId,
-    '--account-service-account-id', s.serviceAccountId,
-    '--secret-delivery-mode', 'mystery_box',
-  ];
-  if (s.name) args.push('--name', s.name);
-  if (s.expiresAt) args.push('--expires-at', s.expiresAt);
-  return args;
+  return CreateAccessKeyRequest.create({
+    metadata: { parentId: s.projectId, ...(s.name ? { name: s.name } : {}) },
+    spec: {
+      account: {
+        type: { $case: 'serviceAccount', serviceAccount: { id: s.serviceAccountId } },
+      },
+      secretDeliveryMode: SecretDeliveryMode.MYSTERY_BOX,
+      ...(s.expiresAt ? { expiresAt: dayjs(s.expiresAt) } : {}),
+    },
+  });
 }
 
-/** Mint the ephemeral key and extract its ids (tolerant JSON probing). */
-export async function mintEphemeralKey(s: EphemeralKeySpec): Promise<MintedKey> {
-  const res = await runCli(buildMintKeyArgs(s), { json: true, silent: true });
-  const obj = (res.data ?? {}) as Record<string, unknown>;
-  // Field names confirmed against live CLI 0.12.x: `metadata.id`,
-  // `status.aws_access_key_id`, `status.secret_reference_id`. Extra probes are
-  // tolerant fallbacks for older/SDK casings.
-  const accessKeyId = firstString(obj, ['id', 'metadata.id', 'access_key_id', 'accessKeyId']);
-  const awsAccessKeyId = firstString(obj, [
-    'aws_access_key_id', 'status.aws_access_key_id', 'awsAccessKeyId', 'status.awsAccessKeyId',
-  ]);
-  const secretId = firstString(obj, [
-    'status.secret_reference_id', 'secret_reference_id', 'status.secretReferenceId',
-    'status.secret_id', 'secret_id', 'status.secretId', 'status.mystery_box.secret_id',
-  ]);
-  if (!accessKeyId) throw new Error('access key id not found in create response.');
-  if (!awsAccessKeyId) throw new Error('aws access key id not found in create response.');
-  if (!secretId) throw new Error('MysteryBox secret id not found in create response.');
+/**
+ * Mint the ephemeral key and extract its ids. Create returns an Operation; we
+ * wait for it (so the key's status is populated) and then `get` the key for
+ * `status.awsAccessKeyId` + `status.secretReferenceId`.
+ */
+export async function mintEphemeralKey(
+  service: AccessKeyServiceLike,
+  s: EphemeralKeySpec,
+): Promise<MintedKey> {
+  const op = await service.create(buildCreateAccessKeyRequest(s)).result;
+  await op.wait(1);
+  const accessKeyId = op.resourceId();
+  if (!accessKeyId) throw new Error('access key id not found in create operation.');
+
+  const key = (await service.get(GetAccessKeyRequest.create({ id: accessKeyId }))) as {
+    status?: { awsAccessKeyId?: string; secretReferenceId?: string };
+  };
+  const awsAccessKeyId = key?.status?.awsAccessKeyId;
+  const secretId = key?.status?.secretReferenceId;
+  if (!awsAccessKeyId) throw new Error('aws access key id not found on the created key.');
+  if (!secretId) throw new Error('MysteryBox secret id not found on the created key.');
   return { accessKeyId, awsAccessKeyId, secretId };
 }
 
 /**
  * Fetch and mask the plaintext AWS secret access key for a minted key.
  *
- * Keys minted with `--secret-delivery-mode mystery_box` reject
- * `access-key get-secret`; the plaintext lives in the MysteryBox secret whose id
- * is `status.secret_reference_id`. Read it via `mysterybox payload get`, whose
- * JSON is `{ data: [{ key, string_value }] }`.
+ * Keys minted with `secretDeliveryMode: MYSTERY_BOX` carry no inline secret;
+ * the plaintext lives in the MysteryBox secret whose id is
+ * `status.secretReferenceId`. The payload is a key/value list with the AWS
+ * secret under the `secret` key.
  */
-export async function readAccessKeySecret(secretReferenceId: string): Promise<string> {
+export async function readAccessKeySecret(
+  service: PayloadServiceLike,
+  secretReferenceId: string,
+): Promise<string> {
   if (!secretReferenceId) throw new Error('readAccessKeySecret: secretReferenceId is required.');
-  const res = await runCli([...MYSTERYBOX_PAYLOAD, 'get', '--secret-id', secretReferenceId], {
-    json: true,
-    silent: true,
-  });
-  const obj = (res.data ?? {}) as Record<string, unknown>;
-  const secret = payloadString(obj, 'secret');
+  const payload = (await service.get(
+    GetPayloadRequest.create({ secretId: secretReferenceId }),
+  )) as {
+    data?: { key?: string; payload?: { $case?: string; stringValue?: string } }[];
+  };
+  const entry = payload?.data?.find((e) => e?.key === 'secret');
+  const secret =
+    entry?.payload?.$case === 'stringValue' ? entry.payload.stringValue : undefined;
   if (!secret) throw new Error('aws secret access key not found in MysteryBox payload.');
   mask(secret);
   return secret;
 }
 
-/** Extract a payload entry's plaintext value from `mysterybox payload get` JSON. */
-function payloadString(obj: Record<string, unknown>, key: string): string | undefined {
-  const data = obj.data;
-  if (!Array.isArray(data)) return undefined;
-  for (const entry of data) {
-    if (entry && typeof entry === 'object') {
-      const e = entry as Record<string, unknown>;
-      if (e.key === key) {
-        return firstString(e, ['string_value', 'stringValue', 'value']);
-      }
-    }
-  }
-  return undefined;
+/**
+ * Mint an ephemeral key and resolve its plaintext secret — the full flow the
+ * storage orchestrators (upload/download/check/empty) share.
+ */
+export async function mintS3Credentials(
+  services: KeyServices,
+  s: EphemeralKeySpec,
+): Promise<{ minted: MintedKey; secretAccessKey: string }> {
+  const minted = await mintEphemeralKey(services.accessKeys, s);
+  const secretAccessKey = await readAccessKeySecret(services.payloads, minted.secretId);
+  return { minted, secretAccessKey };
 }

@@ -29,6 +29,7 @@ import {
 } from '@nebius/js-sdk/api/nebius/ai/v1/index';
 import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
 import { resolveDiskType } from '../sdk/disk';
+import { readState } from '../sdk/state';
 import {
   ENDPOINT_READY_STATUSES,
   ENDPOINT_STATUS,
@@ -142,16 +143,6 @@ export function buildEndpointSpec(s: EndpointSpec): EndpointSpecPartial {
     spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
   }
   return spec;
-}
-
-/** Read the status string from an SDK status (enum `.name`) or a plain object. */
-function readState(status: unknown): string {
-  const st = (status as { state?: unknown } | undefined)?.state;
-  if (st == null) return 'UNKNOWN';
-  if (typeof st === 'string') return st;
-  const name = (st as { name?: unknown }).name;
-  if (typeof name === 'string') return name;
-  return String(st);
 }
 
 /**

@@ -12,9 +12,14 @@ import { SDK } from '@nebius/js-sdk';
 // map, tsc via the tsconfig `paths` mapping (see endpoints.ts).
 import { EndpointService, JobService } from '@nebius/js-sdk/api/nebius/ai/v1/index';
 import { SubnetService } from '@nebius/js-sdk/api/nebius/vpc/v1/index';
+import { BucketService } from '@nebius/js-sdk/api/nebius/storage/v1/index';
+import { AccessKeyService } from '@nebius/js-sdk/api/nebius/iam/v2/index';
+import { PayloadService } from '@nebius/js-sdk/api/nebius/mysterybox/v1/index';
 import { IAM_TOKEN_ENV } from '../constants';
 import type { EndpointServiceLike } from '../endpoints/endpoints';
 import type { JobServiceLike, SubnetServiceLike } from '../jobs/jobs-sdk';
+import type { BucketServiceLike } from '../storage/bucket';
+import type { AccessKeyServiceLike, KeyServices, PayloadServiceLike } from '../storage/keys';
 
 /**
  * Construct an SDK authenticated with the exported IAM token.
@@ -63,4 +68,27 @@ export function jobService(sdk: SDK): JobServiceLike {
  */
 export function subnetService(sdk: SDK): SubnetServiceLike {
   return new SubnetService(sdk) as unknown as SubnetServiceLike;
+}
+
+/**
+ * Build the Object Storage Bucket service client for an SDK (control plane:
+ * create/delete the bucket resource; object data still goes over S3).
+ */
+export function bucketService(sdk: SDK): BucketServiceLike {
+  return new BucketService(sdk) as unknown as BucketServiceLike;
+}
+
+/** Build the IAM AccessKey service client for an SDK (ephemeral S3 key minting). */
+export function accessKeyService(sdk: SDK): AccessKeyServiceLike {
+  return new AccessKeyService(sdk) as unknown as AccessKeyServiceLike;
+}
+
+/** Build the MysteryBox Payload service client for an SDK (plaintext secret reads). */
+export function payloadService(sdk: SDK): PayloadServiceLike {
+  return new PayloadService(sdk) as unknown as PayloadServiceLike;
+}
+
+/** Build the service pair the storage key-minting flows need. */
+export function keyServices(sdk: SDK): KeyServices {
+  return { accessKeys: accessKeyService(sdk), payloads: payloadService(sdk) };
 }

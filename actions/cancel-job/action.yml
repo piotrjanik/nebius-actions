@@ -1,5 +1,7 @@
 name: 'Nebius Cancel Job'
-description: 'Cancel a running Nebius Job.'
+description: >-
+  Cancel a running Nebius Job. Authenticates via the SDK — run the `auth`
+  action first (exports NEBIUS_IAM_TOKEN).
 author: 'Nebius Actions'
 branding:
   icon: 'x-circle'

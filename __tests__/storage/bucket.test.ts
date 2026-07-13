@@ -1,56 +1,95 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * Unit tests for the bucket control-plane domain (storage/bucket.ts).
+ *
+ * The SDK `BucketService` is replaced with a tiny fake (no network, no SDK
+ * construction). We assert the pure request builders and the create/delete
+ * flows against the fake.
+ */
 
-const runCli = vi.fn();
-vi.mock('../../src/core/cli/exec', () => ({ runCli: (...a: unknown[]) => runCli(...a) }));
+import { describe, it, expect, vi } from 'vitest';
 
 import {
-  buildCreateBucketArgs,
+  buildCreateBucketRequest,
   createBucket,
-  buildDeleteBucketArgs,
+  buildDeleteBucketRequest,
   deleteBucket,
+  type BucketServiceLike,
 } from '../../src/core/storage/bucket';
 
-beforeEach(() => runCli.mockReset());
+const op = (id: string) => ({ resourceId: () => id, raw: () => ({ op: true }) });
 
-describe('buildCreateBucketArgs', () => {
-  it('builds the create command with name and parent', () => {
-    expect(buildCreateBucketArgs({ name: 'demo-1', projectId: 'proj' })).toEqual([
-      'storage', 'bucket', 'create', '--name', 'demo-1', '--parent-id', 'proj',
-    ]);
+describe('buildCreateBucketRequest', () => {
+  it('maps name and projectId -> metadata', () => {
+    const req = buildCreateBucketRequest({ name: 'demo-1', projectId: 'proj' });
+    expect(req.metadata?.name).toBe('demo-1');
+    expect(req.metadata?.parentId).toBe('proj');
+    expect(req.spec).toBeUndefined();
   });
-  it('appends max-size-bytes when set', () => {
-    expect(buildCreateBucketArgs({ name: 'd', projectId: 'p', maxSizeBytes: '100' })).toEqual([
-      'storage', 'bucket', 'create', '--name', 'd', '--parent-id', 'p', '--max-size-bytes', '100',
-    ]);
+
+  it('sets spec.maxSizeBytes when given', () => {
+    const req = buildCreateBucketRequest({ name: 'd', projectId: 'p', maxSizeBytes: '100' });
+    expect(Number(req.spec?.maxSizeBytes)).toBe(100);
   });
+
+  it('throws on a non-numeric maxSizeBytes', () => {
+    expect(() =>
+      buildCreateBucketRequest({ name: 'd', projectId: 'p', maxSizeBytes: '100Gi' }),
+    ).toThrow(/byte count/);
+  });
+
   it('throws when name or projectId is missing', () => {
-    expect(() => buildCreateBucketArgs({ name: '', projectId: 'p' })).toThrow(/name/);
-    expect(() => buildCreateBucketArgs({ name: 'd', projectId: '' })).toThrow(/projectId/);
+    expect(() => buildCreateBucketRequest({ name: '', projectId: 'p' })).toThrow(/name/);
+    expect(() => buildCreateBucketRequest({ name: 'd', projectId: '' })).toThrow(/projectId/);
   });
 });
 
 describe('createBucket', () => {
-  it('returns id and name from the create JSON', async () => {
-    runCli.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '', data: { metadata: { id: 'bkt-1', name: 'demo-1' } } });
-    expect(await createBucket({ name: 'demo-1', projectId: 'p' })).toEqual({ id: 'bkt-1', name: 'demo-1' });
+  it('returns the operation resource id and the requested name', async () => {
+    const create = vi.fn(() => ({ result: Promise.resolve(op('bkt-1')) }));
+    const service = { create, delete: vi.fn() } as unknown as BucketServiceLike;
+    expect(await createBucket(service, { name: 'demo-1', projectId: 'p' })).toEqual({
+      id: 'bkt-1',
+      name: 'demo-1',
+    });
+    expect(create).toHaveBeenCalledTimes(1);
   });
-  it('falls back to the requested name when JSON omits it', async () => {
-    runCli.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '', data: { id: 'bkt-2' } });
-    expect(await createBucket({ name: 'demo-2', projectId: 'p' })).toEqual({ id: 'bkt-2', name: 'demo-2' });
-  });
-  it('throws when no id is present', async () => {
-    runCli.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '', data: {} });
-    await expect(createBucket({ name: 'd', projectId: 'p' })).rejects.toThrow(/bucket id/i);
+
+  it('throws when the operation carries no id', async () => {
+    const service = {
+      create: () => ({ result: Promise.resolve(op('')) }),
+      delete: vi.fn(),
+    } as unknown as BucketServiceLike;
+    await expect(createBucket(service, { name: 'd', projectId: 'p' })).rejects.toThrow(
+      /bucket id/i,
+    );
   });
 });
 
 describe('delete', () => {
-  it('builds the delete command with zero ttl by default', () => {
-    expect(buildDeleteBucketArgs('bkt-1')).toEqual(['storage', 'bucket', 'delete', '--id', 'bkt-1', '--ttl', '0s']);
+  it('builds the delete request with a zero purge ttl by default', () => {
+    const req = buildDeleteBucketRequest('bkt-1');
+    expect(req.id).toBe('bkt-1');
+    expect(req.purge?.$case).toBe('ttl');
+    expect(req.purge?.$case === 'ttl' && req.purge.ttl.asMilliseconds()).toBe(0);
   });
-  it('runs the delete CLI', async () => {
-    runCli.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '', data: {} });
-    await deleteBucket('bkt-1');
-    expect(runCli).toHaveBeenCalledWith(['storage', 'bucket', 'delete', '--id', 'bkt-1', '--ttl', '0s'], { json: true });
+
+  it('parses a non-zero ttl duration', () => {
+    const req = buildDeleteBucketRequest('bkt-1', '1h');
+    expect(req.purge?.$case === 'ttl' && req.purge.ttl.asMilliseconds()).toBe(3_600_000);
+  });
+
+  it('throws on an unparseable ttl', () => {
+    expect(() => buildDeleteBucketRequest('bkt-1', 'soon')).toThrow(/ttl/);
+  });
+
+  it('throws when id is missing', () => {
+    expect(() => buildDeleteBucketRequest('')).toThrow(/id is required/);
+  });
+
+  it('awaits the delete operation against the service', async () => {
+    const del = vi.fn(() => ({ result: Promise.resolve(op('bkt-1')) }));
+    const service = { create: vi.fn(), delete: del } as unknown as BucketServiceLike;
+    await deleteBucket(service, 'bkt-1');
+    expect(del).toHaveBeenCalledTimes(1);
   });
 });

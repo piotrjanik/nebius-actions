@@ -49,16 +49,17 @@
 # The registry credential is the short-lived NEBIUS_IAM_TOKEN that `auth`
 # exported, passed to the job as an env var.
 #
-# Auth: service-account key (NOT OIDC). `setup` configures a key-based CLI
-# profile for bucket ops and log streaming (the CLI needs its own
-# ~/.nebius/config.yaml). The `auth` action then exports NEBIUS_IAM_TOKEN for
-# the SDK job-create path.
+# Auth: service-account key (NOT OIDC). The `auth` action exports
+# NEBIUS_IAM_TOKEN, which every resource action (jobs, endpoints, buckets,
+# uploads) reads — they all run on the @nebius/js-sdk over gRPC. `setup`
+# installs the CLI + a key-based profile ONLY for this workflow's own
+# `nebius registry` shell steps and wait-for-job's log streaming.
 #
 # Requires:
 #   vars.NEBIUS_SERVICE_ACCOUNT_ID  - the SA the key belongs to
 #   vars.NEBIUS_PUBLIC_KEY_ID       - the authorized key's public key id
 #   secrets.NEBIUS_PRIVATE_KEY      - the authorized key's PEM private key
-#   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
+#   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile; CLI steps only)
 #   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
 #   vars.NEBIUS_PROJECT_ID          - parent project (used to resolve/create the registry)
 #   vars.NEBIUS_REGISTRY_ID         - Container Registry id (optional; the workflow
@@ -219,9 +220,12 @@ jobs:
           echo "Pushed $IMAGE"
           SCRIPT
 
-      # Install the CLI and configure a key-based profile so the CLI can
-      # authenticate itself (jobs drive the CLI). The private key comes from a
-      # secret; setup masks it and writes it to a 0600 file under RUNNER_TEMP.
+      # Install the CLI and configure a key-based profile — needed ONLY for
+      # this workflow's own `nebius registry` shell steps below and for
+      # wait-for-job's log streaming; the resource actions run on the SDK. The
+      # private key comes from a secret; setup masks it and writes it to a
+      # 0600 file under RUNNER_TEMP. It also exports NEBIUS_PROJECT_ID /
+      # NEBIUS_SERVICE_ACCOUNT_ID as job-wide defaults for the resource steps.
       - name: Set up Nebius
         uses: ./actions/setup
         with:
@@ -231,8 +235,9 @@ jobs:
           project-id: ${{ vars.NEBIUS_PROJECT_ID }}
           tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
 
-      # Mint an IAM token for the SDK path (submit-job creates the Job via the
-      # SDK, which reads NEBIUS_IAM_TOKEN). Key method — reuses the SA key.
+      # Mint the IAM token every resource action reads (NEBIUS_IAM_TOKEN):
+      # bucket create/delete, uploads, jobs, and endpoints all go through the
+      # SDK. Key method — reuses the SA key.
       - name: Authenticate (SDK token)
         uses: ./actions/auth
         with:
@@ -252,7 +257,8 @@ jobs:
           name: demo-axolotl-${{ github.run_id }}
 
       # Upload the config to the bucket. Mints a short-lived S3 key from the SA
-      # (secret -> MysteryBox) and returns the object URI + mount secret id.
+      # via the SDK (secret -> MysteryBox) and returns the object URI + mount
+      # secret id.
       - name: Upload Axolotl config
         id: upload
         uses: ./actions/upload-object

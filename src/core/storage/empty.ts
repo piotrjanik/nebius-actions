@@ -1,7 +1,7 @@
 /**
  * Empty a bucket by deleting every object (S3 data plane). Used by delete-bucket
- * before the CLI delete, so the delete works regardless of whether the CLI
- * refuses non-empty buckets.
+ * before the control-plane delete, so the delete works regardless of whether the
+ * API refuses non-empty buckets.
  */
 
 import { getString, getStringOrEnv } from '../io/inputs';
@@ -12,7 +12,7 @@ import {
   S3_REGION_DEFAULT,
   SERVICE_ACCOUNT_ID_ENV,
 } from '../constants';
-import { ephemeralKeyName, mintEphemeralKey, readAccessKeySecret } from './keys';
+import { ephemeralKeyName, mintS3Credentials, type KeyServices } from './keys';
 import { listObjects, deleteObjects } from './s3';
 
 export interface EmptySpec {
@@ -38,16 +38,19 @@ export function buildEmptySpecFromInputs(): EmptySpec {
 }
 
 /** Mint a key, list all objects, delete them; return how many were deleted. */
-export async function emptyBucket(spec: EmptySpec, now: () => number = Date.now): Promise<number> {
+export async function emptyBucket(
+  services: KeyServices,
+  spec: EmptySpec,
+  now: () => number = Date.now,
+): Promise<number> {
   const ttlMs = parseDurationMs(spec.expiresIn) ?? DEFAULT_TTL_MS;
   const expiresAt = new Date(now() + ttlMs).toISOString();
-  const minted = await mintEphemeralKey({
+  const { minted, secretAccessKey } = await mintS3Credentials(services, {
     projectId: spec.projectId,
     serviceAccountId: spec.serviceAccountId,
     name: ephemeralKeyName('empty', spec.bucket),
     expiresAt,
   });
-  const secretAccessKey = await readAccessKeySecret(minted.secretId);
   const loc = { endpoint: spec.endpoint, region: spec.region, bucket: spec.bucket };
   const creds = { accessKeyId: minted.awsAccessKeyId, secretAccessKey };
   const keys = await listObjects(loc, creds, '');
