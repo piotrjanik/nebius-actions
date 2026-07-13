@@ -1,172 +1,430 @@
 # Nebius GitHub Actions
 
-Composable **GitHub Actions for [Nebius AI Cloud](https://nebius.com/)** that run GPU/CPU workloads straight from a workflow:
+Run GPU/CPU workloads on [Nebius AI Cloud](https://nebius.com/) straight from a GitHub workflow — no glue scripts.
 
-- **Training Jobs** — finite workloads (training, fine-tuning, batch) that run to completion.
-- **Endpoints** — serve a container/model behind a managed HTTPS URL.
+These are small, composable building blocks (one job per resource), not a rigid pipeline. Mix and match them to **train a model, serve it, and move data** around it. There are three kinds of things you can do:
 
-They are **primitives**, not an opinionated train→deploy pipeline: one convenience action per resource for fire-and-wait, plus low-level actions so you can wire up `submit → wait → cancel` / `deploy → wait → delete` yourself.
+- 🏃 **Training Jobs** — finite GPU/CPU workloads (train, fine-tune, batch) that run to completion.
+- 🌐 **Endpoints** — keep a container/model running behind a public URL.
+- 🪣 **Object Storage** — create buckets and move files in and out.
 
-Auth is **keyless** — GitHub OIDC exchanged for a short-lived Nebius IAM token (RFC-8693). No long-lived Nebius secret is stored in your repo. Endpoints and the token exchange use the official [`@nebius/js-sdk`](https://github.com/nebius/js-sdk) over gRPC; Jobs drive the `nebius` CLI (installed by `setup`).
-
----
-
-## Setup
-
-### 1. Nebius side (one-time)
-
-Create a service account, trust your repo's GitHub OIDC identity, and grant it roles — all keyless. Do this once with the `nebius` CLI (or the web console):
-
-```bash
-# Service account the workflow acts as
-nebius iam service-account create --parent-id "$NEBIUS_PROJECT_ID" --name github-actions-ci
-
-# Trust GitHub OIDC for a specific repo + ref (lock the subject down as tightly as you can)
-nebius iam federated-credentials create \
-  --parent-id "$NEBIUS_PROJECT_ID" --name github-actions-oidc \
-  --subject-id "$SA_ID" \
-  --oidc-provider-issuer-url "https://token.actions.githubusercontent.com" \
-  --federated-subject-id "repo:OWNER/REPO:ref:refs/heads/main"
-
-# Least-privilege role to manage Jobs/Endpoints
-nebius iam binding create --parent-id "$NEBIUS_PROJECT_ID" --subject-id "$SA_ID" --role ai.editor
-```
-
-> Verify the exact flag names and role against your tenancy (`nebius iam --help`), or perform the same three steps (service account → federated credentials → role binding) in the console.
-
-### 2. Workflow
-
-Each job must request an OIDC token, then run `setup` + `auth` once before any resource action:
-
-```yaml
-permissions:
-  id-token: write
-  contents: read
-```
+**Auth is short-lived.** You never store a long-lived Nebius secret in your repo. Either exchange GitHub's OIDC identity for a temporary IAM token (recommended, fully keyless), or use a service-account key. One `auth` step exports the token; every other action reuses it.
 
 ---
 
-## Quickstart
+## Quick start
 
-### Run a Job
+Every job runs `setup` + `auth` once, then any number of resource actions.
+
+**Train a model:**
 
 ```yaml
-name: train
-on: [workflow_dispatch]
-
 permissions:
-  id-token: write
+  id-token: write        # needed for keyless OIDC auth
   contents: read
 
 jobs:
   train:
     runs-on: ubuntu-latest
     steps:
-      - uses: OWNER/REPO/actions/setup@v0
-      - uses: OWNER/REPO/actions/auth@v0
+      - uses: piotrjanik/nebius-actions/actions/setup@v0
+      - uses: piotrjanik/nebius-actions/actions/auth@v0
         with:
           service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
-      - uses: OWNER/REPO/actions/run-job@v0
+      - uses: piotrjanik/nebius-actions/actions/run-job@v0
         with:
           name: smoke-train
           image: cr.eu-north1.nebius.cloud/your-project/trainer:latest
-          preset: 1gpu-16vcpu-200gb
+          platform: gpu-l40s-a
+          preset: 1gpu-8vcpu-32gb
           command: python train.py --epochs 1
           timeout: 1h
 ```
 
-`run-job` submits the job, streams its logs, waits for a terminal state, and fails the step if the job did not complete successfully.
+`run-job` submits the job, streams its logs, waits for it to finish, and fails the step if it didn't succeed.
 
-### Deploy an Endpoint
+**Serve a model:**
 
 ```yaml
-name: deploy
-on:
-  push:
-    branches: [main]
-
-permissions:
-  id-token: write
-  contents: read
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: OWNER/REPO/actions/setup@v0
-      - uses: OWNER/REPO/actions/auth@v0
-        with:
-          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
       - id: deploy
-        uses: OWNER/REPO/actions/deploy-endpoint@v0
+        uses: piotrjanik/nebius-actions/actions/deploy-endpoint@v0
         with:
           name: my-model
           image: cr.eu-north1.nebius.cloud/your-project/serve:latest
-          port: 8080
-          preset: 1gpu-16vcpu-200gb
-      - run: echo "Serving at ${{ steps.deploy.outputs.url }}"
+          port: 8000
+          public: true
+          platform: gpu-l40s-a
+          preset: 1gpu-16vcpu-64gb
+          disk-size: 100Gi
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+      - run: curl -fsS "${{ steps.deploy.outputs.url }}/health"
 ```
 
-`deploy-endpoint` creates the endpoint and waits until it is serving. There is no update verb — if an endpoint with the same name already exists it is returned unchanged; delete it first to redeploy with a changed spec.
+`deploy-endpoint` creates the endpoint and waits until it's serving. Deploying a name that already exists returns it unchanged (there's no update verb) — delete it first to redeploy a new spec.
 
 ---
 
-## Actions
+## Actions reference
 
-All are `node24` JavaScript actions referenced as `OWNER/REPO/actions/<name>@v0`. Run `setup` + `auth` once per job; every resource action reads the IAM token from `NEBIUS_IAM_TOKEN`. Endpoint actions use the SDK directly (no `setup` needed); Job actions use the `nebius` CLI.
+All are referenced as `piotrjanik/nebius-actions/actions/<name>@v0`. Run **`setup` + `auth` once per job**; every other action reads the token from `NEBIUS_IAM_TOKEN`. In the tables, ✅ marks a required input.
 
-| Action                  | What it does                                                                                                             | Key inputs                                                                                                                                                                              | Key outputs                     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **`setup`**             | Install + cache the `nebius` CLI and put it on `PATH`. Run once per job before any resource action.                      | `cli-version` (`latest`), `install-cli` (`true`), `region` (`eu`)                                                                                                                       | —                               |
-| **`auth`**              | Keyless OIDC token exchange; export the IAM token (`NEBIUS_IAM_TOKEN`) for the CLI + downstream steps. Run once per job. | `service-account-id` _(required)_, `auth-method` (`oidc`), `audience`, `domain` (default `api.nebius.cloud:443`)                                                                        | `expires-in`                    |
-| **`run-job`**           | Convenience: create a Job, stream logs, poll to a terminal state, fail on non-success.                                   | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `wait` (`true`), `poll-interval` (`10`), `project-id`, `extra-args`                          | `job-id`, `status`, `exit-code` |
-| **`submit-job`**        | Low-level: create a Job and return immediately (no waiting).                                                             | `image` _(required)_, `name`, `command`, `preset`, `platform`, `env`, `mounts`, `timeout`, `project-id`, `extra-args`                                                                   | `job-id`, `status`              |
-| **`upload-object`**     | Upload a local file to a pre-existing bucket via a short-lived SA-minted S3 key; output the object URI + MysteryBox mount secret. | `source` _(required)_, `bucket` _(required)_, `key` _(required)_, `service-account-id`, `project-id`, `expires-in` (`2h`), `endpoint`, `region` | `object-uri`, `secret-id`       |
-| **`download-object`**   | Download every object under a bucket prefix to a local directory via a short-lived SA-minted S3 key; fails when the prefix is empty. | `bucket` _(required)_, `prefix` _(required)_, `dest` _(required)_, `service-account-id`, `project-id`, `expires-in` (`2h`), `endpoint`, `region` | `files-count`, `dest`           |
-| **`wait-for-job`**      | Poll an existing Job until terminal; optionally stream logs.                                                             | `job-id` _(required)_, `timeout`, `poll-interval`, `stream-logs` (`true`)                                                                                                               | `status`, `exit-code`           |
-| **`cancel-job`**        | Cancel a running Job.                                                                                                    | `job-id` _(required)_                                                                                                                                                                   | `status`                        |
-| **`deploy-endpoint`**   | Convenience: create an Endpoint (no update verb), poll until serving.                                                    | `name` _(required)_, `image` _(required)_, `port`, `public`, `token`, `preset`, `platform`, `env`, `wait` (`true`), `timeout`, `poll-interval`, `project-id`                            | `endpoint-id`, `url`, `status`  |
-| **`wait-for-endpoint`** | Poll an existing Endpoint until it is serving.                                                                           | `endpoint-id` _(required)_, `timeout`, `poll-interval`                                                                                                                                  | `status`, `url`                 |
-| **`delete-endpoint`**   | Delete an Endpoint (by id, or by name + `project-id`).                                                                   | `endpoint-id` _or_ (`name` + `project-id`)                                                                                                                                              | `status`                        |
+### 🔑 Setup & auth
 
-**Convenience vs. low-level:** `run-job` / `deploy-endpoint` do submit + wait in one step (use `wait: false` to just submit/apply). The low-level actions split the lifecycle across steps for matrix fan-out, manual gating, or cleanup-on-failure.
+#### `setup`
 
-### Common inputs
+Install the `nebius` CLI onto the runner and put it on `PATH`. Pass the key inputs to also configure a key-based CLI profile. Job and storage actions use the CLI; endpoint actions don't need it.
 
-- **`project-id`** / **`service-account-id`** — when the `setup` action runs with these, it exports `NEBIUS_PROJECT_ID` / `NEBIUS_SERVICE_ACCOUNT_ID` for the rest of the job, so later resource steps (`create-bucket`, `submit-job`, `upload-object`, `download-object`, `check-object`, `delete-bucket`) can omit them; pass them on a step only to override. `project-id` additionally defaults to the CLI/profile project for plain CLI calls.
-- **`region`** — region/profile prefix; default `eu`.
-- **`extra-args`** — raw passthrough appended verbatim to the `nebius` CLI call, to reach any flag the typed inputs don't expose.
-- **`env`** — multiline `KEY=VALUE` (one per line; blank lines and `#` comments ignored; split on the first `=`).
-- **`command`** / **`mounts`** — multiline lists, one entry per line.
-- **`poll-interval`** — seconds between status polls (default `10`); backs off exponentially (×1.5) up to a `30s` cap.
-- **`timeout`** — for Jobs, the Job's own run timeout (`1h`, `30m`); for `wait-*` actions, how long to poll.
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `cli-version` | | `latest` | CLI version to install (pin for reproducibility) |
+| `region` | | `eu` | Region/profile prefix |
+| `service-account-id`, `public-key-id`, `private-key`, `project-id`, `tenant-id` | | — | Configure a key-based CLI profile (also exported for later steps) |
+
+**Outputs:** none — exports `NEBIUS_PROJECT_ID` / `NEBIUS_SERVICE_ACCOUNT_ID` for the rest of the job.
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/setup@v0
+  with:
+    cli-version: latest
+```
+
+#### `auth`
+
+Get a short-lived IAM token and export it as `NEBIUS_IAM_TOKEN` (masked) for the rest of the job.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `service-account-id` | ✅ | — | Service account to act as |
+| `auth-method` | | `oidc` | `oidc` (keyless) or `key` |
+| `public-key-id`, `private-key` | | — | Required when `auth-method: key` |
+| `audience`, `domain` | | — | Advanced overrides |
+
+**Outputs:** `expires-in`
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/auth@v0
+  with:
+    service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+    # key auth instead of OIDC:
+    # auth-method: key
+    # public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+    # private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+```
+
+### 🏃 Training Jobs
+
+#### `run-job`
+
+The all-in-one: create a Job, stream its logs, wait for it to finish, and fail on non-success. Reach for this first.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `image` | ✅ | — | Container image to run |
+| `name` | | — | Job name |
+| `command` | | — | Entrypoint (multiline list) |
+| `args` | | — | Args passed to the entrypoint |
+| `platform` | | — | Compute platform (e.g. `gpu-l40s-a`) |
+| `preset` | | — | Compute preset (platform-specific) |
+| `env` | | — | Multiline `KEY=VALUE` |
+| `mounts` | | — | `<bucket-id>:/path:rw` (multiline) |
+| `disk-size` / `disk-type` | | `network-ssd` | Main disk (e.g. `250Gi`) |
+| `preemptible` | | `false` | Use cheaper preemptible VMs |
+| `timeout` | | — | The Job's own run timeout (`1h`, `30m`) |
+| `subnet-id` | | auto | Subnet (auto-resolved from the project) |
+| `wait` | | `true` | Wait for completion (`false` = just submit) |
+| `poll-interval` | | `10` | Seconds between status polls |
+| `project-id` | | from `setup` | Parent project |
+
+**Outputs:** `job-id`, `status`, `exit-code`
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/run-job@v0
+  with:
+    name: finetune
+    image: cr.eu-north1.nebius.cloud/proj/trainer:latest
+    platform: gpu-l40s-a
+    preset: 1gpu-8vcpu-32gb
+    command: python train.py
+    args: --epochs 3
+    mounts: ${{ steps.bucket.outputs.bucket-id }}:/data:rw
+    timeout: 2h
+```
+
+#### `submit-job`
+
+Low-level: create a Job and return immediately, without waiting. Pair with `wait-for-job` when you want to do other work in between (matrix fan-out, manual gating). Same inputs as `run-job`, minus the `wait` / `poll-interval` knobs.
+
+**Outputs:** `job-id`, `status`
+
+```yaml
+- id: submit
+  uses: piotrjanik/nebius-actions/actions/submit-job@v0
+  with:
+    name: finetune
+    image: cr.eu-north1.nebius.cloud/proj/trainer:latest
+    platform: gpu-l40s-a
+    preset: 1gpu-8vcpu-32gb
+    command: python train.py
+```
+
+#### `wait-for-job`
+
+Poll an existing Job until it finishes; optionally stream its logs. Fails the step on a failed/cancelled job or timeout.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `job-id` | ✅ | — | Job to wait on |
+| `timeout` | | `3600` | Poll ceiling, **in seconds** |
+| `poll-interval` | | `10` | Seconds between polls |
+| `stream-logs` | | `true` | Stream the job's logs while polling |
+
+**Outputs:** `status`, `exit-code`
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/wait-for-job@v0
+  with:
+    job-id: ${{ steps.submit.outputs.job-id }}
+    timeout: 7200
+```
+
+#### `cancel-job`
+
+Cancel a running Job (e.g. on workflow cancellation).
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `job-id` | ✅ | — | Job to cancel |
+
+**Outputs:** `status`
+
+```yaml
+- if: cancelled() && steps.submit.outputs.job-id != ''
+  uses: piotrjanik/nebius-actions/actions/cancel-job@v0
+  with:
+    job-id: ${{ steps.submit.outputs.job-id }}
+```
+
+### 🌐 Endpoints
+
+#### `deploy-endpoint`
+
+The all-in-one: create an Endpoint and poll until it's serving. A public endpoint is reachable at a plain **`http://<ip>:<port>`** URL (the container port is exposed directly). The subnet is resolved automatically from your project.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `name` | ✅ | — | Endpoint name |
+| `image` | ✅ | — | Container image to serve |
+| `port` | | — | Container port to expose |
+| `public` | | `false` | Assign a public URL |
+| `protocol` | | `HTTP` | Port protocol (`HTTP`/`TCP`/`UDP`) |
+| `platform` | | — | Compute platform (e.g. `gpu-l40s-a`) |
+| `preset` | | — | Compute preset (platform-specific) |
+| `disk-size` / `disk-type` | | — | Main disk (e.g. `100Gi`) |
+| `subnet-id` | | auto | Subnet (auto-resolved from the project) |
+| `token` | | — | Bearer token required to call the endpoint |
+| `env` | | — | Multiline `KEY=VALUE` |
+| `wait` | | `true` | Wait until serving (`false` = just create) |
+| `timeout` | | `3600` | Poll ceiling, **in seconds** |
+| `project-id` | | from `setup` | Parent project (needed for subnet auto-resolution) |
+
+**Outputs:** `endpoint-id`, `url`, `status`
+
+```yaml
+- id: deploy
+  uses: piotrjanik/nebius-actions/actions/deploy-endpoint@v0
+  with:
+    name: my-model
+    image: cr.eu-north1.nebius.cloud/proj/serve:latest
+    port: 8000
+    public: true
+    platform: gpu-l40s-a
+    preset: 1gpu-16vcpu-64gb
+    disk-size: 100Gi
+    project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+```
+
+#### `wait-for-endpoint`
+
+Poll an existing Endpoint until it's serving. Use after `deploy-endpoint` with `wait: false`.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `endpoint-id` | ✅ | — | Endpoint to wait on |
+| `timeout` | | `3600` | Poll ceiling, **in seconds** |
+| `poll-interval` | | `10` | Seconds between polls |
+
+**Outputs:** `status`, `url`
+
+```yaml
+- id: endpoint
+  uses: piotrjanik/nebius-actions/actions/wait-for-endpoint@v0
+  with:
+    endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
+    timeout: 1800
+```
+
+#### `delete-endpoint`
+
+Delete an Endpoint by id, or by name + project. Endpoints cost money while up, so tear them down when done (typically in an `if: always()` step).
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `endpoint-id` | | — | Endpoint id (or use `name` + `project-id`) |
+| `name`, `project-id` | | — | Delete by name within a project |
+
+**Outputs:** `status`
+
+```yaml
+- if: always() && steps.deploy.outputs.endpoint-id != ''
+  uses: piotrjanik/nebius-actions/actions/delete-endpoint@v0
+  with:
+    endpoint-id: ${{ steps.deploy.outputs.endpoint-id }}
+```
+
+### 🪣 Object Storage
+
+Storage actions accept **common inputs** in addition to those listed: `service-account-id` and `project-id` (both default to what `setup` exported), `expires-in` (default `2h`, the life of the minted S3 key), `endpoint` (default `https://storage.eu-north1.nebius.cloud`), and `region` (default `eu-north1`).
+
+#### `create-bucket`
+
+Create an Object Storage bucket (control plane).
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `name` | ✅ | — | Bucket name |
+| `max-size-bytes` | | — | Optional size cap |
+
+**Outputs:** `bucket-name`, `bucket-id`
+
+```yaml
+- id: bucket
+  uses: piotrjanik/nebius-actions/actions/create-bucket@v0
+  with:
+    name: run-${{ github.run_id }}
+```
+
+#### `upload-object`
+
+Upload a local file to an existing bucket. Mints a short-lived S3 key from the service account on the fly (no stored S3 credentials).
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `source` | ✅ | — | Local file path |
+| `bucket` | ✅ | — | Target bucket name |
+| `key` | ✅ | — | Object key in the bucket |
+
+**Outputs:** `object-uri`, `secret-id`
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/upload-object@v0
+  with:
+    source: ${{ runner.temp }}/config.yaml
+    bucket: ${{ steps.bucket.outputs.bucket-name }}
+    key: config.yaml
+```
+
+#### `download-object`
+
+Download every object under a bucket prefix to a local directory. Fails if the prefix is empty.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `bucket` | ✅ | — | Source bucket name |
+| `prefix` | ✅ | — | Key prefix to download |
+| `dest` | ✅ | — | Local destination directory |
+
+**Outputs:** `files-count`, `dest`
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/download-object@v0
+  with:
+    bucket: ${{ steps.bucket.outputs.bucket-name }}
+    prefix: output/
+    dest: ./artifacts
+```
+
+#### `check-object`
+
+Assert at least one object exists under a prefix (fails otherwise). Handy as a guard before a downstream step.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `bucket` | ✅ | — | Bucket name |
+| `prefix` | ✅ | — | Key prefix to check |
+
+**Outputs:** `object-count`
+
+```yaml
+- uses: piotrjanik/nebius-actions/actions/check-object@v0
+  with:
+    bucket: ${{ steps.bucket.outputs.bucket-name }}
+    prefix: output/adapter_model.safetensors
+```
+
+#### `delete-bucket`
+
+Empty a bucket and delete it. Safe to run in `if: always()` cleanup.
+
+| Input | Req | Default | Description |
+| --- | --- | --- | --- |
+| `bucket` | ✅ | — | Bucket name |
+| `bucket-id` | ✅ | — | Bucket id (from `create-bucket`) |
+
+**Outputs:** `deleted-count`
+
+```yaml
+- if: always() && steps.bucket.outputs.bucket-id != ''
+  uses: piotrjanik/nebius-actions/actions/delete-bucket@v0
+  with:
+    bucket: ${{ steps.bucket.outputs.bucket-name }}
+    bucket-id: ${{ steps.bucket.outputs.bucket-id }}
+```
 
 ---
 
-## Authentication
+## Good to know
 
-Keyless GitHub OIDC → short-lived Nebius IAM token (RFC-8693). No long-lived secret is stored anywhere.
+- **`setup` exports project/SA ids.** When `setup` runs with `project-id`/`service-account-id`, later storage and job steps can omit them (pass on a step only to override).
+- **`env`** is multiline `KEY=VALUE` (one per line; blank lines and `#` comments ignored).
+- **`command` / `mounts`** are multiline lists, one entry per line. A mount is `<bucket-id>:/container/path:rw`.
+- **Presets are platform-specific.** A preset name valid on one platform 400s on another — list them with `nebius compute platform list`.
+- **Two kinds of `timeout`.** For Jobs it's the Job's own run time (a duration like `1h`/`30m`). For `wait-*` actions it's how long to poll, **in seconds** (a plain number like `3600`).
+- **`poll-interval`** is seconds between polls (default `10`), backing off up to ~30s.
 
-1. The job declares `permissions: { id-token: write, contents: read }`.
-2. `auth` obtains GitHub's signed OIDC JWT and runs the `@nebius/js-sdk` federated-credentials exchange over native gRPC — the **service account** is the subject, the **GitHub JWT** the actor.
-3. The returned IAM token is masked and exported as **`NEBIUS_IAM_TOKEN`** (via `$GITHUB_ENV`) for the CLI and downstream steps. Lifetime defaults to ~12h.
+---
 
-**Security notes**
+## Setup (one-time, Nebius side)
 
-- The token lives in `$GITHUB_ENV`, so it's available (masked) to every later step in the same job. Keep it short-lived, scope the SA role to least privilege, and avoid running untrusted actions after `auth`. It is deliberately **not** a step output (outputs can flow into job outputs where masking doesn't reliably carry over).
-- The CLI installs via `curl … | bash` from Nebius's official URL with no checksum pinning — a supply-chain trust assumption. Pin `cli-version` to a known-good release where possible.
+Create a service account and let your repo use it — keyless:
 
-> Some Nebius API details (status enums, a few field/flag names) are still being verified; they're centralized as `// VERIFY:` comments in `src/core/constants.ts` so a fix is a one-line change. Status comparisons are case-insensitive.
+```bash
+# The service account your workflow acts as
+nebius iam service-account create --parent-id "$NEBIUS_PROJECT_ID" --name github-actions-ci
+
+# Trust your repo's GitHub OIDC identity (scope the subject as tightly as you can)
+nebius iam federated-credentials create \
+  --parent-id "$NEBIUS_PROJECT_ID" --name github-actions-oidc \
+  --subject-id "$SA_ID" \
+  --oidc-provider-issuer-url "https://token.actions.githubusercontent.com" \
+  --federated-subject-id "repo:piotrjanik/nebius-actions:ref:refs/heads/main"
+
+# Least-privilege role to manage Jobs/Endpoints/Storage
+nebius iam binding create --parent-id "$NEBIUS_PROJECT_ID" --subject-id "$SA_ID" --role ai.editor
+```
+
+> Verify flag names and the role against your tenancy (`nebius iam --help`) or do the same three steps in the web console. Prefer keyless OIDC; if you use a service-account key instead, store the PEM as a repo secret and pass it to `auth`/`setup` as `private-key`.
 
 ---
 
 ## Examples
 
-Copy-pasteable workflows live under [`examples/`](./examples) — replace `OWNER/REPO` and the image/preset values with your own:
+Copy-pasteable workflows live under [`examples/`](./examples) — swap the image/preset for your own:
 
 - [`train-job.yml`](./examples/train-job.yml) — `setup` + `auth` + `run-job`.
-- [`deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `setup` + `auth` + `deploy-endpoint`, with optional teardown.
+- [`deploy-endpoint.yml`](./examples/deploy-endpoint.yml) — `setup` + `auth` + `deploy-endpoint`, with teardown.
 - [`submit-and-wait.yml`](./examples/submit-and-wait.yml) — low-level `submit-job` → `wait-for-job`, with `cancel-job` on cancellation.
+
+For a full **train-to-serve** pipeline (fine-tune → bake a vLLM image → deploy → smoke test → clean up), see [`.github/workflows/demo-run-job.yml`](./.github/workflows/demo-run-job.yml).
 
 ---
 
