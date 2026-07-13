@@ -11,6 +11,7 @@
  */
 
 import {
+  PROJECT_ID_ENV,
   createSdk,
   deployEndpoint,
   endpointService,
@@ -20,12 +21,16 @@ import {
   getKeyValues,
   getNumber,
   getString,
+  getStringOrEnv,
   isEndpointReady,
   isEndpointTerminalFailure,
   log,
   mask,
+  parseSizeBytes,
   pollUntil,
+  resolveSubnetId,
   setOutput,
+  subnetService,
   type Endpoint,
   type EndpointSpec,
 } from '../core';
@@ -36,7 +41,13 @@ function buildSpecFromInputs(): EndpointSpec {
   const preset = getString('preset');
   const platform = getString('platform');
   const env = getKeyValues('env');
-  const projectId = getString('project-id');
+  const diskSize = getString('disk-size');
+  const diskType = getString('disk-type');
+  const subnetId = getString('subnet-id');
+  const protocol = getString('protocol');
+  // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); needed both as
+  // the endpoint parent and to auto-resolve a subnet.
+  const projectId = getStringOrEnv('project-id', PROJECT_ID_ENV);
   const token = getString('token');
   // Register the bearer token as a secret so the runner redacts it everywhere
   // (it is sent to the API as the endpoint's authToken).
@@ -49,6 +60,10 @@ function buildSpecFromInputs(): EndpointSpec {
   if (getBool('public', { default: false })) spec.public = true;
   if (token) spec.token = token;
   if (Object.keys(env).length > 0) spec.env = env;
+  if (diskSize) spec.diskSizeBytes = parseSizeBytes(diskSize);
+  if (diskType) spec.diskType = diskType;
+  if (subnetId) spec.subnetId = subnetId;
+  if (protocol) spec.protocol = protocol;
   if (projectId) spec.projectId = projectId;
   return spec;
 }
@@ -62,6 +77,11 @@ async function run(): Promise<void> {
   const sdk = createSdk();
   try {
     const service = endpointService(sdk);
+
+    if (!spec.subnetId) {
+      spec.subnetId = await resolveSubnetId(subnetService(sdk), spec.projectId ?? '');
+      log.info(`Using subnet ${spec.subnetId}.`);
+    }
 
     const deployed = await log.group('Deploy endpoint (create)', async () => {
       const ep = await deployEndpoint(service, spec);

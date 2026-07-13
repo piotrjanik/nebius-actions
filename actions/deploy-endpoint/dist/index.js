@@ -64627,6 +64627,7 @@ exports.isEndpointTerminalFailure = isEndpointTerminalFailure;
 // vitest) resolves it via the exports map; TS `moduleResolution: Node` cannot,
 // so tsconfig `paths` maps it to the generated d.ts for typechecking only.
 const index_1 = __nccwpck_require__(6375);
+const disk_1 = __nccwpck_require__(5131);
 const constants_1 = __nccwpck_require__(6214);
 /** Build the SDK `ResourceMetadata` partial from a spec (pure). */
 function buildEndpointMetadata(s) {
@@ -64634,6 +64635,21 @@ function buildEndpointMetadata(s) {
         throw new Error('EndpointSpec.name is required.');
     }
     return { name: s.name, ...(s.projectId ? { parentId: s.projectId } : {}) };
+}
+/** Map the `protocol` input key onto the SDK port-protocol enum. */
+const PORT_PROTOCOLS = {
+    http: index_1.EndpointSpec_Port_Protocol.HTTP,
+    tcp: index_1.EndpointSpec_Port_Protocol.TCP,
+    udp: index_1.EndpointSpec_Port_Protocol.UDP,
+};
+/** Resolve a `protocol` key to the SDK enum, defaulting to HTTP. @throws on unknown. */
+function resolveProtocol(protocol) {
+    const key = (protocol ?? 'http').toLowerCase();
+    const proto = PORT_PROTOCOLS[key];
+    if (proto === undefined) {
+        throw new Error(`buildEndpointSpec: unknown port protocol '${protocol}'.`);
+    }
+    return proto;
 }
 /** Build the SDK `EndpointSpec` partial from a spec (pure). */
 function buildEndpointSpec(s) {
@@ -64649,8 +64665,14 @@ function buildEndpointSpec(s) {
         spec.publicIp = true;
     if (s.token)
         spec.authToken = s.token;
-    if (s.port !== undefined)
-        spec.ports = [{ containerPort: s.port }];
+    if (s.subnetId)
+        spec.subnetId = s.subnetId;
+    if (s.port !== undefined) {
+        spec.ports = [{ containerPort: s.port, protocol: resolveProtocol(s.protocol) }];
+    }
+    if (s.diskSizeBytes !== undefined) {
+        spec.disk = { sizeBytes: s.diskSizeBytes, type: (0, disk_1.resolveDiskType)(s.diskType) };
+    }
     const env = Object.entries(s.env ?? {});
     if (env.length > 0) {
         spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
@@ -65309,10 +65331,10 @@ exports.buildJobSpec = buildJobSpec;
 exports.buildCreateJobRequest = buildCreateJobRequest;
 exports.createJobViaSdk = createJobViaSdk;
 const index_1 = __nccwpck_require__(6375);
-const index_2 = __nccwpck_require__(9420);
-const index_3 = __nccwpck_require__(4314);
-const index_4 = __nccwpck_require__(7101);
+const index_2 = __nccwpck_require__(4314);
+const index_3 = __nccwpck_require__(7101);
 const time_1 = __nccwpck_require__(2334);
+const disk_1 = __nccwpck_require__(5131);
 const constants_1 = __nccwpck_require__(6214);
 /**
  * Resolve a subnet id for the job's project by listing the project's subnets and
@@ -65325,20 +65347,13 @@ async function resolveSubnetId(service, projectId) {
     if (!projectId) {
         throw new Error('resolveSubnetId: a project id is required to look up a subnet — set project-id (or pass subnet-id explicitly).');
     }
-    const res = await service.list(index_3.ListSubnetsRequest.create({ parentId: projectId }));
+    const res = await service.list(index_2.ListSubnetsRequest.create({ parentId: projectId }));
     const id = res.items?.[0]?.metadata?.id;
     if (!id) {
         throw new Error(`resolveSubnetId: no subnets found in project '${projectId}' — pass subnet-id explicitly.`);
     }
     return id;
 }
-/** Map the `disk-type` input key onto the SDK disk-type enum. */
-const DISK_TYPES = {
-    'network-ssd': index_2.DiskSpec_DiskType.NETWORK_SSD,
-    'network-hdd': index_2.DiskSpec_DiskType.NETWORK_HDD,
-    'network-ssd-non-replicated': index_2.DiskSpec_DiskType.NETWORK_SSD_NON_REPLICATED,
-    'network-ssd-io-m3': index_2.DiskSpec_DiskType.NETWORK_SSD_IO_M3,
-};
 /**
  * Parse a `<source>:<containerPath>[:rw|ro]` mount string.
  * Confirmed (SDK 0.2.27): `VolumeMount.source` accepts a bucket name or id
@@ -65389,15 +65404,10 @@ function buildJobSpec(s) {
     }
     const timeoutMs = (0, time_1.parseDurationMs)(s.timeout);
     if (timeoutMs !== undefined) {
-        spec.timeout = index_4.dayjs.duration(timeoutMs);
+        spec.timeout = index_3.dayjs.duration(timeoutMs);
     }
     if (s.diskSizeBytes !== undefined) {
-        const typeKey = (s.diskType ?? 'network-ssd').toLowerCase();
-        const type = DISK_TYPES[typeKey];
-        if (type === undefined) {
-            throw new Error(`buildJobSpec: unknown disk type '${s.diskType}'.`);
-        }
-        spec.disk = { sizeBytes: s.diskSizeBytes, type };
+        spec.disk = { sizeBytes: s.diskSizeBytes, type: (0, disk_1.resolveDiskType)(s.diskType) };
     }
     return spec;
 }
@@ -65720,6 +65730,44 @@ function jobService(sdk) {
  */
 function subnetService(sdk) {
     return new index_2.SubnetService(sdk);
+}
+
+
+/***/ }),
+
+/***/ 5131:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DISK_TYPES = void 0;
+exports.resolveDiskType = resolveDiskType;
+/**
+ * Shared mapping from the `disk-type` input key onto the SDK disk-type enum.
+ * Used by both the jobs and endpoints spec builders so the accepted keys and
+ * the default live in one place. The enum is `nebius.compute.v1.DiskSpec.DiskType`;
+ * both `JobSpec.disk` and `EndpointSpec.disk` reference it.
+ */
+const index_1 = __nccwpck_require__(9420);
+/** Accepted `disk-type` input keys mapped to the SDK enum. */
+exports.DISK_TYPES = {
+    'network-ssd': index_1.DiskSpec_DiskType.NETWORK_SSD,
+    'network-hdd': index_1.DiskSpec_DiskType.NETWORK_HDD,
+    'network-ssd-non-replicated': index_1.DiskSpec_DiskType.NETWORK_SSD_NON_REPLICATED,
+    'network-ssd-io-m3': index_1.DiskSpec_DiskType.NETWORK_SSD_IO_M3,
+};
+/**
+ * Resolve a `disk-type` input key to the SDK enum, defaulting to `network-ssd`.
+ * @throws when the key is non-empty but unrecognized.
+ */
+function resolveDiskType(typeKey) {
+    const key = (typeKey ?? 'network-ssd').toLowerCase();
+    const type = exports.DISK_TYPES[key];
+    if (type === undefined) {
+        throw new Error(`resolveDiskType: unknown disk type '${typeKey}'.`);
+    }
+    return type;
 }
 
 
@@ -160284,7 +160332,13 @@ function buildSpecFromInputs() {
     const preset = (0, core_1.getString)('preset');
     const platform = (0, core_1.getString)('platform');
     const env = (0, core_1.getKeyValues)('env');
-    const projectId = (0, core_1.getString)('project-id');
+    const diskSize = (0, core_1.getString)('disk-size');
+    const diskType = (0, core_1.getString)('disk-type');
+    const subnetId = (0, core_1.getString)('subnet-id');
+    const protocol = (0, core_1.getString)('protocol');
+    // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); needed both as
+    // the endpoint parent and to auto-resolve a subnet.
+    const projectId = (0, core_1.getStringOrEnv)('project-id', core_1.PROJECT_ID_ENV);
     const token = (0, core_1.getString)('token');
     // Register the bearer token as a secret so the runner redacts it everywhere
     // (it is sent to the API as the endpoint's authToken).
@@ -160303,6 +160357,14 @@ function buildSpecFromInputs() {
         spec.token = token;
     if (Object.keys(env).length > 0)
         spec.env = env;
+    if (diskSize)
+        spec.diskSizeBytes = (0, core_1.parseSizeBytes)(diskSize);
+    if (diskType)
+        spec.diskType = diskType;
+    if (subnetId)
+        spec.subnetId = subnetId;
+    if (protocol)
+        spec.protocol = protocol;
     if (projectId)
         spec.projectId = projectId;
     return spec;
@@ -160315,6 +160377,10 @@ async function run() {
     const sdk = (0, core_1.createSdk)();
     try {
         const service = (0, core_1.endpointService)(sdk);
+        if (!spec.subnetId) {
+            spec.subnetId = await (0, core_1.resolveSubnetId)((0, core_1.subnetService)(sdk), spec.projectId ?? '');
+            core_1.log.info(`Using subnet ${spec.subnetId}.`);
+        }
         const deployed = await core_1.log.group('Deploy endpoint (create)', async () => {
             const ep = await (0, core_1.deployEndpoint)(service, spec);
             core_1.log.info(`Applied endpoint ${ep.id || ep.name} (status: ${ep.status}).`);

@@ -33,6 +33,22 @@ inputs:
   platform:
     description: 'Compute platform.'
     required: false
+  disk-size:
+    description: 'Main-disk size for the endpoint (e.g. 100Gi). Required by the API.'
+    required: false
+  disk-type:
+    description: >-
+      Main-disk type: network-ssd (default), network-hdd,
+      network-ssd-non-replicated, or network-ssd-io-m3.
+    required: false
+  subnet-id:
+    description: >-
+      Subnet id to deploy into. When unset, the project's first subnet is
+      resolved automatically (needs project-id).
+    required: false
+  protocol:
+    description: 'Served port protocol: HTTP (default), TCP, or UDP.'
+    required: false
   env:
     description: 'Environment variables as multiline KEY=VALUE pairs.'
     required: false
