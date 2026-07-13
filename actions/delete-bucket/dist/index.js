@@ -96932,15 +96932,17 @@ async function cancelJob(id) {
 }
 /**
  * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
- * `nebius ai job logs --id <id>` prints the logs; the live CLI exposes no
- * `--follow` flag, and run-job calls this only once the job is terminal anyway.
+ * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here (unlike
+ * `get`/`cancel`, which take `--id`), and `--follow` streams in real time until
+ * the job reaches a terminal state. Callers invoke this fire-and-forget
+ * alongside the status poll loop.
  */
 async function streamJobLogs(id) {
     if (!id) {
         throw new Error('streamJobLogs: id is required.');
     }
     await log_1.log.group(`job ${id} logs`, async () => {
-        await (0, exec_1.runCli)([...JOB, 'logs', '--id', id]);
+        await (0, exec_1.runCli)([...JOB, 'logs', id, '--follow']);
     });
 }
 /** True when the status is terminal (case-insensitive). */

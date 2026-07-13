@@ -104,10 +104,10 @@ describe('getJob / cancelJob / streamJobLogs (verb building)', () => {
     expect(job).toMatchObject({ id: 'job-1', status: 'CANCELLED' });
   });
 
-  it('streamJobLogs runs `ai job logs --id <id>` (non-json)', async () => {
+  it('streamJobLogs runs `ai job logs <id> --follow` (non-json)', async () => {
     runCli.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
     await streamJobLogs('job-1');
-    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'logs', '--id', 'job-1']);
+    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'logs', 'job-1', '--follow']);
     // no json option -> raw stream
     expect(runCli.mock.calls[0]![1]).toBeUndefined();
   });

@@ -112,15 +112,17 @@ export async function cancelJob(id: string): Promise<Job> {
 
 /**
  * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
- * `nebius ai job logs --id <id>` prints the logs; the live CLI exposes no
- * `--follow` flag, and run-job calls this only once the job is terminal anyway.
+ * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here (unlike
+ * `get`/`cancel`, which take `--id`), and `--follow` streams in real time until
+ * the job reaches a terminal state. Callers invoke this fire-and-forget
+ * alongside the status poll loop.
  */
 export async function streamJobLogs(id: string): Promise<void> {
   if (!id) {
     throw new Error('streamJobLogs: id is required.');
   }
   await log.group(`job ${id} logs`, async () => {
-    await runCli([...JOB, 'logs', '--id', id]);
+    await runCli([...JOB, 'logs', id, '--follow']);
   });
 }
 
