@@ -1,7 +1,7 @@
 # Demo: train-to-serve — the split Job path running a real LoRA fine-tune with
-# Axolotl on a Nebius GPU; the job ITSELF then bakes the adapters into a vLLM
-# image and pushes it to the Nebius Container Registry, and the workflow
-# deploys that image and smoke-tests it.
+# Axolotl on a Nebius GPU, then deploying a STOCK vLLM image that mounts the
+# resulting adapter straight from the bucket the training job already writes
+# to. No image is built or pushed.
 #
 # Adapted from the Nebius serverless-ai-cookbook:
 #   https://github.com/nebius/serverless-ai-cookbook/tree/main/training/axolotl-finetuning
@@ -9,45 +9,50 @@
 # The pipeline is split across five jobs:
 #
 #   submit  (Submit Training Job) - provisions the bucket, uploads the config
-#                                   and the training script, resolves the
-#                                   registry, and CREATES the Job (returns as
-#                                   soon as it is accepted; does not wait).
+#                                   and the training script, and CREATES the
+#                                   Job (returns as soon as it is accepted;
+#                                   does not wait).
 #   wait    (Wait)                - streams the Job's logs and polls it to a
 #                                   terminal state; fails if the Job did not
 #                                   succeed.
-#   deploy  (Deploy)              - deploys the image the Job pushed to an
-#                                   Endpoint and polls it to serving.
+#   deploy  (Deploy)              - deploys a stock vLLM image with the run
+#                                   bucket mounted read-only at /adapters, and
+#                                   polls the Endpoint to serving.
 #   try     (Try)                 - smoke-tests /health and /v1/completions
 #                                   through the LoRA adapter, and reports.
-#   cleanup (Cleanup)             - tears down the endpoint and the bucket.
+#   cleanup (Cleanup)             - tears down the endpoint, then the bucket
+#                                   (in that order: the endpoint mounts the
+#                                   bucket, so reversing the order would yank
+#                                   storage out from under a live endpoint).
 #
 # Each job runs on a fresh runner, so checkout + `setup` + `auth` are repeated
 # in every job that talks to Nebius: the workspace, the installed CLI and the
 # minted NEBIUS_IAM_TOKEN do not survive a job boundary. State that must cross
-# a boundary (bucket, image ref, job id, endpoint) is published through job
-# `outputs`.
+# a boundary (bucket, job id, endpoint) is published through job `outputs`.
 #
 # Cleanup is its own job with `needs` on all four and `if: always()`, so the
 # paid endpoint and the bucket are torn down even when an upstream job fails or
 # the run is cancelled. Folding teardown into `try` would leak the endpoint
 # whenever `deploy` failed, because `try` would then never run.
 #
-# It QLoRA-fine-tunes Qwen/Qwen2.5-0.5B on a wikitext slice for 30 steps, then
-# bakes + pushes the serving image before exiting.
+# It QLoRA-fine-tunes Qwen/Qwen2.5-0.5B on a wikitext slice for 30 steps.
 #
 # The workflow owns the bucket lifecycle: it CREATES a fresh per-run bucket,
-# uploads the inlined Axolotl config AND the inlined train-and-push.sh to it,
-# and mounts it read-WRITE into the job at /workspace/data (so both files are
-# visible to the job and the adapters persist into the bucket under output/).
+# uploads the inlined Axolotl config AND the inlined train.sh to it, and
+# mounts it read-WRITE into the job at /workspace/data (so both files are
+# visible to the job and the adapter persists into the bucket under output/).
 # The uploads mint a short-lived S3 access key from the service account
 # (secret -> MysteryBox); no new GitHub secret is needed.
 #
-# The job's startup script (train-and-push.sh) does the whole model pipeline
-# INSIDE the GPU container: fine-tune with Axolotl, package the adapters as an
-# image layer, and push vllm/vllm-openai:latest + that layer to the Nebius
-# Container Registry with crane (daemonless — no docker daemon in the job).
-# The registry credential is the short-lived NEBIUS_IAM_TOKEN that `auth`
-# exported, passed to the job as an env var.
+# The job's startup script (train.sh) does the whole fine-tune INSIDE the GPU
+# container: prefetch the dataset and base model, then run Axolotl. It writes
+# the adapter to /workspace/data/output (bucket-backed) and exits — the job
+# never talks to a registry, so it needs no registry credential at all.
+#
+# The deploy job then points a STOCK vLLM image at that same bucket, mounted
+# read-only at /adapters, and overrides the entrypoint (via deploy-endpoint's
+# `command`/`args`) to serve the base model with the adapter loaded from
+# /adapters/output. Nothing is baked or pushed.
 #
 # Auth: service-account key (NOT OIDC). `setup` configures a key-based CLI
 # profile for bucket ops and log streaming (the CLI needs its own
@@ -60,14 +65,8 @@
 #   secrets.NEBIUS_PRIVATE_KEY      - the authorized key's PEM private key
 #   vars.NEBIUS_TENANT_ID           - the tenant (for the CLI profile)
 #   vars.NEBIUS_JOB_IMAGE           - Axolotl image (optional; has a default)
-#   vars.NEBIUS_PROJECT_ID          - parent project (used to resolve/create the registry)
-#   vars.NEBIUS_REGISTRY_ID         - Container Registry id (optional; the workflow
-#                                     resolve-or-creates a registry named
-#                                     "demo-qwen-lora-vllm" when unset)
-#   vars.NEBIUS_REGISTRY            - registry host (optional; defaults to the
-#                                     registry's own regional FQDN, e.g.
-#                                     cr.eu-north1.nebius.cloud)
-#   vars.NEBIUS_VLLM_IMAGE          - vLLM base image (optional; has a default)
+#   vars.NEBIUS_PROJECT_ID          - parent project (bucket, job, endpoint)
+#   vars.NEBIUS_VLLM_IMAGE          - vLLM serving image (optional; has a default)
 name: demo-run-job
 
 on:
@@ -97,9 +96,9 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1) Provision the bucket, stage the inputs, resolve the registry, create the
-  #    Job. submit-job returns as soon as the Job is accepted (status CREATING)
-  #    — it does NOT wait for the Job to start RUNNING or to complete.
+  # 1) Provision the bucket, stage the inputs, create the Job. submit-job
+  #    returns as soon as the Job is accepted (status CREATING) — it does NOT
+  #    wait for the Job to start RUNNING or to complete.
   # ---------------------------------------------------------------------------
   submit:
     name: Submit Training Job
@@ -108,7 +107,6 @@ jobs:
       job-id: ${{ steps.submit.outputs.job-id }}
       bucket-name: ${{ steps.bucket.outputs.bucket-name }}
       bucket-id: ${{ steps.bucket.outputs.bucket-id }}
-      image: ${{ steps.image.outputs.image }}
     steps:
       # Local action refs (./actions/...) only resolve after the repo is checked
       # out into the workspace.
@@ -158,38 +156,15 @@ jobs:
           YAML
 
       # The job's startup script, also inlined here as the single source of
-      # truth. It runs INSIDE the Axolotl GPU container: fine-tune, package the
-      # adapters as an image layer, and push BASE_IMAGE + that layer to the
-      # registry with crane — daemonless, since the job has no docker daemon.
-      - name: Write train-and-push script
+      # truth. It runs INSIDE the Axolotl GPU container: prefetch the dataset
+      # and base model, then fine-tune. The adapter lands in the bucket-backed
+      # output dir; nothing else happens in the job — no image, no push, no
+      # registry credential.
+      - name: Write train script
         run: |
-          cat > "$RUNNER_TEMP/train-and-push.sh" <<'SCRIPT'
+          cat > "$RUNNER_TEMP/train.sh" <<'SCRIPT'
           #!/usr/bin/env bash
           set -euo pipefail
-
-          : "${BASE_IMAGE:?BASE_IMAGE (vLLM base image ref) must be set}"
-          : "${IMAGE:?IMAGE (target image ref) must be set}"
-          : "${REGISTRY:?REGISTRY (target registry host) must be set}"
-          : "${REGISTRY_TOKEN:?REGISTRY_TOKEN (IAM token for the registry) must be set}"
-
-          # Retry wrapper for every network-bound step below. The job container's
-          # embedded DNS (127.0.0.11) intermittently fails to resolve external
-          # hosts ("server misbehaving"), and neither huggingface_hub nor crane
-          # budgets enough retries to ride out the blip on its own — for crane
-          # that would throw away a completed fine-tune on the last step.
-          retry() {
-            local n=1 max=6 delay=10
-            while true; do
-              "$@" && return 0
-              if [ "$n" -ge "$max" ]; then
-                echo "command still failing after $max attempts: $*" >&2
-                return 1
-              fi
-              echo "attempt $n/$max failed; retrying in ${delay}s: $*" >&2
-              n=$((n + 1))
-              sleep "$delay"
-            done
-          }
 
           # Bound every Hugging Face HTTP call. Left to itself, huggingface_hub
           # waits on a stalled fetch while printing nothing, so a DNS blip hangs
@@ -204,9 +179,8 @@ jobs:
           # 1) Prefetch the dataset and the base model into the HF cache, so the
           #    job's Hugging Face egress happens once, up front, and loudly. The
           #    timeouts above do NOT cover a hung getaddrinfo, so `timeout` caps
-          #    the whole fetch as well and `retry` gives the blip time to pass.
-          #    Written to a file rather than piped as a heredoc: `retry` re-runs
-          #    the command, and a heredoc on stdin is already at EOF by then.
+          #    the whole fetch as well. Written to a file rather than piped as a
+          #    heredoc so it can be rerun without stdin already being at EOF.
           cat > /tmp/prefetch.py <<'PY'
           from huggingface_hub import snapshot_download
 
@@ -220,10 +194,12 @@ jobs:
           )
           snapshot_download("Qwen/Qwen2.5-0.5B")
           PY
-          retry timeout "${HF_PREFETCH_TIMEOUT:-300}" python /tmp/prefetch.py
+          timeout "${HF_PREFETCH_TIMEOUT:-300}" python /tmp/prefetch.py
 
-          # 2) Fine-tune against that warm cache. Adapters land in
-          #    /workspace/data/output (bucket-backed). Bounded as well, so a hang
+          # 2) Fine-tune against that warm cache. The adapter lands in
+          #    /workspace/data/output (bucket-backed) — deploy-endpoint mounts
+          #    that same bucket read-only and serves straight from there, so
+          #    nothing further happens in this job. Bounded as well, so a hang
           #    anywhere in training fails the Job in minutes rather than idling
           #    out the full Job timeout with no output.
           if ! timeout "${TRAIN_TIMEOUT:-1800}" axolotl train /workspace/data/config.yaml; then
@@ -234,29 +210,7 @@ jobs:
             exit "$rc"
           fi
 
-          # 3) Package the adapters as a layer rooted at /adapters (drop the
-          #    intermediate checkpoints — the endpoint only needs the final
-          #    adapter_config.json + adapter_model.safetensors).
-          tar --transform 's|^output|adapters|' --exclude='output/checkpoint-*' \
-              -czf /tmp/adapters-layer.tar.gz -C /workspace/data output
-
-          # 4) Install crane (daemonless registry client).
-          curl -fsSL --retry 5 --retry-all-errors https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
-            | tar -xz -C /usr/local/bin crane
-
-          # 5) Append the adapter layer to the vLLM base (crane streams the base
-          #    layers from docker.io into the target registry), then rewrite the
-          #    entrypoint so the endpoint serves the base model with the LoRA
-          #    adapter mounted under the model name "demo". `crane auth login`
-          #    only writes credentials locally, so it needs no retry; the
-          #    network-bound append/mutate calls do.
-          crane auth login "$REGISTRY" -u iam -p "$REGISTRY_TOKEN"
-          retry crane append -b "$BASE_IMAGE" -f /tmp/adapters-layer.tar.gz -t "$IMAGE"
-          retry crane mutate "$IMAGE" -t "$IMAGE" \
-            --entrypoint "vllm,serve,Qwen/Qwen2.5-0.5B" \
-            --cmd "--enable-lora,--lora-modules,demo=/adapters"
-
-          echo "Pushed $IMAGE"
+          echo "Adapter written to /workspace/data/output"
           SCRIPT
 
       # Install the CLI and configure a key-based profile so the CLI can
@@ -302,84 +256,19 @@ jobs:
           key: config.yaml
 
       # The bucket mount doubles as script delivery: this lands at
-      # /workspace/data/train-and-push.sh inside the job.
-      - name: Upload train-and-push script
+      # /workspace/data/train.sh inside the job.
+      - name: Upload train script
         uses: ./actions/upload-object
         with:
-          source: ${{ runner.temp }}/train-and-push.sh
+          source: ${{ runner.temp }}/train.sh
           bucket: ${{ steps.bucket.outputs.bucket-name }}
-          key: train-and-push.sh
+          key: train.sh
 
-      # Resolve the target Container Registry, then compute the image ref once;
-      # the job pushes that ref and the endpoint serves it. If
-      # vars.NEBIUS_REGISTRY_ID is set it is used verbatim; otherwise the
-      # workflow resolve-or-creates a durable registry named
-      # "demo-qwen-lora-vllm" in the project (like it self-provisions the
-      # bucket), so no manual registry setup is needed. `setup` configured the
-      # CLI profile the `nebius` calls below authenticate with.
-      #
-      # The registry HOST is read from the resource's status.registry_fqdn
-      # (e.g. cr.eu-north1.nebius.cloud) rather than a fixed default: the
-      # regional FQDN is what resolves from INSIDE Nebius compute, where the
-      # job pushes and the endpoint pulls. The public "cr.nebius.io" alias does
-      # NOT resolve from a Job's network. vars.NEBIUS_REGISTRY still overrides
-      # for the rare case you need a specific host.
-      - name: Compute image ref
-        id: image
-        env:
-          REGISTRY_OVERRIDE: ${{ vars.NEBIUS_REGISTRY }}
-          REGISTRY_ID: ${{ vars.NEBIUS_REGISTRY_ID }}
-          REGISTRY_NAME: demo-qwen-lora-vllm
-          PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          if [ -z "$REGISTRY_ID" ]; then
-            if [ -z "$PROJECT_ID" ]; then
-              echo "::error::vars.NEBIUS_PROJECT_ID is required to resolve or create the container registry"
-              exit 1
-            fi
-            echo "Resolving container registry '$REGISTRY_NAME' in $PROJECT_ID"
-            REGISTRY_ID="$(nebius registry list --parent-id "$PROJECT_ID" --format json \
-              | jq -r --arg name "$REGISTRY_NAME" '[.items[]? | select(.metadata.name == $name) | .metadata.id] | first // empty')"
-            if [ -z "$REGISTRY_ID" ]; then
-              echo "No registry named '$REGISTRY_NAME' found; creating one"
-              REGISTRY_ID="$(nebius registry create --parent-id "$PROJECT_ID" --name "$REGISTRY_NAME" --format json \
-                | jq -r '.metadata.id // empty')"
-            fi
-          fi
-          if [ -z "$REGISTRY_ID" ]; then
-            echo "::error::failed to resolve or create a container registry"
-            exit 1
-          fi
-          # Host: explicit override wins; otherwise the registry's own regional
-          # FQDN (the only host reachable from inside Nebius compute).
-          REGISTRY="$REGISTRY_OVERRIDE"
-          if [ -z "$REGISTRY" ]; then
-            REGISTRY="$(nebius registry get --id "$REGISTRY_ID" --format json \
-              | jq -r '.status.registry_fqdn // empty')"
-          fi
-          if [ -z "$REGISTRY" ]; then
-            echo "::error::could not determine the registry FQDN for $REGISTRY_ID (set vars.NEBIUS_REGISTRY to override)"
-            exit 1
-          fi
-          # Nebius data-plane image paths identify the registry by its id with
-          # the "registry-" prefix STRIPPED:
-          #   cr.<region>.nebius.cloud/<bare-id>/<repo>:<tag>
-          # Pushing to the full "registry-..." id fails with
-          # "Entity Registry not found by id registry-...".
-          REGISTRY_PATH_ID="${REGISTRY_ID#registry-}"
-          echo "Using registry $REGISTRY (id $REGISTRY_ID, path $REGISTRY_PATH_ID)"
-          {
-            echo "registry=$REGISTRY"
-            echo "registry-id=$REGISTRY_ID"
-            echo "image=$REGISTRY/$REGISTRY_PATH_ID/demo-qwen-lora-vllm:$RUN_ID"
-          } >> "$GITHUB_OUTPUT"
-
-      # Create the Job via the SDK. It runs the uploaded train-and-push.sh:
-      # fine-tune, then bake + push the vLLM image. REGISTRY_TOKEN is the
-      # short-lived IAM token `auth` exported — the job uses it as the crane
-      # push credential.
-      - name: Submit fine-tune + image push
+      # Create the Job via the SDK. It runs the uploaded train.sh: prefetch,
+      # then fine-tune. The Job never talks to a registry, so it gets no
+      # registry credential — a security improvement over baking and pushing
+      # an image from inside the (billed, GPU) job.
+      - name: Submit fine-tune job
         id: submit
         uses: ./actions/submit-job
         with:
@@ -392,11 +281,6 @@ jobs:
           command: bash
           # The Job's own run timeout (passed to the SDK as timeout).
           timeout: 1h
-          env: |
-            BASE_IMAGE=${{ vars.NEBIUS_VLLM_IMAGE || 'docker.io/vllm/vllm-openai:latest' }}
-            IMAGE=${{ steps.image.outputs.image }}
-            REGISTRY=${{ steps.image.outputs.registry }}
-            REGISTRY_TOKEN=${{ env.NEBIUS_IAM_TOKEN }}
           # Mount the bucket by its id. Nebius resolves the job's access to the
           # bucket from the project/service account — no S3 credentials, profile,
           # or MysteryBox secret are needed on the mount. submit-job parses each
@@ -404,7 +288,7 @@ jobs:
           mounts: ${{ steps.bucket.outputs.bucket-id }}:/workspace/data:rw
           disk-size: ${{ inputs.disk-size }}
           preemptible: true
-          args: -c "bash /workspace/data/train-and-push.sh"
+          args: -c "bash /workspace/data/train.sh"
 
   # ---------------------------------------------------------------------------
   # 2) Poll the Job to a terminal state, streaming logs. Fails on
@@ -440,7 +324,7 @@ jobs:
 
       # `timeout` here is a poll ceiling in SECONDS (vs the submit `timeout`,
       # which is the Job's own run timeout).
-      - name: Wait for fine-tune + image push
+      - name: Wait for fine-tune
         id: wait
         uses: ./actions/wait-for-job
         with:
@@ -460,10 +344,11 @@ jobs:
           job-id: ${{ needs.submit.outputs.job-id }}
 
   # ---------------------------------------------------------------------------
-  # 3) The job pushed the vLLM image as its last step, so a successful `wait`
-  #    means the image exists in the registry. Deploy it and poll to serving.
-  #    vLLM listens on 8000 and pulls the 0.5B base model from Hugging Face at
-  #    startup (the LoRA adapter is baked in at /adapters).
+  # 3) A successful `wait` means the adapter is sitting in the run bucket
+  #    under output/. Deploy a STOCK vLLM image with that bucket mounted
+  #    read-only at /adapters and poll to serving. vLLM listens on 8000 and
+  #    pulls the 0.5B base model from Hugging Face at startup; the adapter is
+  #    loaded from the mount rather than being baked into an image.
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy
@@ -500,7 +385,15 @@ jobs:
         uses: ./actions/deploy-endpoint
         with:
           name: demo-axolotl-${{ github.run_id }}
-          image: ${{ needs.submit.outputs.image }}
+          image: ${{ vars.NEBIUS_VLLM_IMAGE || 'docker.io/vllm/vllm-openai:latest' }}
+          # The adapters the training job wrote, mounted read-only straight from
+          # the run bucket. No image is built: the entrypoint is set here instead
+          # of being baked in with crane.
+          mounts: ${{ needs.submit.outputs.bucket-id }}:/adapters:ro
+          command: vllm
+          args: >-
+            serve Qwen/Qwen2.5-0.5B --enable-lora --lora-modules
+            demo=/adapters/output
           port: 8000
           public: true
           preset: ${{ inputs.endpoint-preset }}
@@ -520,8 +413,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # 4) Prove the fine-tuned model actually serves: vLLM /health (with retries
   #    while it downloads and loads the base model) plus one completion through
-  #    the LoRA adapter ("demo" is the --lora-modules name the train-and-push
-  #    script baked into the image entrypoint).
+  #    the LoRA adapter ("demo" is the --lora-modules name the deploy step
+  #    passes to the vLLM entrypoint via `args`).
   # ---------------------------------------------------------------------------
   try:
     name: Try
@@ -544,14 +437,12 @@ jobs:
           JOB_ID: ${{ needs.submit.outputs.job-id }}
           STATUS: ${{ needs.wait.outputs.status }}
           EXIT_CODE: ${{ needs.wait.outputs.exit-code }}
-          IMAGE: ${{ needs.submit.outputs.image }}
           ENDPOINT_ID: ${{ needs.deploy.outputs.endpoint-id }}
           ENDPOINT_URL: ${{ needs.deploy.outputs.url }}
         run: |
           echo "Job ID:       $JOB_ID"
           echo "Status:       $STATUS"
           echo "Exit code:    $EXIT_CODE"
-          echo "Image:        $IMAGE"
           echo "Endpoint ID:  $ENDPOINT_ID"
           echo "Endpoint URL: $ENDPOINT_URL"
 
@@ -559,8 +450,7 @@ jobs:
   # 5) Demo hygiene: tear the endpoint and bucket down even on failure or
   #    cancellation, so a paid endpoint never outlives the run. `needs` every
   #    upstream job and `if: always()` so it runs when they fail or are skipped;
-  #    each step is guarded on the resource actually having been created. (The
-  #    pushed image stays in the registry, tagged with the run id.)
+  #    each step is guarded on the resource actually having been created.
   # ---------------------------------------------------------------------------
   cleanup:
     name: Cleanup
@@ -587,12 +477,17 @@ jobs:
           public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
           private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
 
+      # Endpoint before bucket, deliberately: the endpoint mounts the bucket
+      # (read-only, at /adapters), so deleting the bucket first would yank
+      # storage out from under a still-live endpoint. Keep this step ordered
+      # ahead of "Delete bucket" below.
       - name: Delete endpoint
         if: needs.deploy.outputs.endpoint-id != ''
         uses: ./actions/delete-endpoint
         with:
           endpoint-id: ${{ needs.deploy.outputs.endpoint-id }}
 
+      # Must run after "Delete endpoint" above — see the comment there.
       - name: Delete bucket
         if: needs.submit.outputs.bucket-id != ''
         uses: ./actions/delete-bucket
