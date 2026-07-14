@@ -9,8 +9,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const runCli = vi.fn();
+const streamCli = vi.fn();
 vi.mock('../../src/core/cli/exec', () => ({
   runCli: (...args: unknown[]) => runCli(...args),
+  streamCli: (...args: unknown[]) => streamCli(...args),
 }));
 
 // streamJobLogs runs inside log.group; make it pass-through.
@@ -36,6 +38,7 @@ import {
 
 beforeEach(() => {
   runCli.mockReset();
+  streamCli.mockReset();
 });
 
 describe('mapJobJson', () => {
@@ -104,12 +107,20 @@ describe('getJob / cancelJob / streamJobLogs (verb building)', () => {
     expect(job).toMatchObject({ id: 'job-1', status: 'CANCELLED' });
   });
 
-  it('streamJobLogs runs `ai job logs <id> --follow` (non-json)', async () => {
-    runCli.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
-    await streamJobLogs('job-1');
-    expect(runCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'logs', 'job-1', '--follow']);
-    // no json option -> raw stream
-    expect(runCli.mock.calls[0]![1]).toBeUndefined();
+  it('streamJobLogs streams `ai job logs <id> --follow` and returns a stoppable handle', () => {
+    const stop = vi.fn();
+    streamCli.mockReturnValue({ stop, done: Promise.resolve() });
+
+    const stream = streamJobLogs('job-1');
+
+    // The id is POSITIONAL here, unlike get/cancel which take --id.
+    expect(streamCli.mock.calls[0]![0]).toEqual(['ai', 'job', 'logs', 'job-1', '--follow']);
+    stream.stop();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('streamJobLogs rejects an empty id', () => {
+    expect(() => streamJobLogs('')).toThrow(/id is required/);
   });
 });
 

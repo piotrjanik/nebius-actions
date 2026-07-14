@@ -7,6 +7,7 @@
  */
 
 import * as exec from '@actions/exec';
+import { spawn } from 'node:child_process';
 import { CLI_BINARY_NAME, CLI_FORMAT_FLAG, CLI_FORMAT_JSON } from '../constants';
 
 export interface CliRunOptions {
@@ -89,4 +90,73 @@ export async function runCli<T = unknown>(
   }
 
   return result;
+}
+
+export interface CliStreamOptions {
+  /** Called once per complete stdout/stderr line. */
+  onLine?: (line: string) => void;
+  env?: Record<string, string>;
+}
+
+export interface CliStream {
+  /** Kill the child. Idempotent; safe after it has already exited. */
+  stop(): void;
+  /** Settles when the child exits — on its own, via stop(), or on spawn error. */
+  done: Promise<void>;
+}
+
+/**
+ * Spawn `nebius <args>` for an open-ended stream and return a handle to stop it.
+ *
+ * `getExecOutput` cannot express this: it settles only when the child exits and
+ * never exposes the child. `nebius ai job logs --follow` does NOT exit when the
+ * job reaches a terminal state, so an unstoppable child keeps Node's event loop
+ * alive and hangs the action long after the work is done. Callers MUST stop().
+ */
+export function streamCli(args: string[], opts: CliStreamOptions = {}): CliStream {
+  const onLine = opts.onLine ?? ((): void => {});
+  const child = spawn(CLI_BINARY_NAME, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...(opts.env ? { env: { ...process.env, ...opts.env } as Record<string, string> } : {}),
+  });
+
+  // Chunks split mid-line, so buffer until a newline before emitting.
+  const pump = (stream: NodeJS.ReadableStream | null): void => {
+    if (!stream) {
+      return;
+    }
+    let buf = '';
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk: string) => {
+      buf += chunk;
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        onLine(line);
+      }
+    });
+    stream.on('end', () => {
+      if (buf !== '') {
+        onLine(buf);
+      }
+    });
+  };
+  pump(child.stdout);
+  pump(child.stderr);
+
+  // `error` (e.g. binary missing) must settle `done` too, or callers awaiting it
+  // would hang on exactly the failure they are trying to survive.
+  const done = new Promise<void>((resolve) => {
+    child.once('close', () => resolve());
+    child.once('error', () => resolve());
+  });
+
+  return {
+    stop(): void {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
+      }
+    },
+    done,
+  };
 }
