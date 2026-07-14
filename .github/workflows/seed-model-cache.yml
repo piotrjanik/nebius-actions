@@ -17,8 +17,8 @@ on:
   workflow_dispatch:
     inputs:
       bucket-name:
-        description: 'Durable cache bucket'
-        default: 'demo-model-cache'
+        description: 'Durable cache bucket (defaults to vars.NEBIUS_MODEL_CACHE_BUCKET, then "demo-model-cache")'
+        default: ''
       model:
         description: 'Model repo to cache'
         default: 'Qwen/Qwen2.5-0.5B'
@@ -60,10 +60,15 @@ jobs:
           public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
           private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
 
+      # inputs.bucket-name defaults to '' (a workflow_dispatch input default can't
+      # itself interpolate vars), so the effective name falls back to
+      # vars.NEBIUS_MODEL_CACHE_BUCKET and then the literal default here. This
+      # MUST match how demo-run-job.yml resolves the same bucket, or the two
+      # workflows seed and read different buckets.
       - name: Resolve or create bucket
         id: bucket
         env:
-          NAME: ${{ inputs.bucket-name }}
+          NAME: ${{ inputs.bucket-name || vars.NEBIUS_MODEL_CACHE_BUCKET || 'demo-model-cache' }}
           PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
         run: |
           # get-by-name exits nonzero when the bucket does not exist; that is a

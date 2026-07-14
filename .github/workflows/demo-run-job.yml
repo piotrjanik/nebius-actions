@@ -80,6 +80,11 @@
 #                                     registry's own regional FQDN, e.g.
 #                                     cr.eu-north1.nebius.cloud)
 #   vars.NEBIUS_VLLM_IMAGE          - vLLM base image (optional; has a default)
+#   vars.NEBIUS_MODEL_CACHE_BUCKET  - model cache bucket name (optional; defaults
+#                                     to "demo-model-cache"); the bucket must
+#                                     have been seeded once by the
+#                                     seed-model-cache workflow before this
+#                                     demo runs
 name: demo-run-job
 
 on:
@@ -282,8 +287,13 @@ jobs:
           name: demo-axolotl-${{ github.run_id }}
 
       # The cache bucket is durable and seeded by seed-model-cache.yml. Unlike the
-      # registry, do NOT create it on the fly: an empty cache would fail deep inside
-      # the GPU job instead of here, so a missing cache is a hard, early error.
+      # registry, do NOT create it on the fly: a missing bucket is a hard, early
+      # error here. This only checks that the bucket RESOLVES, not that it is
+      # populated — an empty or partially-seeded cache (seed-model-cache's matrix
+      # runs with fail-fast: false, so a run with some failed legs still leaves a
+      # bucket that exists) sails through this check and only fails later, deep
+      # inside the GPU job. If seed-model-cache went red, re-run it before trusting
+      # this demo run.
       - name: Resolve model cache bucket
         id: cache
         env:
