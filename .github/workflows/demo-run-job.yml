@@ -54,9 +54,10 @@
 # (secret -> MysteryBox); no new GitHub secret is needed.
 #
 # The job's startup script (train-and-push.sh) does the whole model pipeline
-# INSIDE the GPU container: fine-tune with Axolotl, package the adapters as an
-# image layer, and push vllm/vllm-openai:latest + that layer to the Nebius
-# Container Registry with crane (daemonless — no docker daemon in the job).
+# INSIDE the GPU container: fine-tune with Axolotl, package the base weights
+# and adapters into one image layer, and push vllm/vllm-openai:latest + that
+# layer to the Nebius Container Registry with crane (daemonless — no docker
+# daemon in the job).
 # The registry credential is the short-lived NEBIUS_IAM_TOKEN that `auth`
 # exported, passed to the job as an env var.
 #
@@ -473,8 +474,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # 3) The job pushed the vLLM image as its last step, so a successful `wait`
   #    means the image exists in the registry. Deploy it and poll to serving.
-  #    vLLM listens on 8000 and pulls the 0.5B base model from Hugging Face at
-  #    startup (the LoRA adapter is baked in at /adapters).
+  #    vLLM listens on 8000 and serves the self-contained image: the base
+  #    weights are baked in at /model and the LoRA adapter at /adapters, so
+  #    there is no model download at boot.
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy
@@ -530,9 +532,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 4) Prove the fine-tuned model actually serves: vLLM /health (with retries
-  #    while it downloads and loads the base model) plus one completion through
-  #    the LoRA adapter ("demo" is the --lora-modules name the train-and-push
-  #    script baked into the image entrypoint).
+  #    while it loads the base model) plus one completion through the LoRA
+  #    adapter ("demo" is the --lora-modules name the train-and-push script
+  #    baked into the image entrypoint).
   # ---------------------------------------------------------------------------
   try:
     name: Try
