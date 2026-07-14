@@ -27,6 +27,7 @@ import { ListSubnetsRequest } from '@nebius/js-sdk/api/nebius/vpc/v1/index';
 import { dayjs } from '@nebius/js-sdk/runtime/protos/index';
 import { parseDurationMs } from '../time';
 import { resolveDiskType } from '../sdk/disk';
+import { parseMountParts } from '../sdk/mount';
 import { JOB_STATUS } from '../constants';
 import type { Job, JobSpec } from './jobs';
 
@@ -84,16 +85,12 @@ export function parseMount(m: string): {
   containerPath: string;
   mode: JobSpec_VolumeMount_Mode;
 } {
-  const parts = m.split(':');
-  if (parts.length < 2 || !parts[0] || !parts[1]) {
-    throw new Error(`parseMount: malformed mount '${m}' (expected <source>:/path[:rw|ro]).`);
-  }
-  const [source, containerPath, modeRaw] = parts;
-  const mode =
-    (modeRaw ?? 'rw').toLowerCase() === 'ro'
-      ? JobSpec_VolumeMount_Mode.READ_ONLY
-      : JobSpec_VolumeMount_Mode.READ_WRITE;
-  return { source, containerPath, mode };
+  const { source, containerPath, mode } = parseMountParts(m);
+  return {
+    source,
+    containerPath,
+    mode: mode === 'ro' ? JobSpec_VolumeMount_Mode.READ_ONLY : JobSpec_VolumeMount_Mode.READ_WRITE,
+  };
 }
 
 /** Build the SDK `ResourceMetadata` partial (pure). */

@@ -8,7 +8,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EndpointSpec_Port_Protocol } from '@nebius/js-sdk/api/nebius/ai/v1/index';
+import {
+  EndpointSpec_Port_Protocol,
+  EndpointSpec_VolumeMount_Mode,
+} from '@nebius/js-sdk/api/nebius/ai/v1/index';
 import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
 
 import {
@@ -130,6 +133,44 @@ describe('buildEndpointSpec', () => {
   it('sets subnetId when provided', () => {
     const spec = buildEndpointSpec({ name: 'svc', image: 'img', subnetId: 'subnet-1' });
     expect(spec.subnetId).toBe('subnet-1');
+  });
+
+  it('maps mounts onto volumes, ro -> READ_ONLY and default -> READ_WRITE', () => {
+    const spec = buildEndpointSpec({
+      name: 'e',
+      image: 'img',
+      mounts: ['bucket-1:/adapters:ro', 'bucket-2:/scratch'],
+    });
+    expect(spec.volumes).toEqual([
+      {
+        source: 'bucket-1',
+        containerPath: '/adapters',
+        mode: EndpointSpec_VolumeMount_Mode.READ_ONLY,
+      },
+      {
+        source: 'bucket-2',
+        containerPath: '/scratch',
+        mode: EndpointSpec_VolumeMount_Mode.READ_WRITE,
+      },
+    ]);
+  });
+
+  it('maps command and args onto containerCommand/args', () => {
+    const spec = buildEndpointSpec({
+      name: 'e',
+      image: 'img',
+      command: 'vllm',
+      args: 'serve /model --enable-lora',
+    });
+    expect(spec.containerCommand).toBe('vllm');
+    expect(spec.args).toBe('serve /model --enable-lora');
+  });
+
+  it('omits volumes/containerCommand/args entirely when not requested', () => {
+    const spec = buildEndpointSpec({ name: 'e', image: 'img' });
+    expect(spec.volumes).toBeUndefined();
+    expect(spec.containerCommand).toBeUndefined();
+    expect(spec.args).toBeUndefined();
   });
 });
 

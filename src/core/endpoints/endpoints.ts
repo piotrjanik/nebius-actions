@@ -24,11 +24,13 @@ import {
   DeleteEndpointRequest,
   EndpointSpec as SdkEndpointSpec,
   EndpointSpec_Port_Protocol,
+  EndpointSpec_VolumeMount_Mode,
   GetEndpointByNameRequest,
   GetEndpointRequest,
 } from '@nebius/js-sdk/api/nebius/ai/v1/index';
 import { DiskSpec_DiskType } from '@nebius/js-sdk/api/nebius/compute/v1/index';
 import { resolveDiskType } from '../sdk/disk';
+import { parseMountParts } from '../sdk/mount';
 import {
   ENDPOINT_READY_STATUSES,
   ENDPOINT_STATUS,
@@ -58,6 +60,12 @@ export interface EndpointSpec {
   diskType?: string;
   /** Served port protocol key (`http` | `tcp` | `udp`); default `http`. */
   protocol?: string;
+  /** Bucket mounts (`<bucket-id>:/path[:rw|ro]`), one per entry (-> volumes). */
+  mounts?: string[];
+  /** Entrypoint override (-> containerCommand). */
+  command?: string;
+  /** Args string passed to the entrypoint (-> args). */
+  args?: string;
 }
 
 /** Normalized endpoint shape returned to entrypoints. */
@@ -118,6 +126,9 @@ interface EndpointSpecPartial {
   ports?: { containerPort: number; protocol: EndpointSpec_Port_Protocol }[];
   disk?: { sizeBytes: number; type: DiskSpec_DiskType };
   environmentVariables?: { name: string; value: string }[];
+  volumes?: { source: string; containerPath: string; mode: EndpointSpec_VolumeMount_Mode }[];
+  containerCommand?: string;
+  args?: string;
 }
 
 /** Build the SDK `EndpointSpec` partial from a spec (pure). */
@@ -141,6 +152,21 @@ export function buildEndpointSpec(s: EndpointSpec): EndpointSpecPartial {
   if (env.length > 0) {
     spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
   }
+  if (s.mounts?.length) {
+    spec.volumes = s.mounts.map((m) => {
+      const { source, containerPath, mode } = parseMountParts(m);
+      return {
+        source,
+        containerPath,
+        mode:
+          mode === 'ro'
+            ? EndpointSpec_VolumeMount_Mode.READ_ONLY
+            : EndpointSpec_VolumeMount_Mode.READ_WRITE,
+      };
+    });
+  }
+  if (s.command) spec.containerCommand = s.command;
+  if (s.args) spec.args = s.args;
   return spec;
 }
 

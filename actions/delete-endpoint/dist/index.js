@@ -64700,6 +64700,7 @@ exports.isEndpointTerminalFailure = isEndpointTerminalFailure;
 // so tsconfig `paths` maps it to the generated d.ts for typechecking only.
 const index_1 = __nccwpck_require__(6375);
 const disk_1 = __nccwpck_require__(5131);
+const mount_1 = __nccwpck_require__(6965);
 const constants_1 = __nccwpck_require__(6214);
 /** Build the SDK `ResourceMetadata` partial from a spec (pure). */
 function buildEndpointMetadata(s) {
@@ -64749,6 +64750,22 @@ function buildEndpointSpec(s) {
     if (env.length > 0) {
         spec.environmentVariables = env.map(([name, value]) => ({ name, value }));
     }
+    if (s.mounts?.length) {
+        spec.volumes = s.mounts.map((m) => {
+            const { source, containerPath, mode } = (0, mount_1.parseMountParts)(m);
+            return {
+                source,
+                containerPath,
+                mode: mode === 'ro'
+                    ? index_1.EndpointSpec_VolumeMount_Mode.READ_ONLY
+                    : index_1.EndpointSpec_VolumeMount_Mode.READ_WRITE,
+            };
+        });
+    }
+    if (s.command)
+        spec.containerCommand = s.command;
+    if (s.args)
+        spec.args = s.args;
     return spec;
 }
 /** Read the status string from an SDK status (enum `.name`) or a plain object. */
@@ -65409,6 +65426,7 @@ const index_2 = __nccwpck_require__(4314);
 const index_3 = __nccwpck_require__(7101);
 const time_1 = __nccwpck_require__(2334);
 const disk_1 = __nccwpck_require__(5131);
+const mount_1 = __nccwpck_require__(6965);
 const constants_1 = __nccwpck_require__(6214);
 /**
  * Resolve a subnet id for the job's project by listing the project's subnets and
@@ -65434,15 +65452,12 @@ async function resolveSubnetId(service, projectId) {
  * directly, as well as an S3 URI. Defaults to read-write.
  */
 function parseMount(m) {
-    const parts = m.split(':');
-    if (parts.length < 2 || !parts[0] || !parts[1]) {
-        throw new Error(`parseMount: malformed mount '${m}' (expected <source>:/path[:rw|ro]).`);
-    }
-    const [source, containerPath, modeRaw] = parts;
-    const mode = (modeRaw ?? 'rw').toLowerCase() === 'ro'
-        ? index_1.JobSpec_VolumeMount_Mode.READ_ONLY
-        : index_1.JobSpec_VolumeMount_Mode.READ_WRITE;
-    return { source, containerPath, mode };
+    const { source, containerPath, mode } = (0, mount_1.parseMountParts)(m);
+    return {
+        source,
+        containerPath,
+        mode: mode === 'ro' ? index_1.JobSpec_VolumeMount_Mode.READ_ONLY : index_1.JobSpec_VolumeMount_Mode.READ_WRITE,
+    };
 }
 /** Build the SDK `ResourceMetadata` partial (pure). */
 function buildJobMetadata(s) {
@@ -65861,13 +65876,49 @@ function resolveDiskType(typeKey) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.subnetService = exports.jobService = exports.endpointService = exports.createSdk = void 0;
+exports.parseMountParts = exports.DISK_TYPES = exports.resolveDiskType = exports.subnetService = exports.jobService = exports.endpointService = exports.createSdk = void 0;
 /** Public surface of the `sdk` module. */
 var client_1 = __nccwpck_require__(3645);
 Object.defineProperty(exports, "createSdk", ({ enumerable: true, get: function () { return client_1.createSdk; } }));
 Object.defineProperty(exports, "endpointService", ({ enumerable: true, get: function () { return client_1.endpointService; } }));
 Object.defineProperty(exports, "jobService", ({ enumerable: true, get: function () { return client_1.jobService; } }));
 Object.defineProperty(exports, "subnetService", ({ enumerable: true, get: function () { return client_1.subnetService; } }));
+var disk_1 = __nccwpck_require__(5131);
+Object.defineProperty(exports, "resolveDiskType", ({ enumerable: true, get: function () { return disk_1.resolveDiskType; } }));
+Object.defineProperty(exports, "DISK_TYPES", ({ enumerable: true, get: function () { return disk_1.DISK_TYPES; } }));
+var mount_1 = __nccwpck_require__(6965);
+Object.defineProperty(exports, "parseMountParts", ({ enumerable: true, get: function () { return mount_1.parseMountParts; } }));
+
+
+/***/ }),
+
+/***/ 6965:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/**
+ * Mount-string parsing shared by the job and endpoint spec builders.
+ *
+ * Both SDK specs model a bucket mount identically (`source`, `containerPath`,
+ * `mode`) but with their OWN mode enums, so this helper stays domain-agnostic
+ * and returns the mode as a key each caller maps onto its own enum.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseMountParts = parseMountParts;
+/** Parse `<source>:/path[:rw|ro]`. `source` is a bucket id (or an S3 URI). */
+function parseMountParts(m) {
+    const parts = m.split(':');
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+        throw new Error(`parseMountParts: malformed mount '${m}' (expected <source>:/path[:rw|ro]).`);
+    }
+    const [source, containerPath, modeRaw] = parts;
+    return {
+        source: source,
+        containerPath: containerPath,
+        mode: (modeRaw ?? 'rw').toLowerCase() === 'ro' ? 'ro' : 'rw',
+    };
+}
 
 
 /***/ }),

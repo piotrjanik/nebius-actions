@@ -19,6 +19,7 @@ import {
   getBool,
   getEndpoint,
   getKeyValues,
+  getMultiline,
   getNumber,
   getString,
   getStringOrEnv,
@@ -45,6 +46,9 @@ function buildSpecFromInputs(): EndpointSpec {
   const diskType = getString('disk-type');
   const subnetId = getString('subnet-id');
   const protocol = getString('protocol');
+  const mounts = getMultiline('mounts');
+  const command = getString('command');
+  const args = getString('args');
   // Optional: falls back to NEBIUS_PROJECT_ID (exported by setup); needed both as
   // the endpoint parent and to auto-resolve a subnet.
   const projectId = getStringOrEnv('project-id', PROJECT_ID_ENV);
@@ -64,6 +68,9 @@ function buildSpecFromInputs(): EndpointSpec {
   if (diskType) spec.diskType = diskType;
   if (subnetId) spec.subnetId = subnetId;
   if (protocol) spec.protocol = protocol;
+  if (mounts.length > 0) spec.mounts = mounts;
+  if (command) spec.command = command;
+  if (args) spec.args = args;
   if (projectId) spec.projectId = projectId;
   return spec;
 }

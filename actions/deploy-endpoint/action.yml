@@ -52,6 +52,19 @@ inputs:
   env:
     description: 'Environment variables as multiline KEY=VALUE pairs.'
     required: false
+  mounts:
+    description: >-
+      Bucket mounts, one per line, as `<bucket-id>:/container/path[:rw|ro]`
+      (default rw). Mounted by bucket id — no S3 credentials are needed.
+    required: false
+  command:
+    description: 'Entrypoint override for the container (e.g. `vllm`).'
+    required: false
+  args:
+    description: >-
+      Args passed to the entrypoint (e.g. `serve /model --enable-lora`). Lets a
+      stock image be configured at deploy time instead of rebuilt.
+    required: false
   wait:
     description: 'Wait until the endpoint is serving.'
     required: false
