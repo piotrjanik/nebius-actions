@@ -8,6 +8,7 @@ export {
   mapJobJson,
   type JobSpec,
   type Job,
+  type JobLogStream,
 } from './jobs';
 export { buildJobSpecFromInputs } from './inputs';
 export {

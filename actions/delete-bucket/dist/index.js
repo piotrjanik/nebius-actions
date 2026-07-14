@@ -95471,7 +95471,9 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.withJsonFormat = withJsonFormat;
 exports.runCli = runCli;
+exports.streamCli = streamCli;
 const exec = __importStar(__nccwpck_require__(95236));
+const node_child_process_1 = __nccwpck_require__(31421);
 const constants_1 = __nccwpck_require__(26214);
 /**
  * Append `--format json` only when the caller asked for JSON and didn't already
@@ -95527,6 +95529,58 @@ async function runCli(args, opts = {}) {
         }
     }
     return result;
+}
+/**
+ * Spawn `nebius <args>` for an open-ended stream and return a handle to stop it.
+ *
+ * `getExecOutput` cannot express this: it settles only when the child exits and
+ * never exposes the child. `nebius ai job logs --follow` does NOT exit when the
+ * job reaches a terminal state, so an unstoppable child keeps Node's event loop
+ * alive and hangs the action long after the work is done. Callers MUST stop().
+ */
+function streamCli(args, opts = {}) {
+    const onLine = opts.onLine ?? (() => { });
+    const child = (0, node_child_process_1.spawn)(constants_1.CLI_BINARY_NAME, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
+    });
+    // Chunks split mid-line, so buffer until a newline before emitting.
+    const pump = (stream) => {
+        if (!stream) {
+            return;
+        }
+        let buf = '';
+        stream.setEncoding('utf8');
+        stream.on('data', (chunk) => {
+            buf += chunk;
+            const lines = buf.split('\n');
+            buf = lines.pop() ?? '';
+            for (const line of lines) {
+                onLine(line);
+            }
+        });
+        stream.on('end', () => {
+            if (buf !== '') {
+                onLine(buf);
+            }
+        });
+    };
+    pump(child.stdout);
+    pump(child.stderr);
+    // `error` (e.g. binary missing) must settle `done` too, or callers awaiting it
+    // would hang on exactly the failure they are trying to survive.
+    const done = new Promise((resolve) => {
+        child.once('close', () => resolve());
+        child.once('error', () => resolve());
+    });
+    return {
+        stop() {
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill('SIGTERM');
+            }
+        },
+        done,
+    };
 }
 
 
@@ -96931,18 +96985,24 @@ async function cancelJob(id) {
     return getJob(id);
 }
 /**
- * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
+ * Stream a job's logs to the action log; returns a handle to stop it.
+ *
  * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here (unlike
- * `get`/`cancel`, which take `--id`), and `--follow` streams in real time until
- * the job reaches a terminal state. Callers invoke this fire-and-forget
- * alongside the status poll loop.
+ * `get`/`cancel`, which take `--id`).
+ *
+ * `--follow` does NOT stop when the job reaches a terminal state: it keeps
+ * following a COMPLETED or FAILED job indefinitely. The child process keeps
+ * Node's event loop alive, so a caller that never stops the stream hangs until
+ * the runner kills it — which is why this returns a handle rather than a promise
+ * that never settles.
  */
-async function streamJobLogs(id) {
+function streamJobLogs(id) {
     if (!id) {
         throw new Error('streamJobLogs: id is required.');
     }
-    await log_1.log.group(`job ${id} logs`, async () => {
-        await (0, exec_1.runCli)([...JOB, 'logs', id, '--follow']);
+    log_1.log.info(`Streaming logs for job ${id}`);
+    return (0, exec_1.streamCli)([...JOB, 'logs', id, '--follow'], {
+        onLine: (line) => log_1.log.info(line),
     });
 }
 /** True when the status is terminal (case-insensitive). */

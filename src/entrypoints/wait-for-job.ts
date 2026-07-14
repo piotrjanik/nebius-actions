@@ -29,19 +29,25 @@ async function run(): Promise<void> {
 
   await ensureCli({ version: 'latest' });
 
-  if (streamLogs) {
-    streamJobLogs(jobId).catch((err) => {
-      log.warn(`Log streaming stopped: ${err instanceof Error ? err.message : String(err)}`);
-    });
-  }
+  // `--follow` never exits on its own (see streamJobLogs), so the stream must be
+  // stopped once polling is done — otherwise its child keeps the process alive
+  // and the step hangs long after the job is terminal, on success and failure
+  // alike (core.setFailed sets an exit code; it does not terminate the process).
+  const logs = streamLogs ? streamJobLogs(jobId) : undefined;
 
-  const { value: finalJob, timedOut } = await pollUntil<Job>({
-    fn: () => getJob(jobId),
-    isTerminal: (j) => isJobTerminal(j.status),
-    timeoutMs: Math.max(0, timeoutSec) * 1000,
-    intervalMs: Math.max(0, pollIntervalSec) * 1000,
-    onTick: (j) => log.info(`job ${j.id}: ${j.status}`),
-  });
+  let finalJob: Job;
+  let timedOut: boolean;
+  try {
+    ({ value: finalJob, timedOut } = await pollUntil<Job>({
+      fn: () => getJob(jobId),
+      isTerminal: (j) => isJobTerminal(j.status),
+      timeoutMs: Math.max(0, timeoutSec) * 1000,
+      intervalMs: Math.max(0, pollIntervalSec) * 1000,
+      onTick: (j) => log.info(`job ${j.id}: ${j.status}`),
+    }));
+  } finally {
+    logs?.stop();
+  }
 
   setOutput('status', finalJob.status);
   if (finalJob.exitCode !== undefined) {

@@ -6,7 +6,7 @@
  * constants VERIFY notes). Job creation goes through the SDK (see jobs-sdk.ts).
  */
 
-import { runCli } from '../cli/exec';
+import { runCli, streamCli, type CliStream } from '../cli/exec';
 import { log } from '../io/log';
 import { readPath, firstString } from '../json';
 import {
@@ -110,19 +110,28 @@ export async function cancelJob(id: string): Promise<Job> {
   return getJob(id);
 }
 
+/** A running log stream. `stop()` MUST be called once the caller is done. */
+export type JobLogStream = CliStream;
+
 /**
- * Stream a job's logs to the action log. Inherits stdout (no JSON parsing).
+ * Stream a job's logs to the action log; returns a handle to stop it.
+ *
  * Runs `nebius ai job logs <id> --follow` — the id is POSITIONAL here (unlike
- * `get`/`cancel`, which take `--id`), and `--follow` streams in real time until
- * the job reaches a terminal state. Callers invoke this fire-and-forget
- * alongside the status poll loop.
+ * `get`/`cancel`, which take `--id`).
+ *
+ * `--follow` does NOT stop when the job reaches a terminal state: it keeps
+ * following a COMPLETED or FAILED job indefinitely. The child process keeps
+ * Node's event loop alive, so a caller that never stops the stream hangs until
+ * the runner kills it — which is why this returns a handle rather than a promise
+ * that never settles.
  */
-export async function streamJobLogs(id: string): Promise<void> {
+export function streamJobLogs(id: string): JobLogStream {
   if (!id) {
     throw new Error('streamJobLogs: id is required.');
   }
-  await log.group(`job ${id} logs`, async () => {
-    await runCli([...JOB, 'logs', id, '--follow']);
+  log.info(`Streaming logs for job ${id}`);
+  return streamCli([...JOB, 'logs', id, '--follow'], {
+    onLine: (line) => log.info(line),
   });
 }
 
