@@ -7,14 +7,46 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 const getExecOutput = vi.fn();
 vi.mock('@actions/exec', () => ({
   getExecOutput: (...args: unknown[]) => getExecOutput(...args),
 }));
 
-import { runCli, withJsonFormat } from '../../src/core/cli/exec';
+const spawnMock = vi.fn();
+vi.mock('node:child_process', () => ({
+  spawn: (...args: unknown[]) => spawnMock(...args),
+}));
+
+import { runCli, withJsonFormat, streamCli } from '../../src/core/cli/exec';
 import { CLI_BINARY_NAME } from '../../src/core/constants';
+
+/** Minimal ChildProcess double: two line-emitting streams plus kill/close. */
+function fakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter & { setEncoding(e: string): void };
+    stderr: EventEmitter & { setEncoding(e: string): void };
+    exitCode: number | null;
+    signalCode: string | null;
+    kill: (sig?: string) => boolean;
+  };
+  const mkStream = () => {
+    const s = new EventEmitter() as EventEmitter & { setEncoding(e: string): void };
+    s.setEncoding = () => {};
+    return s;
+  };
+  child.stdout = mkStream();
+  child.stderr = mkStream();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.kill = vi.fn(() => {
+    child.exitCode = 0;
+    child.emit('close', 0);
+    return true;
+  }) as unknown as (sig?: string) => boolean;
+  return child;
+}
 
 /** Build an ExecOutput-shaped result. */
 function execOut(exitCode: number, stdout = '', stderr = '') {
@@ -129,5 +161,47 @@ describe('runCli', () => {
     await runCli(['version'], { silent: true });
     const opts = getExecOutput.mock.calls[0]![2] as { silent?: boolean };
     expect(opts.silent).toBe(true);
+  });
+});
+
+describe('streamCli', () => {
+  beforeEach(() => spawnMock.mockReset());
+
+  it('spawns the CLI and emits one callback per complete line', () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValue(child);
+    const lines: string[] = [];
+
+    streamCli(['ai', 'job', 'logs', 'job-1', '--follow'], { onLine: (l) => lines.push(l) });
+
+    expect(spawnMock.mock.calls[0]![0]).toBe('nebius');
+    expect(spawnMock.mock.calls[0]![1]).toEqual(['ai', 'job', 'logs', 'job-1', '--follow']);
+
+    // A chunk split mid-line must not emit a partial line.
+    child.stdout.emit('data', 'first\nsec');
+    expect(lines).toEqual(['first']);
+    child.stdout.emit('data', 'ond\n');
+    expect(lines).toEqual(['first', 'second']);
+  });
+
+  it('stop() kills the child and settles done', async () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const stream = streamCli(['ai', 'job', 'logs', 'job-1', '--follow']);
+    stream.stop();
+
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    await expect(stream.done).resolves.toBeUndefined();
+  });
+
+  it('done resolves if the child dies on its own (spawn error must not hang)', async () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const stream = streamCli(['ai', 'job', 'logs', 'job-1', '--follow']);
+    child.emit('error', new Error('nebius: not found'));
+
+    await expect(stream.done).resolves.toBeUndefined();
   });
 });
