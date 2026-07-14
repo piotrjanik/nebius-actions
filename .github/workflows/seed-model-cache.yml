@@ -1,0 +1,168 @@
+# One-time seeding of the durable model cache the demo trains from.
+#
+# demo-run-job must not touch Hugging Face at run time: on 2026-07-13 HF returned
+# 403 on every LFS blob for ~40 minutes, and the job hung for its full 1h timeout
+# inside load_dataset. This workflow pulls the base model and the corpus ONCE into
+# a durable bucket; every demo run then mounts that bucket read-only.
+#
+# Run it once (workflow_dispatch). Re-run it to refresh the cache — each upload is
+# idempotent (same key, same content).
+#
+# `source: modelscope` exists because ModelScope mirrors the Qwen weights and kept
+# serving them while HF was down. It does NOT carry wikitext, so a modelscope run
+# still fetches the corpus from HF.
+name: seed-model-cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket-name:
+        description: 'Durable cache bucket'
+        default: 'demo-model-cache'
+      model:
+        description: 'Model repo to cache'
+        default: 'Qwen/Qwen2.5-0.5B'
+      source:
+        description: 'Where to fetch the weights from'
+        default: 'huggingface'
+        type: choice
+        options: [huggingface, modelscope]
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolve-or-create the cache bucket, mirroring how demo-run-job resolves the
+  # container registry: the workflow self-provisions, so there is no manual setup.
+  bucket:
+    name: Resolve cache bucket
+    runs-on: ubuntu-latest
+    outputs:
+      bucket-name: ${{ steps.bucket.outputs.bucket-name }}
+      bucket-id: ${{ steps.bucket.outputs.bucket-id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: ./actions/setup
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
+
+      - name: Authenticate (SDK token)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+
+      - name: Resolve or create bucket
+        id: bucket
+        env:
+          NAME: ${{ inputs.bucket-name }}
+          PROJECT_ID: ${{ vars.NEBIUS_PROJECT_ID }}
+        run: |
+          # get-by-name exits nonzero when the bucket does not exist; that is a
+          # normal "not found", not a failure, so do not let `set -e` kill the step.
+          if ! OUT="$(nebius storage bucket get-by-name --parent-id "$PROJECT_ID" --name "$NAME" --format json 2>/dev/null)"; then
+            OUT=""
+          fi
+          BUCKET_ID="$(printf '%s' "$OUT" | jq -r '.metadata.id // empty')"
+          if [ -z "$BUCKET_ID" ]; then
+            echo "No bucket named '$NAME'; creating it"
+            BUCKET_ID="$(nebius storage bucket create --parent-id "$PROJECT_ID" --name "$NAME" --format json \
+              | jq -r '.metadata.id // empty')"
+          fi
+          if [ -z "$BUCKET_ID" ]; then
+            echo "::error::failed to resolve or create bucket '$NAME'"
+            exit 1
+          fi
+          echo "Cache bucket $NAME ($BUCKET_ID)"
+          {
+            echo "bucket-name=$NAME"
+            echo "bucket-id=$BUCKET_ID"
+          } >> "$GITHUB_OUTPUT"
+
+  # upload-object takes exactly one local file per call, so fan the 8 files out
+  # across a matrix: each leg downloads only its own file and uploads it. That
+  # keeps the action's contract, uploads in parallel, and avoids eight
+  # near-identical hardcoded steps.
+  seed:
+    name: Seed ${{ matrix.key }}
+    runs-on: ubuntu-latest
+    needs: bucket
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { file: config.json, key: model/config.json, repo: model }
+          - { file: generation_config.json, key: model/generation_config.json, repo: model }
+          - { file: merges.txt, key: model/merges.txt, repo: model }
+          - { file: model.safetensors, key: model/model.safetensors, repo: model }
+          - { file: tokenizer.json, key: model/tokenizer.json, repo: model }
+          - { file: tokenizer_config.json, key: model/tokenizer_config.json, repo: model }
+          - { file: vocab.json, key: model/vocab.json, repo: model }
+          - {
+              file: wikitext-2-raw-v1/train-00000-of-00001.parquet,
+              key: data/wikitext-2-raw-v1/train-00000-of-00001.parquet,
+              repo: dataset,
+            }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nebius
+        uses: ./actions/setup
+        with:
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+          project-id: ${{ vars.NEBIUS_PROJECT_ID }}
+          tenant-id: ${{ vars.NEBIUS_TENANT_ID }}
+
+      - name: Authenticate (SDK token)
+        uses: ./actions/auth
+        with:
+          auth-method: key
+          service-account-id: ${{ vars.NEBIUS_SERVICE_ACCOUNT_ID }}
+          public-key-id: ${{ vars.NEBIUS_PUBLIC_KEY_ID }}
+          private-key: ${{ secrets.NEBIUS_PRIVATE_KEY }}
+
+      # Values come in through env (not ${{ }} inlined into the script body) so
+      # they expand in the shell — the injection-safe pattern.
+      - name: Download ${{ matrix.file }}
+        env:
+          FILE: ${{ matrix.file }}
+          REPO_KIND: ${{ matrix.repo }}
+          MODEL: ${{ inputs.model }}
+          SOURCE: ${{ inputs.source }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/seed"
+          OUT="$RUNNER_TEMP/seed/$(basename "$FILE")"
+          if [ "$REPO_KIND" = "dataset" ]; then
+            # wikitext lives only on HF; ModelScope does not mirror it.
+            URL="https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/$FILE"
+          elif [ "$SOURCE" = "modelscope" ]; then
+            URL="https://modelscope.cn/api/v1/models/$MODEL/repo?Revision=master&FilePath=$FILE"
+          else
+            URL="https://huggingface.co/$MODEL/resolve/main/$FILE"
+          fi
+          echo "Fetching $URL"
+          curl -fsSL --retry 5 --retry-all-errors -o "$OUT" "$URL"
+          # A 403/404 body saved as the file would poison the cache; fail loudly.
+          if [ ! -s "$OUT" ]; then
+            echo "::error::downloaded $FILE is empty"
+            exit 1
+          fi
+          ls -l "$OUT"
+          echo "SEED_FILE=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload to cache bucket
+        uses: ./actions/upload-object
+        with:
+          source: ${{ env.SEED_FILE }}
+          bucket: ${{ needs.bucket.outputs.bucket-name }}
+          key: ${{ matrix.key }}
