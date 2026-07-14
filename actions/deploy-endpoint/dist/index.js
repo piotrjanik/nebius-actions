@@ -64147,15 +64147,33 @@ function streamCli(args, opts = {}) {
     pump(child.stderr);
     // `error` (e.g. binary missing) must settle `done` too, or callers awaiting it
     // would hang on exactly the failure they are trying to survive.
+    let killTimer;
     const done = new Promise((resolve) => {
-        child.once('close', () => resolve());
+        child.once('close', () => {
+            if (killTimer) {
+                clearTimeout(killTimer);
+            }
+            resolve();
+        });
         child.once('error', () => resolve());
     });
     return {
         stop() {
-            if (child.exitCode === null && child.signalCode === null) {
-                child.kill('SIGTERM');
+            if (child.exitCode !== null || child.signalCode !== null) {
+                return;
             }
+            child.kill('SIGTERM');
+            // Escalation, not a courtesy: if the CLI ever ignores SIGTERM, the piped
+            // stdio would keep Node's event loop alive and reintroduce the exact hang
+            // this wrapper exists to prevent. unref() so the timer itself cannot hold
+            // the loop open while it waits; the `close` handler above clears it once
+            // the child actually exits.
+            killTimer = setTimeout(() => {
+                if (child.exitCode === null && child.signalCode === null) {
+                    child.kill('SIGKILL');
+                }
+            }, 5000);
+            killTimer.unref();
         },
         done,
     };

@@ -146,16 +146,34 @@ export function streamCli(args: string[], opts: CliStreamOptions = {}): CliStrea
 
   // `error` (e.g. binary missing) must settle `done` too, or callers awaiting it
   // would hang on exactly the failure they are trying to survive.
+  let killTimer: NodeJS.Timeout | undefined;
   const done = new Promise<void>((resolve) => {
-    child.once('close', () => resolve());
+    child.once('close', () => {
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+      resolve();
+    });
     child.once('error', () => resolve());
   });
 
   return {
     stop(): void {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGTERM');
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return;
       }
+      child.kill('SIGTERM');
+      // Escalation, not a courtesy: if the CLI ever ignores SIGTERM, the piped
+      // stdio would keep Node's event loop alive and reintroduce the exact hang
+      // this wrapper exists to prevent. unref() so the timer itself cannot hold
+      // the loop open while it waits; the `close` handler above clears it once
+      // the child actually exits.
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+        }
+      }, 5000);
+      killTimer.unref();
     },
     done,
   };

@@ -22,8 +22,16 @@ vi.mock('node:child_process', () => ({
 import { runCli, withJsonFormat, streamCli } from '../../src/core/cli/exec';
 import { CLI_BINARY_NAME } from '../../src/core/constants';
 
-/** Minimal ChildProcess double: two line-emitting streams plus kill/close. */
-function fakeChild() {
+/**
+ * Minimal ChildProcess double: two line-emitting streams plus kill/close.
+ *
+ * By default `kill()` immediately settles the child (exitCode + `close`), as a
+ * real process would for a signal it doesn't ignore. Pass `ignoreSignals` to
+ * simulate a child that swallows specific signals (e.g. SIGTERM) without
+ * exiting, so callers can assert escalation to a stronger signal.
+ */
+function fakeChild(opts: { ignoreSignals?: string[] } = {}) {
+  const ignoreSignals = opts.ignoreSignals ?? [];
   const child = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter & { setEncoding(e: string): void };
     stderr: EventEmitter & { setEncoding(e: string): void };
@@ -40,7 +48,10 @@ function fakeChild() {
   child.stderr = mkStream();
   child.exitCode = null;
   child.signalCode = null;
-  child.kill = vi.fn(() => {
+  child.kill = vi.fn((sig?: string) => {
+    if (sig && ignoreSignals.includes(sig)) {
+      return true;
+    }
     child.exitCode = 0;
     child.emit('close', 0);
     return true;
@@ -193,6 +204,50 @@ describe('streamCli', () => {
 
     expect(child.kill).toHaveBeenCalledTimes(1);
     await expect(stream.done).resolves.toBeUndefined();
+  });
+
+  it('escalates to SIGKILL if the child ignores SIGTERM', () => {
+    vi.useFakeTimers();
+    try {
+      const child = fakeChild({ ignoreSignals: ['SIGTERM'] });
+      spawnMock.mockReturnValue(child);
+
+      const stream = streamCli(['ai', 'job', 'logs', 'job-1', '--follow']);
+      stream.stop();
+
+      // SIGTERM was sent but ignored: the child is still "alive".
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(child.exitCode).toBeNull();
+
+      vi.advanceTimersByTime(5000);
+
+      // The escalation timer fires SIGKILL, which (unlike SIGTERM here) settles
+      // the child and resolves `done`.
+      expect(child.kill).toHaveBeenCalledTimes(2);
+      expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
+      expect(child.exitCode).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not send SIGKILL if the child exits before the escalation timer fires', () => {
+    vi.useFakeTimers();
+    try {
+      const child = fakeChild(); // responds to SIGTERM normally
+      spawnMock.mockReturnValue(child);
+
+      const stream = streamCli(['ai', 'job', 'logs', 'job-1', '--follow']);
+      stream.stop();
+
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(5000);
+      // The `close` handler cleared the timer, so no second (SIGKILL) call.
+      expect(child.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('done resolves if the child dies on its own (spawn error must not hang)', async () => {
