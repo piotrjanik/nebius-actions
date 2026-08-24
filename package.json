@@ -26,7 +26,7 @@
     "@actions/http-client": "^3.0.2",
     "@actions/tool-cache": "^3.0.1",
     "@aws-sdk/client-s3": "^3.1076.0",
-    "@nebius/js-sdk": "^0.2.27"
+    "@nebius/js-sdk": "^0.2.50"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
